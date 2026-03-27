@@ -6,8 +6,11 @@ use crate::{
         AggregateReadOutcome, AggregateReadRequest, AggregateReadResult, DispatchOutcome, OperationOutcome,
         OperationRequest,
     },
-    traits::{Adapter, AuditSink, AuthStore, NamespaceStore, PolicyEngine},
-    types::{AuditEvent, AuditOutcome, ExecutionTarget, PlannedAction, ProviderKind, ResolvedNamespace, ToolKind},
+    traits::{Adapter, AuditSink, AuthStore, NamespaceStore, PolicyEngine, SecretResolver, SecretStore},
+    types::{
+        AuditEvent, AuditOutcome, AuthSecretRefs, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind,
+        ResolvedCredentials, ResolvedNamespace, ToolKind,
+    },
 };
 
 #[derive(Default)]
@@ -28,6 +31,8 @@ impl AdapterRegistry {
 pub struct Switchboard {
     namespaces: Arc<dyn NamespaceStore>,
     auth: Arc<dyn AuthStore>,
+    secrets: Arc<dyn SecretStore>,
+    secret_resolver: Arc<dyn SecretResolver>,
     policy: Arc<dyn PolicyEngine>,
     audit: Arc<dyn AuditSink>,
     adapters: AdapterRegistry,
@@ -37,6 +42,8 @@ impl Switchboard {
     pub fn new(
         namespaces: Arc<dyn NamespaceStore>,
         auth: Arc<dyn AuthStore>,
+        secrets: Arc<dyn SecretStore>,
+        secret_resolver: Arc<dyn SecretResolver>,
         policy: Arc<dyn PolicyEngine>,
         audit: Arc<dyn AuditSink>,
         adapters: AdapterRegistry,
@@ -44,6 +51,8 @@ impl Switchboard {
         Self {
             namespaces,
             auth,
+            secrets,
+            secret_resolver,
             policy,
             audit,
             adapters,
@@ -93,7 +102,7 @@ impl Switchboard {
                 namespace_provider: namespace.provider,
             });
         }
-        let target = ExecutionTarget {
+        let target = PlanningTarget {
             namespace: namespace.clone(),
             auth,
         };
@@ -157,7 +166,7 @@ impl Switchboard {
     fn finish_read(
         &self,
         adapter: &dyn Adapter,
-        target: &ExecutionTarget,
+        target: &PlanningTarget,
         plan: PlannedAction,
     ) -> Result<DispatchOutcome> {
         match plan.mode {
@@ -167,7 +176,8 @@ impl Switchboard {
                 Ok(DispatchOutcome::Planned(plan))
             }
             crate::ExecutionMode::Auto | crate::ExecutionMode::Apply => {
-                let output = adapter.execute(target, &plan)?;
+                let target = self.resolve_execution_target(target)?;
+                let output = adapter.execute(&target, &plan)?;
                 self.audit
                     .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
                 Ok(DispatchOutcome::Executed(output))
@@ -178,13 +188,14 @@ impl Switchboard {
     fn finish_write(
         &self,
         adapter: &dyn Adapter,
-        target: &ExecutionTarget,
+        target: &PlanningTarget,
         plan: PlannedAction,
     ) -> Result<DispatchOutcome> {
         let should_apply = matches!(plan.mode, crate::ExecutionMode::Apply) && !plan.approval_required;
 
         if should_apply {
-            let output = adapter.execute(target, &plan)?;
+            let target = self.resolve_execution_target(target)?;
+            let output = adapter.execute(&target, &plan)?;
             self.audit
                 .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
             return Ok(DispatchOutcome::Executed(output));
@@ -193,5 +204,44 @@ impl Switchboard {
         self.audit
             .record(&AuditEvent::from_plan(&plan, AuditOutcome::Planned))?;
         Ok(DispatchOutcome::Planned(plan))
+    }
+
+    fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {
+        let credentials = match &target.auth.secrets {
+            AuthSecretRefs::None => ResolvedCredentials::GitHubCli,
+            AuthSecretRefs::GitHubToken { token } => ResolvedCredentials::GitHubToken {
+                token: self.resolve_secret(token)?,
+            },
+            AuthSecretRefs::GoogleOAuth {
+                client_id,
+                client_secret,
+                refresh_token,
+            } => ResolvedCredentials::GoogleOAuth {
+                client_id: self.resolve_secret(client_id)?,
+                client_secret: self.resolve_secret(client_secret)?,
+                refresh_token: match refresh_token {
+                    Some(refresh_token) => Some(self.resolve_secret(refresh_token)?),
+                    None => None,
+                },
+            },
+            AuthSecretRefs::GoogleOAuthFile { credentials } => ResolvedCredentials::GoogleOAuthFile {
+                credentials: self.resolve_secret(credentials)?,
+            },
+        };
+
+        Ok(ExecutionTarget {
+            namespace: target.namespace.clone(),
+            auth: target.auth.clone(),
+            credentials,
+        })
+    }
+
+    fn resolve_secret(&self, secret_ref: &crate::SecretRef) -> Result<crate::SecretString> {
+        let secret = self
+            .secrets
+            .get(secret_ref)
+            .ok_or_else(|| Error::MissingSecret(secret_ref.to_string()))?;
+
+        self.secret_resolver.resolve(&secret)
     }
 }

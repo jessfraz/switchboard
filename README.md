@@ -199,20 +199,49 @@ Examples:
 Example config:
 
 ```toml
+[secret.github_personal_token]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "GitHub Personal Access Token"
+field = "token"
+
+[secret.google_workspace_cli_client_id]
+kind = "env"
+name = "GOOGLE_WORKSPACE_CLI_CLIENT_ID"
+
+[secret.google_workspace_cli_client_secret]
+kind = "env"
+name = "GOOGLE_WORKSPACE_CLI_CLIENT_SECRET"
+
+[secret.google_personal_oauth]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "gws cli"
+field = "json"
+
 [auth.github_personal]
 provider = "github"
 kind = "gh_cli"
 account = "jessfraz"
 
+[auth.github_personal_token]
+provider = "github"
+kind = "github_token"
+account = "jessfraz"
+token = "github_personal_token"
+
 [auth.google_work]
 provider = "google"
 kind = "google_oauth"
 account = "jess@company.com"
+client_id = "google_workspace_cli_client_id"
+client_secret = "google_workspace_cli_client_secret"
 
 [auth.google_personal]
 provider = "google"
-kind = "google_oauth"
+kind = "google_oauth_file"
 account = "jess@example.com"
+credentials = "google_personal_oauth"
 
 [namespace.github.personal]
 provider = "github"
@@ -225,12 +254,29 @@ provider = "google"
 account = "jess@company.com"
 auth = "google_work"
 default_read = true
+state_dir = "/Users/jessfraz/.config/gws-work"
 
 [namespace.google.personal]
 provider = "google"
 account = "jess@example.com"
 auth = "google_personal"
 default_read = false
+state_dir = "/Users/jessfraz/.config/gws-personal"
+```
+
+```text
+google.work
+  |
+  +--> auth.google_work
+  |      |
+  |      +--> secret.google_workspace_cli_client_id
+  |      |      -> env GOOGLE_WORKSPACE_CLI_CLIENT_ID
+  |      |
+  |      +--> secret.google_workspace_cli_client_secret
+  |             -> env GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+  |
+  +--> state_dir /Users/jessfraz/.config/gws-work
+         -> provider maps this to its CLI cache/config dir
 ```
 
 `switchboard` looks for config in this order:
@@ -242,7 +288,13 @@ default_read = false
 1. `$HOME/.config/switchboard/config.toml`
 
 Namespace `auth` values are references to concrete credential entries.
-That means `google.work` and `google.personal` can both use Google OAuth without pretending they are the same identity.
+Namespace `state_dir` is where a CLI-backed adapter can keep per-account state without one login stomping another.
+For the Google Workspace CLI specifically, that becomes `GOOGLE_WORKSPACE_CLI_CONFIG_DIR`.
+
+That means `google.work` and `google.personal` can both use Google auth without pretending they are the same identity or sharing the same CLI cache.
+
+`google_oauth` accepts `client_id`, `client_secret`, and optionally `refresh_token`.
+`google_oauth_file` is for cases where a backend wants a full credential blob, for example a 1Password `json` field that later gets materialized into a temp file for a CLI.
 
 The model should never infer hidden authority.
 If it wants to write, it should say where.
@@ -263,8 +315,8 @@ switchboard google.mail.search --ns google.work --query 'from:billing newer_than
 
 That command should survive backend changes like:
 
-- Google API today
-- Google Workspace CLI tomorrow
+- Google Workspace CLI today
+- direct Google API later
 - some better official tool later
 
 Same story for GitHub.
@@ -310,7 +362,7 @@ All write tools should support `--plan`, `--draft`, or both.
 Every action follows the same shape:
 
 1. resolve namespace
-1. load auth context
+1. load auth and runtime context
 1. validate policy
 1. plan the action
 1. preview or draft if needed
@@ -408,7 +460,7 @@ Example draft result:
   "tool": "google.calendar.create",
   "namespace": "google.personal",
   "summary": "Draft calendar event \"Dinner with Sam\" starting at 2026-03-30T19:00:00-07:00",
-  "backend": "api",
+  "backend": "cli",
   "approval_required": true,
   "approval_reason": "google.calendar.create stays draft-first until approval UX is wired"
 }

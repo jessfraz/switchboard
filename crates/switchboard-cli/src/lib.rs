@@ -11,11 +11,11 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
-    NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, Switchboard, ToolName, ToolOutput,
-    ToolRequest,
+    NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver, SecretStore,
+    Switchboard, ToolName, ToolOutput, ToolRequest,
 };
 use switchboard_providers::default_registry;
-use switchboard_store::{DefaultPolicyEngine, MemoryAuditSink, SwitchboardConfig};
+use switchboard_store::{DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, SwitchboardConfig};
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
@@ -29,24 +29,27 @@ const AFTER_HELP: &str = concat!(
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
     let config = SwitchboardConfig::from_file(&config_path)?;
-    let (namespaces, auth) = config.into_stores();
+    let (namespaces, auth, secrets) = config.into_stores();
 
-    Ok(build_switchboard(Arc::new(namespaces), Arc::new(auth)))
+    Ok(build_switchboard(
+        Arc::new(namespaces),
+        Arc::new(auth),
+        Arc::new(secrets),
+        Arc::new(LocalSecretResolver::default()),
+    ))
 }
 
-fn build_switchboard(namespaces: Arc<dyn NamespaceStore>, auth: Arc<dyn AuthStore>) -> Switchboard {
+fn build_switchboard(
+    namespaces: Arc<dyn NamespaceStore>,
+    auth: Arc<dyn AuthStore>,
+    secrets: Arc<dyn SecretStore>,
+    secret_resolver: Arc<dyn SecretResolver>,
+) -> Switchboard {
     let policy = Arc::new(DefaultPolicyEngine);
     let audit = Arc::new(MemoryAuditSink::default());
     let adapters = default_registry();
 
-    Switchboard::new(namespaces, auth, policy, audit, adapters)
-}
-
-#[cfg(test)]
-fn test_switchboard() -> Result<Switchboard> {
-    let config = SwitchboardConfig::bootstrap()?;
-    let (namespaces, auth) = config.into_stores();
-    Ok(build_switchboard(Arc::new(namespaces), Arc::new(auth)))
+    Switchboard::new(namespaces, auth, secrets, secret_resolver, policy, audit, adapters)
 }
 
 pub fn main_entry<I, T>(args: I) -> ExitCode
@@ -286,9 +289,19 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
 fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     let mut output = String::from("Namespaces\n");
     for namespace in namespaces {
+        let state_dir = namespace
+            .state_dir
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "-".into());
         output.push_str(&format!(
-            "- {} ({}, account={}, auth={}, default_read={})\n",
-            namespace.id, namespace.provider, namespace.account_label, namespace.auth_ref, namespace.default_read
+            "- {} ({}, account={}, auth={}, default_read={}, state_dir={})\n",
+            namespace.id,
+            namespace.provider,
+            namespace.account_label,
+            namespace.auth_ref,
+            namespace.default_read,
+            state_dir
         ));
     }
 
@@ -566,8 +579,9 @@ mod tests {
     use std::{
         collections::BTreeMap,
         env, fs,
-        path::PathBuf,
+        path::{Path, PathBuf},
         process,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -576,28 +590,43 @@ mod tests {
         AggregateReadRequest, DispatchOutcome, ExecutionMode, OperationOutcome, OperationRequest, ToolRequest,
     };
 
-    use crate::{run, select_config_path, test_switchboard, Cli, ConfigPathCandidates};
+    use crate::{run, select_config_path, Cli, ConfigPathCandidates};
 
-    const BASIC_CONFIG: &str = include_str!(concat!(
+    const BASIC_CONFIG_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/basic.toml"
     ));
+    const GOOGLE_PERSONAL_OAUTH_JSON: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/secrets/google-personal-oauth.json"
+    ));
+    static TEST_ENV_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
-    fn bootstrap_namespaces_match_current_examples() {
-        let switchboard = test_switchboard().expect("switchboard should build");
+    fn configured_namespaces_match_current_examples() {
+        let environment = TestEnvironment::new();
+        let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
         let namespaces = switchboard.list_namespaces();
         let ids = namespaces
             .into_iter()
             .map(|namespace| namespace.id.to_string())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["github.personal", "google.personal", "google.work"]);
+        assert_eq!(
+            ids,
+            vec![
+                "github.personal",
+                "github.personal_token",
+                "google.personal",
+                "google.work"
+            ]
+        );
     }
 
     #[test]
     fn write_requests_default_to_planning_until_approval_exists() {
-        let switchboard = test_switchboard().expect("switchboard should build");
+        let environment = TestEnvironment::new();
+        let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
         let request = ToolRequest::new(
             "github.pull_request.comment",
             "github.personal",
@@ -624,7 +653,8 @@ mod tests {
 
     #[test]
     fn read_requests_execute_into_stub_results() {
-        let switchboard = test_switchboard().expect("switchboard should build");
+        let environment = TestEnvironment::new();
+        let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
         let request = ToolRequest::new(
             "google.mail.search",
             "google.work",
@@ -646,8 +676,8 @@ mod tests {
 
     #[test]
     fn flat_tool_invocation_still_parses_with_clap() {
-        let config = TempConfigFile::new(BASIC_CONFIG);
-        let config_path = config.path_string();
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
         let cli = Cli::try_parse_from([
             "switchboard",
             "--config",
@@ -671,8 +701,8 @@ mod tests {
 
     #[test]
     fn repeated_namespace_flags_become_aggregate_reads() {
-        let config = TempConfigFile::new(BASIC_CONFIG);
-        let config_path = config.path_string();
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
         let cli = Cli::try_parse_from([
             "switchboard",
             "--config",
@@ -699,8 +729,8 @@ mod tests {
 
     #[test]
     fn repeated_namespace_flags_reject_write_tools() {
-        let config = TempConfigFile::new(BASIC_CONFIG);
-        let config_path = config.path_string();
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
         let cli = Cli::try_parse_from([
             "switchboard",
             "--config",
@@ -721,7 +751,8 @@ mod tests {
 
     #[test]
     fn aggregate_read_operations_can_fan_out_across_calendar_namespaces() {
-        let switchboard = test_switchboard().expect("switchboard should build");
+        let environment = TestEnvironment::new();
+        let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
         let request = AggregateReadRequest::new(
             "google.calendar.list",
             ["google.work", "google.personal"],
@@ -749,7 +780,8 @@ mod tests {
 
     #[test]
     fn aggregate_reads_reject_write_tools() {
-        let switchboard = test_switchboard().expect("switchboard should build");
+        let environment = TestEnvironment::new();
+        let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
         let request = AggregateReadRequest::new(
             "google.calendar.create",
             ["google.work", "google.personal"],
@@ -790,26 +822,39 @@ mod tests {
         assert_eq!(selected, PathBuf::from("/cwd.toml"));
     }
 
-    struct TempConfigFile {
+    struct TestEnvironment {
         directory: PathBuf,
         path: PathBuf,
     }
 
-    impl TempConfigFile {
-        fn new(contents: &str) -> Self {
+    impl TestEnvironment {
+        fn new() -> Self {
             let directory = env::temp_dir().join(format!(
-                "switchboard-test-{}-{}",
+                "switchboard-test-{}-{}-{}",
                 process::id(),
+                TEST_ENV_COUNTER.fetch_add(1, Ordering::Relaxed),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("system time should be after unix epoch")
                     .as_nanos()
             ));
             fs::create_dir_all(&directory).expect("temp dir should be created");
+            env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_ID", "google-work-client-id");
+            env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET", "google-work-client-secret");
+            let oauth_path = directory.join("google-personal-oauth.json");
+            fs::write(&oauth_path, GOOGLE_PERSONAL_OAUTH_JSON).expect("oauth fixture should be written");
             let path = directory.join("switchboard.toml");
+            let contents = BASIC_CONFIG_TEMPLATE.replace(
+                "__GOOGLE_PERSONAL_OAUTH_PATH__",
+                oauth_path.to_str().expect("oauth fixture path should be valid utf-8"),
+            );
             fs::write(&path, contents).expect("config should be written");
 
             Self { directory, path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
         }
 
         fn path_string(&self) -> String {
@@ -817,10 +862,9 @@ mod tests {
         }
     }
 
-    impl Drop for TempConfigFile {
+    impl Drop for TestEnvironment {
         fn drop(&mut self) {
-            let _ = fs::remove_file(&self.path);
-            let _ = fs::remove_dir(&self.directory);
+            let _ = fs::remove_dir_all(&self.directory);
         }
     }
 }

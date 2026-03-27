@@ -12,6 +12,7 @@ pub enum Error {
     Audit(String),
     Config(String),
     MissingAuth(String),
+    MissingSecret(String),
     AuthProviderMismatch {
         auth_ref: String,
         auth_provider: ProviderKind,
@@ -30,6 +31,10 @@ pub enum Error {
     UnsupportedOperation(String),
     UnsupportedTool(String),
     NotImplemented(String),
+    SecretResolution {
+        secret_ref: String,
+        reason: String,
+    },
 }
 
 impl Display for Error {
@@ -38,6 +43,7 @@ impl Display for Error {
             Self::Audit(message) => write!(f, "audit failure: {message}"),
             Self::Config(message) => write!(f, "config error: {message}"),
             Self::MissingAuth(auth_ref) => write!(f, "missing auth configuration: {auth_ref}"),
+            Self::MissingSecret(secret_ref) => write!(f, "missing secret configuration: {secret_ref}"),
             Self::AuthProviderMismatch {
                 auth_ref,
                 auth_provider,
@@ -62,6 +68,9 @@ impl Display for Error {
             Self::UnsupportedOperation(message) => write!(f, "unsupported operation: {message}"),
             Self::UnsupportedTool(tool) => write!(f, "unsupported tool: {tool}"),
             Self::NotImplemented(message) => write!(f, "not implemented: {message}"),
+            Self::SecretResolution { secret_ref, reason } => {
+                write!(f, "failed to resolve secret {secret_ref}: {reason}")
+            }
         }
     }
 }

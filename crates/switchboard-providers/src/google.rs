@@ -1,6 +1,6 @@
 use switchboard_core::{
-    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, ProviderKind, ResolvedNamespace, Result,
-    ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedNamespace,
+    Result, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
 };
 
 const TOOLS: &[ToolDescriptor] = &[
@@ -8,43 +8,43 @@ const TOOLS: &[ToolDescriptor] = &[
         name: "google.mail.search",
         kind: ToolKind::Read,
         summary: "Search Gmail",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.mail.read",
         kind: ToolKind::Read,
         summary: "Read a Gmail message",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.mail.draft",
         kind: ToolKind::Write,
         summary: "Draft an email",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.mail.send",
         kind: ToolKind::Write,
         summary: "Send an email",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.calendar.list",
         kind: ToolKind::Read,
         summary: "List calendar events",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.calendar.create",
         kind: ToolKind::Write,
         summary: "Draft or create a calendar event",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.drive.search",
         kind: ToolKind::Read,
         summary: "Search Drive files",
-        backend: BackendKind::Api,
+        backend: BackendKind::Cli,
     },
 ];
 
@@ -105,7 +105,7 @@ impl Adapter for GoogleWorkspaceAdapter {
 
     fn plan(
         &self,
-        target: &ExecutionTarget,
+        target: &PlanningTarget,
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction> {

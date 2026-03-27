@@ -1,6 +1,6 @@
 use switchboard_core::{
-    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, ProviderKind, ResolvedNamespace, Result,
-    ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedNamespace,
+    Result, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
 };
 
 const TOOLS: &[ToolDescriptor] = &[
@@ -112,7 +112,7 @@ impl Adapter for GitHubAdapter {
 
     fn plan(
         &self,
-        target: &ExecutionTarget,
+        target: &PlanningTarget,
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction> {

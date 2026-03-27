@@ -1,8 +1,9 @@
 use crate::{
     error::Result,
     types::{
-        AuditEvent, AuthRef, ExecutionTarget, PlannedAction, PolicyDecision, ProviderKind, ResolvedAuth,
-        ResolvedNamespace, ToolDescriptor, ToolName, ToolOutput, ToolRequest,
+        AuditEvent, AuthRef, ExecutionTarget, PlannedAction, PlanningTarget, PolicyDecision, ProviderKind,
+        ResolvedAuth, ResolvedNamespace, ResolvedSecret, SecretRef, SecretString, ToolDescriptor, ToolName, ToolOutput,
+        ToolRequest,
     },
     NamespaceId,
 };
@@ -15,6 +16,15 @@ pub trait NamespaceStore: Send + Sync {
 pub trait AuthStore: Send + Sync {
     fn get(&self, id: &AuthRef) -> Option<ResolvedAuth>;
     fn list(&self) -> Vec<ResolvedAuth>;
+}
+
+pub trait SecretStore: Send + Sync {
+    fn get(&self, id: &SecretRef) -> Option<ResolvedSecret>;
+    fn list(&self) -> Vec<ResolvedSecret>;
+}
+
+pub trait SecretResolver: Send + Sync {
+    fn resolve(&self, secret: &ResolvedSecret) -> Result<SecretString>;
 }
 
 pub trait PolicyEngine: Send + Sync {
@@ -30,7 +40,7 @@ pub trait Adapter: Send + Sync {
     fn tools(&self) -> &'static [ToolDescriptor];
     fn plan(
         &self,
-        target: &ExecutionTarget,
+        target: &PlanningTarget,
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction>;

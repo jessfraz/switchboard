@@ -1,7 +1,12 @@
+[secret.oracle_token]
+kind = "env"
+name = "SWITCHBOARD_TEST_ORACLE_TOKEN"
+
 [auth.oracle_personal]
 provider = "oracle"
-kind = "google_oauth"
+kind = "github_token"
 account = "jess@example.com"
+token = "oracle_token"
 
 [namespace.oracle.personal]
 provider = "oracle"
