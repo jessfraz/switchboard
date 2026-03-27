@@ -637,6 +637,8 @@ pub struct PlannedAction {
     pub args: ToolArguments,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operation_id: Option<OperationId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compensates_operation_id: Option<OperationId>,
 }
 
 impl PlannedAction {
@@ -659,11 +661,17 @@ impl PlannedAction {
             approval_reason: None,
             args: request.args.clone(),
             operation_id: None,
+            compensates_operation_id: None,
         }
     }
 
     pub fn with_operation_id(mut self, operation_id: OperationId) -> Self {
         self.operation_id = Some(operation_id);
+        self
+    }
+
+    pub fn with_compensates_operation_id(mut self, operation_id: OperationId) -> Self {
+        self.compensates_operation_id = Some(operation_id);
         self
     }
 }
@@ -874,6 +882,8 @@ pub struct AuditEvent {
     pub outcome: AuditOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operation_id: Option<OperationId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compensates_operation_id: Option<OperationId>,
 }
 
 impl AuditEvent {
@@ -887,6 +897,7 @@ impl AuditEvent {
             approval_required: plan.approval_required,
             outcome,
             operation_id: plan.operation_id.clone(),
+            compensates_operation_id: plan.compensates_operation_id.clone(),
         }
     }
 
@@ -900,6 +911,64 @@ impl AuditEvent {
             approval_required: operation.approval_required,
             outcome,
             operation_id: Some(operation.id.clone()),
+            compensates_operation_id: operation.compensates_operation_id.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AuditEventId(String);
+
+impl AuditEventId {
+    pub fn new(value: impl Into<String>) -> Result<Self> {
+        let value = value.into();
+        validate_non_empty("audit event id", &value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for AuditEventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StoredAuditEvent {
+    pub id: AuditEventId,
+    pub tool: ToolName,
+    pub namespace: NamespaceId,
+    pub auth_ref: AuthRef,
+    pub summary: String,
+    pub backend: BackendKind,
+    pub approval_required: bool,
+    pub outcome: AuditOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<OperationId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compensates_operation_id: Option<OperationId>,
+    pub recorded_at: String,
+}
+
+impl StoredAuditEvent {
+    pub fn from_event(id: AuditEventId, recorded_at: impl Into<String>, event: &AuditEvent) -> Self {
+        Self {
+            id,
+            tool: event.tool.clone(),
+            namespace: event.namespace.clone(),
+            auth_ref: event.auth_ref.clone(),
+            summary: event.summary.clone(),
+            backend: event.backend,
+            approval_required: event.approval_required,
+            outcome: event.outcome.clone(),
+            operation_id: event.operation_id.clone(),
+            compensates_operation_id: event.compensates_operation_id.clone(),
+            recorded_at: recorded_at.into(),
         }
     }
 }
@@ -1022,6 +1091,8 @@ pub struct StoredOperation {
     pub approval_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compensates_operation_id: Option<OperationId>,
     pub approval: OperationApproval,
     pub status: OperationStatus,
     pub args: ToolArguments,
@@ -1043,6 +1114,7 @@ impl StoredOperation {
             backend: plan.backend,
             approval_required: plan.approval_required,
             approval_reason: plan.approval_reason.clone(),
+            compensates_operation_id: plan.compensates_operation_id.clone(),
             approval: if plan.approval_required {
                 OperationApproval::pending()
             } else {
@@ -1134,6 +1206,17 @@ impl StoredOperation {
                 "operation {} was rejected and cannot be applied",
                 self.id
             ))),
+        }
+    }
+
+    pub fn can_undo(&self) -> Result<()> {
+        if self.status != OperationStatus::Applied {
+            return Err(Error::OperationNotUndoable(self.id.clone()));
+        }
+
+        match self.effect.as_ref() {
+            Some(effect) if effect.undoable => Ok(()),
+            _ => Err(Error::OperationNotUndoable(self.id.clone())),
         }
     }
 }

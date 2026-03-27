@@ -1,9 +1,9 @@
 use crate::{
     error::Result,
     types::{
-        AuditEvent, AuthRef, ExecutionTarget, OperationId, PlannedAction, PlanningTarget, PolicyDecision, ProviderKind,
-        ResolvedAuth, ResolvedNamespace, ResolvedSecret, SecretRef, SecretString, StoredOperation, ToolDescriptor,
-        ToolName, ToolOutput, ToolRequest,
+        AuditEvent, AuditEventId, AuthRef, ExecutionMode, ExecutionTarget, OperationId, PlannedAction, PlanningTarget,
+        PolicyDecision, ProviderKind, ResolvedAuth, ResolvedNamespace, ResolvedSecret, SecretRef, SecretString,
+        StoredAuditEvent, StoredOperation, ToolDescriptor, ToolName, ToolOutput, ToolRequest,
     },
     NamespaceId,
 };
@@ -31,8 +31,10 @@ pub trait PolicyEngine: Send + Sync {
     fn evaluate(&self, namespace: &ResolvedNamespace, plan: &PlannedAction) -> PolicyDecision;
 }
 
-pub trait AuditSink: Send + Sync {
+pub trait AuditStore: Send + Sync {
     fn record(&self, event: &AuditEvent) -> Result<()>;
+    fn get(&self, id: &AuditEventId) -> Option<StoredAuditEvent>;
+    fn list(&self) -> Vec<StoredAuditEvent>;
 }
 
 pub trait OperationStore: Send + Sync {
@@ -56,6 +58,10 @@ pub trait Adapter: Send + Sync {
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction>;
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput>;
+
+    fn compensation_request(&self, _operation: &StoredOperation, _mode: ExecutionMode) -> Result<Option<ToolRequest>> {
+        Ok(None)
+    }
 
     fn find_tool(&self, name: &ToolName) -> Option<&'static ToolDescriptor> {
         self.tools().iter().find(|descriptor| descriptor.name == name.as_str())

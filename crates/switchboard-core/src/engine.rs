@@ -7,11 +7,12 @@ use crate::{
         OperationRequest,
     },
     traits::{
-        Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
+        Adapter, AuditStore, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
     },
     types::{
-        AuditEvent, AuditOutcome, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationId, PlannedAction,
-        PlanningTarget, ProviderKind, ResolvedCredentials, ResolvedNamespace, StoredOperation, ToolKind, ToolOutput,
+        AuditEvent, AuditEventId, AuditOutcome, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationId,
+        PlannedAction, PlanningTarget, ProviderKind, ResolvedCredentials, ResolvedNamespace, StoredAuditEvent,
+        StoredOperation, ToolKind, ToolOutput, ToolRequest,
     },
 };
 
@@ -60,7 +61,7 @@ pub struct SwitchboardServices {
     pub secrets: Arc<dyn SecretStore>,
     pub secret_resolver: Arc<dyn SecretResolver>,
     pub policy: Arc<dyn PolicyEngine>,
-    pub audit: Arc<dyn AuditSink>,
+    pub audit: Arc<dyn AuditStore>,
     pub operations: Arc<dyn OperationStore>,
 }
 
@@ -71,6 +72,23 @@ impl Switchboard {
 
     pub fn list_namespaces(&self) -> Vec<ResolvedNamespace> {
         self.services.namespaces.list()
+    }
+
+    pub fn list_audit_events(&self) -> Vec<StoredAuditEvent> {
+        self.services.audit.list()
+    }
+
+    pub fn get_audit_event(&self, id: &AuditEventId) -> Option<StoredAuditEvent> {
+        self.services.audit.get(id)
+    }
+
+    pub fn list_audit_events_for_operation(&self, id: &OperationId) -> Vec<StoredAuditEvent> {
+        self.services
+            .audit
+            .list()
+            .into_iter()
+            .filter(|event| event.operation_id.as_ref() == Some(id))
+            .collect()
     }
 
     pub fn list_tools(&self) -> Result<Vec<crate::RegisteredTool>> {
@@ -116,6 +134,25 @@ impl Switchboard {
         self.execute_stored_operation(operation)
     }
 
+    pub fn undo_operation(&self, id: &OperationId, mode: ExecutionMode) -> Result<DispatchOutcome> {
+        let operation = self
+            .services
+            .operations
+            .get(id)
+            .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
+        operation.can_undo()?;
+        let provider = operation.tool.provider()?;
+        let adapter = self
+            .adapters
+            .get(&provider)
+            .ok_or_else(|| Error::MissingAdapter(provider.clone()))?;
+        let request = adapter
+            .compensation_request(&operation, mode)?
+            .ok_or_else(|| Error::UndoUnsupported(operation.tool.clone()))?;
+
+        self.dispatch_with_compensation(request, Some(operation.id))
+    }
+
     pub fn execute_operation(&self, request: OperationRequest) -> Result<OperationOutcome> {
         match request {
             OperationRequest::Single(request) => self.dispatch(request).map(OperationOutcome::Single),
@@ -126,6 +163,14 @@ impl Switchboard {
     }
 
     pub fn dispatch(&self, request: crate::ToolRequest) -> Result<DispatchOutcome> {
+        self.dispatch_with_compensation(request, None)
+    }
+
+    fn dispatch_with_compensation(
+        &self,
+        request: ToolRequest,
+        compensates_operation_id: Option<OperationId>,
+    ) -> Result<DispatchOutcome> {
         let namespace = self
             .services
             .namespaces
@@ -165,6 +210,9 @@ impl Switchboard {
             .find_tool(&request.tool)
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let mut plan = adapter.plan(&target, &request, descriptor)?;
+        if let Some(compensates_operation_id) = compensates_operation_id {
+            plan = plan.with_compensates_operation_id(compensates_operation_id);
+        }
 
         match self.services.policy.evaluate(&namespace, &plan) {
             crate::PolicyDecision::Allow => {}
@@ -267,7 +315,8 @@ impl Switchboard {
                     return Err(error);
                 }
             };
-            self.services.operations.mark_applied(&operation_id, &output)?;
+            let applied = self.services.operations.mark_applied(&operation_id, &output)?;
+            self.finalize_compensation(&applied)?;
             self.services
                 .audit
                 .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
@@ -351,12 +400,26 @@ impl Switchboard {
             }
         };
 
-        self.services.operations.mark_applied(&operation.id, &output)?;
+        let applied = self.services.operations.mark_applied(&operation.id, &output)?;
+        self.finalize_compensation(&applied)?;
         self.services
             .audit
             .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
 
         Ok(output)
+    }
+
+    fn finalize_compensation(&self, operation: &StoredOperation) -> Result<()> {
+        let Some(original_operation_id) = operation.compensates_operation_id.as_ref() else {
+            return Ok(());
+        };
+
+        let original = self.services.operations.mark_compensated(original_operation_id)?;
+        self.services
+            .audit
+            .record(&AuditEvent::from_operation(&original, AuditOutcome::Compensated))?;
+
+        Ok(())
     }
 
     fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {

@@ -1,4 +1,4 @@
-use crate::types::{ProviderKind, ToolName};
+use crate::types::{AuditEventId, OperationId, ProviderKind, ToolName};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -40,8 +40,14 @@ pub enum Error {
     },
     #[error("unknown namespace: {0}")]
     UnknownNamespace(String),
+    #[error("unknown audit event: {0}")]
+    UnknownAuditEvent(AuditEventId),
+    #[error("operation {0} is not undoable")]
+    OperationNotUndoable(OperationId),
     #[error("aggregate reads require a read tool, got {0}")]
     AggregateReadRequiresReadTool(ToolName),
+    #[error("undo is not supported for tool: {0}")]
+    UndoUnsupported(ToolName),
     #[error("unsupported operation: {0}")]
     UnsupportedOperation(String),
     #[error("unsupported tool: {0}")]

@@ -12,13 +12,14 @@ pub use crate::{
         OperationRequest,
     },
     traits::{
-        Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
+        Adapter, AuditStore, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
     },
     types::{
-        ApprovalState, AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, ExecutionMode,
-        ExecutionTarget, NamespaceId, OperationApproval, OperationEffect, OperationId, OperationStatus, PlannedAction,
-        PlanningTarget, PolicyDecision, ProviderKind, RegisteredTool, ResolvedAuth, ResolvedCredentials,
-        ResolvedNamespace, ResolvedSecret, SecretRef, SecretSource, SecretString, StoredOperation, ToolArgument,
-        ToolArguments, ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRef, ToolRefKind, ToolRequest, WritePolicy,
+        ApprovalState, AuditEvent, AuditEventId, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind,
+        ExecutionMode, ExecutionTarget, NamespaceId, OperationApproval, OperationEffect, OperationId, OperationStatus,
+        PlannedAction, PlanningTarget, PolicyDecision, ProviderKind, RegisteredTool, ResolvedAuth,
+        ResolvedCredentials, ResolvedNamespace, ResolvedSecret, SecretRef, SecretSource, SecretString,
+        StoredAuditEvent, StoredOperation, ToolArgument, ToolArguments, ToolDescriptor, ToolKind, ToolName, ToolOutput,
+        ToolRef, ToolRefKind, ToolRequest, WritePolicy,
     },
 };
