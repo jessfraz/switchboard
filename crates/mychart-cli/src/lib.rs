@@ -352,7 +352,7 @@ fn build_authorize_url(
 }
 
 fn default_patient_scopes() -> Vec<String> {
-    vec!["openid".into(), "fhirUser".into(), "patient/*.read".into()]
+    vec!["openid".into(), "fhirUser".into()]
 }
 
 fn dedupe_preserving_order(values: Vec<String>) -> Vec<String> {

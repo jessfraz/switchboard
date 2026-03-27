@@ -319,11 +319,11 @@ fn default_env_override(program: &str) -> String {
 #[cfg(test)]
 mod tests {
     use switchboard_core::ProviderKind;
-
-    use crate::{default_env_override, render_manifest_scaffold, sanitize_identifier};
     use switchboard_providers::inventory::{
         CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind, CliUndoSupport,
     };
+
+    use crate::{default_env_override, render_manifest_scaffold, sanitize_identifier};
 
     #[test]
     fn scaffold_manifest_renders_generic_raw_tools() {

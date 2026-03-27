@@ -7,13 +7,12 @@ pub(crate) mod passthrough;
 mod probe;
 mod runtime;
 
-use crate::inventory::CliInventory;
-
 pub(crate) use crate::cli::{
     command::CliCommandSpec,
     manifest::CliProviderCatalog,
     runtime::{CliProviderBackend, CliRuntimeMaterializer},
 };
+use crate::inventory::CliInventory;
 
 pub(crate) fn validate_manifest_json(manifest_json: &str, inventory: &CliInventory) -> switchboard_core::Result<()> {
     manifest::validate_manifest_json(manifest_json, inventory)

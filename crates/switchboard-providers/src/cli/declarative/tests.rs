@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use switchboard_core::{
     AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind,
-    ResolvedAuth, ResolvedCredentials, ResolvedNamespace, ToolArgument, ToolKind, ToolOutput, ToolRefKind,
-    ToolRequest,
+    ResolvedAuth, ResolvedCredentials, ResolvedNamespace, ToolArgument, ToolKind, ToolOutput, ToolRefKind, ToolRequest,
 };
 
 use crate::cli::{
@@ -270,16 +269,14 @@ fn json_projection_decodes_array_response_and_refs() {
         source_pointer: None,
         shape: CliJsonProjectionShape::array(vec![
             CliJsonFieldMapping::from_pointer_with_items("name", "/name", None).expect("field should build"),
-            CliJsonFieldMapping::from_pointer_with_items("full_name", "/fullName", None)
-                .expect("field should build"),
+            CliJsonFieldMapping::from_pointer_with_items("full_name", "/fullName", None).expect("field should build"),
             CliJsonFieldMapping::from_pointer_with_items("url", "/url", None).expect("field should build"),
         ])
         .expect("shape should build"),
         count_field: Some("count".into()),
         extra_fields: Vec::new(),
         summary_template: Some(
-            CliProjectionTemplate::parse("Found {count} repositories for {namespace}")
-                .expect("template should build"),
+            CliProjectionTemplate::parse("Found {count} repositories for {namespace}").expect("template should build"),
         ),
         refs: vec![CliJsonRefsSpec::new(
             ToolRefKind::Repository,
@@ -732,8 +729,7 @@ fn google_planning_target() -> PlanningTarget {
             AuthKind::GoogleOAuth,
             "Google Workspace work",
             AuthSecretRefs::GoogleOAuth {
-                client_id: switchboard_core::SecretRef::new("google.work.client_id")
-                    .expect("secret ref should build"),
+                client_id: switchboard_core::SecretRef::new("google.work.client_id").expect("secret ref should build"),
                 client_secret: switchboard_core::SecretRef::new("google.work.client_secret")
                     .expect("secret ref should build"),
                 refresh_token: None,
@@ -760,8 +756,7 @@ fn google_execution_target() -> ExecutionTarget {
             AuthKind::GoogleOAuth,
             "Google Workspace work",
             AuthSecretRefs::GoogleOAuth {
-                client_id: switchboard_core::SecretRef::new("google.work.client_id")
-                    .expect("secret ref should build"),
+                client_id: switchboard_core::SecretRef::new("google.work.client_id").expect("secret ref should build"),
                 client_secret: switchboard_core::SecretRef::new("google.work.client_secret")
                     .expect("secret ref should build"),
                 refresh_token: None,

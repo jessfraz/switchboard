@@ -1,13 +1,11 @@
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use switchboard_core::{
     Error, ExecutionTarget, OperationEffect, PlannedAction, Result, ToolOutput, ToolRef, ToolRefKind,
 };
 
 use crate::cli::{
     command::CliResponse,
-    declarative::support::{
-        extract_field_string, first_action_value, validate_aliases, validate_non_empty,
-    },
+    declarative::support::{extract_field_string, first_action_value, validate_aliases, validate_non_empty},
 };
 
 #[derive(Clone, Debug)]

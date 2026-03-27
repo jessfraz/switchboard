@@ -1,7 +1,5 @@
 use serde_json::{Map, Value};
-use switchboard_core::{
-    Error, PlannedAction, Result, ToolArgumentSpec, ToolArgumentTransport, ToolArgumentValueKind,
-};
+use switchboard_core::{Error, PlannedAction, Result, ToolArgumentSpec, ToolArgumentTransport, ToolArgumentValueKind};
 
 pub(super) fn required_action_value(action: &PlannedAction, aliases: &[String]) -> Result<String> {
     first_action_value(action, aliases).ok_or_else(|| {
@@ -33,11 +31,7 @@ pub(super) fn collect_action_values_for_name(action: &PlannedAction, name: &str)
     action.args.values(name).map(ToOwned::to_owned).collect()
 }
 
-pub(super) fn action_values(
-    action: &PlannedAction,
-    aliases: &[String],
-    include_true_flags: bool,
-) -> Vec<String> {
+pub(super) fn action_values(action: &PlannedAction, aliases: &[String], include_true_flags: bool) -> Vec<String> {
     if include_true_flags && aliases.iter().any(|alias| action.args.has_flag(alias)) {
         return vec!["true".to_owned()];
     }
@@ -107,12 +101,7 @@ pub(super) fn parse_boolish(aliases: &[String], value: &str) -> Result<bool> {
     }
 }
 
-pub(super) fn render_key_value_argument(
-    key: &str,
-    value: &str,
-    boolish: bool,
-    aliases: &[String],
-) -> Result<String> {
+pub(super) fn render_key_value_argument(key: &str, value: &str, boolish: bool, aliases: &[String]) -> Result<String> {
     let rendered = if boolish {
         parse_boolish(aliases, value)?.to_string()
     } else {
@@ -166,11 +155,7 @@ impl ToolArgumentSpecSeed {
         self
     }
 
-    pub(super) fn with_forwarding(
-        mut self,
-        forwarded_flag: Option<String>,
-        forwarded_key: Option<String>,
-    ) -> Self {
+    pub(super) fn with_forwarding(mut self, forwarded_flag: Option<String>, forwarded_key: Option<String>) -> Self {
         self.forwarded_flag = forwarded_flag;
         self.forwarded_key = forwarded_key;
         self
@@ -178,11 +163,7 @@ impl ToolArgumentSpecSeed {
 }
 
 impl ToolArgumentSpecCollector {
-    pub(super) fn add_alias_argument(
-        &mut self,
-        aliases: &[String],
-        seed: ToolArgumentSpecSeed,
-    ) -> Result<()> {
+    pub(super) fn add_alias_argument(&mut self, aliases: &[String], seed: ToolArgumentSpecSeed) -> Result<()> {
         let primary = aliases
             .first()
             .cloned()

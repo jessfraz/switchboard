@@ -1,4 +1,4 @@
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use switchboard_core::{Error, PlannedAction, Result};
 
 use crate::cli::declarative::support::collect_action_values_for_name;

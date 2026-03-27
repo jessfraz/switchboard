@@ -1,14 +1,12 @@
 use serde_json::{Map, Value};
-use switchboard_core::{
-    Error, PlannedAction, Result, ToolArgumentSpec, ToolArgumentTransport, ToolArgumentValueKind,
-};
+use switchboard_core::{Error, PlannedAction, Result, ToolArgumentSpec, ToolArgumentTransport, ToolArgumentValueKind};
 
 use crate::cli::declarative::{
     gmail::build_gmail_raw_message,
     support::{
-        ToolArgumentSpecCollector, ToolArgumentSpecSeed, action_values, collect_action_values, first_action_value,
-        flag_enabled, render_aliases, render_key_value_argument, required_action_value, validate_aliases,
-        validate_flag, validate_non_empty,
+        action_values, collect_action_values, first_action_value, flag_enabled, render_aliases,
+        render_key_value_argument, required_action_value, validate_aliases, validate_flag, validate_non_empty,
+        ToolArgumentSpecCollector, ToolArgumentSpecSeed,
     },
 };
 

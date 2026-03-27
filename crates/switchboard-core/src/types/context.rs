@@ -5,8 +5,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
-use crate::types::{AuthRef, ProviderKind, ResolvedAuth, ResolvedCredentials};
+use crate::{
+    error::{Error, Result},
+    types::{AuthRef, ProviderKind, ResolvedAuth, ResolvedCredentials},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

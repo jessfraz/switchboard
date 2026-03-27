@@ -1,8 +1,6 @@
 use switchboard_core::{Error, ResolvedNamespace, Result, ToolRequest};
 
-use crate::cli::declarative::support::{
-    render_aliases, validate_non_empty, first_action_value,
-};
+use crate::cli::declarative::support::{render_aliases, validate_non_empty};
 
 #[derive(Clone)]
 pub(crate) struct CliSummaryTemplate {
@@ -157,7 +155,7 @@ fn render_summary_arg(request: &ToolRequest, aliases: &[String], repeated: bool)
 
     aliases
         .iter()
-        .find_map(|alias| first_action_value_from_request(request, alias))
+        .find_map(|alias| request.args.value(alias).map(ToOwned::to_owned))
         .ok_or_else(|| {
             Error::InvalidArguments(format!(
                 "missing required argument {} for {}",
@@ -165,37 +163,4 @@ fn render_summary_arg(request: &ToolRequest, aliases: &[String], repeated: bool)
                 request.tool
             ))
         })
-}
-
-fn first_action_value_from_request(request: &ToolRequest, alias: &str) -> Option<String> {
-    first_action_value(
-        &switchboard_core::PlannedAction::new(
-            request,
-            &switchboard_core::PlanningTarget {
-                namespace: ResolvedNamespace::new(
-                    "placeholder.ns",
-                    switchboard_core::ProviderKind::GitHub,
-                    "placeholder",
-                    "placeholder.auth",
-                    false,
-                    None,
-                )
-                .ok()?,
-                auth: switchboard_core::ResolvedAuth::new(
-                    "placeholder.auth",
-                    switchboard_core::ProviderKind::GitHub,
-                    switchboard_core::AuthKind::GitHubToken,
-                    "placeholder",
-                    switchboard_core::AuthSecretRefs::GitHubToken {
-                        token: switchboard_core::SecretRef::new("placeholder.secret").ok()?,
-                    },
-                )
-                .ok()?,
-            },
-            switchboard_core::ToolKind::Read,
-            "",
-            switchboard_core::BackendKind::Cli,
-        ),
-        &[alias.to_owned()],
-    )
 }

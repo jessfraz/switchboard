@@ -6,14 +6,16 @@ use switchboard_core::{
 };
 
 use crate::{
-    cli::command::{
-        CliArgsStrategy, CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliDecodeStrategy, CliExecutableSpec,
-        CliSummarizeStrategy,
-    },
-    cli::declarative::{
-        CliArgsSegment, CliArgsTemplate, CliComputedJsonValue, CliJsonArgumentField, CliJsonArgumentTemplate,
-        CliJsonArgumentValue, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionConfig,
-        CliJsonProjectionShape, CliJsonRefsSpec, CliProjectionTemplate, CliSummaryTemplate,
+    cli::{
+        command::{
+            CliArgsStrategy, CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliDecodeStrategy, CliExecutableSpec,
+            CliSummarizeStrategy,
+        },
+        declarative::{
+            CliArgsSegment, CliArgsTemplate, CliComputedJsonValue, CliJsonArgumentField, CliJsonArgumentTemplate,
+            CliJsonArgumentValue, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionConfig,
+            CliJsonProjectionShape, CliJsonRefsSpec, CliProjectionTemplate, CliSummaryTemplate,
+        },
     },
     inventory::{CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind},
 };

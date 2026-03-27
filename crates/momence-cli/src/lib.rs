@@ -284,6 +284,7 @@ fn render_serialization_error(error: serde_json::Error) -> String {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         ffi::OsString,
         fs,
         io::{Read, Write},
@@ -312,7 +313,7 @@ mod tests {
 
     #[test]
     fn login_password_stores_tokens_and_prints_response() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "accessToken": "access-token",
@@ -348,12 +349,16 @@ mod tests {
             "super-secret",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        assert!(request.starts_with("POST /api/v2/auth/token"));
-        assert!(request.contains("authorization: Basic"));
-        assert!(request.contains("grant_type=password"));
-        assert!(request.contains("username=member%40example.com"));
-        assert!(request.contains("password=super-secret"));
+        let request = captured_request(&capture);
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/api/v2/auth/token");
+        assert_eq!(
+            request.header("authorization"),
+            Some("Basic Y2xpZW50LWlkOmNsaWVudC1zZWNyZXQ=")
+        );
+        assert_eq!(request.form_value("grant_type").as_deref(), Some("password"));
+        assert_eq!(request.form_value("username").as_deref(), Some("member@example.com"));
+        assert_eq!(request.form_value("password").as_deref(), Some("super-secret"));
 
         let state = StateStore::new(config_path).load().expect("stored state should load");
         assert_eq!(state.access_token.as_deref(), Some("access-token"));
@@ -363,7 +368,7 @@ mod tests {
 
     #[test]
     fn member_sessions_list_sends_bearer_token_and_query() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "pagination": { "page": 0, "pageSize": 100, "totalCount": 1 },
@@ -423,18 +428,20 @@ mod tests {
             "2026-03-01T00:00:00Z",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        assert!(
-            request.starts_with("GET /api/v2/member/sessions?page=0&pageSize=100&startAfter=2026-03-01T00%3A00%3A00Z")
-        );
-        assert!(request.contains("authorization: Bearer stored-access-token"));
+        let request = captured_request(&capture);
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/api/v2/member/sessions");
+        assert_eq!(request.query_value("page"), Some("0"));
+        assert_eq!(request.query_value("pageSize"), Some("100"));
+        assert_eq!(request.query_value("startAfter"), Some("2026-03-01T00:00:00Z"));
+        assert_eq!(request.header("authorization"), Some("Bearer stored-access-token"));
         assert_eq!(output.payload.len(), 1);
         assert_eq!(output.payload[0].id, 1);
     }
 
     #[test]
     fn cancel_booking_prints_empty_success_payload() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(String::new(), 200, Some(capture.clone()));
         let temp_dir = temp_dir("momence-cancel");
         let config_path = temp_dir.join("config.json");
@@ -458,8 +465,9 @@ mod tests {
             "77",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        assert!(request.starts_with("DELETE /api/v2/member/sessions/77"));
+        let request = captured_request(&capture);
+        assert_eq!(request.method, "DELETE");
+        assert_eq!(request.path, "/api/v2/member/sessions/77");
         assert_eq!(output.status, "ok");
         assert_eq!(output.status_code, 200);
     }
@@ -498,7 +506,7 @@ mod tests {
     }
 
     impl TestServer {
-        fn spawn(body: String, status_code: u16, capture: Option<Arc<Mutex<String>>>) -> Self {
+        fn spawn(body: String, status_code: u16, capture: Option<Arc<Mutex<Option<CapturedRequest>>>>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
             let address = listener.local_addr().expect("local addr should exist");
 
@@ -538,7 +546,68 @@ mod tests {
         }
     }
 
-    fn read_request(stream: &mut std::net::TcpStream) -> String {
+    #[derive(Clone, Debug)]
+    struct CapturedRequest {
+        method: String,
+        path: String,
+        query: BTreeMap<String, Vec<String>>,
+        headers: BTreeMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    impl CapturedRequest {
+        fn parse(buffer: &[u8]) -> Self {
+            let headers_end = find_headers_end(buffer).expect("request should include headers");
+            let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+            let mut lines = headers.lines();
+            let request_line = lines.next().expect("request line should exist");
+            let mut request_parts = request_line.split_whitespace();
+            let method = request_parts.next().expect("method should exist").to_owned();
+            let target = request_parts.next().expect("target should exist");
+            let (path, query) = split_target(target);
+            let headers = lines
+                .filter_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    Some((name.trim().to_ascii_lowercase(), value.trim().to_owned()))
+                })
+                .collect();
+
+            Self {
+                method,
+                path,
+                query,
+                headers,
+                body: buffer[headers_end + 4..].to_vec(),
+            }
+        }
+
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers.get(&name.to_ascii_lowercase()).map(String::as_str)
+        }
+
+        fn form_value(&self, name: &str) -> Option<String> {
+            let form = parse_form_encoded(&self.body);
+            form.get(name).and_then(|values| values.last()).cloned()
+        }
+
+        fn query_value(&self, name: &str) -> Option<&str> {
+            self.query_or_form_value(name, &self.query)
+        }
+
+        fn query_or_form_value<'a>(&'a self, name: &str, values: &'a BTreeMap<String, Vec<String>>) -> Option<&'a str> {
+            values.get(name)?.last().map(String::as_str)
+        }
+    }
+
+    fn captured_request(capture: &Arc<Mutex<Option<CapturedRequest>>>) -> CapturedRequest {
+        capture
+            .lock()
+            .expect("capture lock should work")
+            .clone()
+            .expect("request should be captured")
+    }
+
+    fn read_request(stream: &mut std::net::TcpStream) -> CapturedRequest {
         let mut buffer = Vec::new();
         let mut temp = [0_u8; 4096];
         loop {
@@ -567,11 +636,69 @@ mod tests {
             }
         }
 
-        String::from_utf8_lossy(&buffer).replace('\r', "")
+        CapturedRequest::parse(&buffer)
     }
 
     fn find_headers_end(buffer: &[u8]) -> Option<usize> {
         buffer.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    fn split_target(target: &str) -> (String, BTreeMap<String, Vec<String>>) {
+        let Some((path, query)) = target.split_once('?') else {
+            return (target.to_owned(), BTreeMap::new());
+        };
+
+        (path.to_owned(), parse_www_form(query))
+    }
+
+    fn parse_form_encoded(body: &[u8]) -> BTreeMap<String, Vec<String>> {
+        if body.is_empty() {
+            return BTreeMap::new();
+        }
+
+        let body = String::from_utf8_lossy(body);
+        parse_www_form(&body)
+    }
+
+    fn parse_www_form(input: &str) -> BTreeMap<String, Vec<String>> {
+        let mut values = BTreeMap::new();
+        for pair in input.split('&').filter(|pair| !pair.is_empty()) {
+            let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
+            let key = decode_form_component(raw_key);
+            let value = decode_form_component(raw_value);
+            values.entry(key).or_insert_with(Vec::new).push(value);
+        }
+        values
+    }
+
+    fn decode_form_component(value: &str) -> String {
+        let bytes = value.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'+' => {
+                    decoded.push(b' ');
+                    index += 1;
+                }
+                b'%' if index + 2 < bytes.len() => {
+                    let hex = &value[index + 1..index + 3];
+                    if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                        decoded.push(byte);
+                        index += 3;
+                    } else {
+                        decoded.push(bytes[index]);
+                        index += 1;
+                    }
+                }
+                byte => {
+                    decoded.push(byte);
+                    index += 1;
+                }
+            }
+        }
+
+        String::from_utf8(decoded).expect("form component should decode as utf-8")
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {

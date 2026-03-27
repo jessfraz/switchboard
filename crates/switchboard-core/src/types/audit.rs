@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
-use crate::types::{AuthRef, BackendKind, NamespaceId, OperationId, PlannedAction, StoredOperation, ToolName};
+use crate::{
+    error::Result,
+    types::{AuthRef, BackendKind, NamespaceId, OperationId, PlannedAction, StoredOperation, ToolName},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
-use crate::types::{
-    AuthRef, BackendKind, NamespaceId, OperationId, PlannedAction, ToolArguments, ToolKind, ToolName, ToolRef,
+use crate::{
+    error::{Error, Result},
+    types::{
+        AuthRef, BackendKind, NamespaceId, OperationId, PlannedAction, ToolArguments, ToolKind, ToolName, ToolRef,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

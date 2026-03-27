@@ -1,11 +1,15 @@
-use std::collections::BTreeMap;
-use std::fmt::{self, Display};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display},
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::{Error, Result};
-use crate::types::{BackendKind, NamespaceId, OperationEffect, OperationId, PlanningTarget, ProviderKind, ToolName};
+use crate::{
+    error::{Error, Result},
+    types::{BackendKind, NamespaceId, OperationEffect, OperationId, PlanningTarget, ProviderKind, ToolName},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -6,6 +6,7 @@ mod operation;
 mod policy;
 mod tool;
 
+use crate::error::{Error, Result};
 pub use crate::types::{
     audit::{AuditEvent, AuditEventId, AuditOutcome, StoredAuditEvent},
     auth::{
@@ -22,8 +23,6 @@ pub use crate::types::{
         ToolRefKind, ToolRequest, ToolSurface, ToolUndoSupport,
     },
 };
-
-use crate::error::{Error, Result};
 
 fn validate_non_empty(label: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {

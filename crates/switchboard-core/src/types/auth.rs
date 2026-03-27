@@ -5,8 +5,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
-use crate::types::ProviderKind;
+use crate::{
+    error::{Error, Result},
+    types::ProviderKind,
+};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
