@@ -1,10 +1,9 @@
-use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::{collections::BTreeMap, sync::Mutex};
 
 use switchboard_core::{
-    AuditEvent, AuditSink, PlannedAction, PolicyDecision, PolicyEngine, ProviderKind, ResolvedNamespace, Result,
+    AuditEvent, AuditSink, NamespaceId, NamespaceStore, PlannedAction, PolicyDecision, PolicyEngine, ProviderKind,
+    ResolvedNamespace, Result, ToolKind,
 };
-use switchboard_core::{NamespaceId, NamespaceStore, ToolKind};
 
 #[derive(Debug)]
 pub struct StaticNamespaceStore {

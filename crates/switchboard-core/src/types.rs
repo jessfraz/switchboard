@@ -1,5 +1,7 @@
-use std::collections::BTreeMap;
-use std::fmt::{self, Display};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display},
+};
 
 use serde::Serialize;
 

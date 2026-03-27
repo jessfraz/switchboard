@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::error::{Error, Result};
-use crate::types::{ExecutionMode, NamespaceId, PlannedAction, ToolKind, ToolName, ToolOutput, ToolRequest};
+use crate::{
+    error::{Error, Result},
+    types::{ExecutionMode, NamespaceId, PlannedAction, ToolKind, ToolName, ToolOutput, ToolRequest},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]

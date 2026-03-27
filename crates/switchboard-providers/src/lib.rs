@@ -5,8 +5,7 @@ use std::sync::Arc;
 
 use switchboard_core::AdapterRegistry;
 
-pub use crate::github::GitHubAdapter;
-pub use crate::google::GoogleWorkspaceAdapter;
+pub use crate::{github::GitHubAdapter, google::GoogleWorkspaceAdapter};
 
 pub fn default_registry() -> AdapterRegistry {
     let mut adapters = AdapterRegistry::default();

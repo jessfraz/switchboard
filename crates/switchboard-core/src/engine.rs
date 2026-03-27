@@ -1,13 +1,14 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::error::{Error, Result};
-use crate::operation::{
-    AggregateReadOutcome, AggregateReadRequest, AggregateReadResult, DispatchOutcome, OperationOutcome,
-    OperationRequest,
+use crate::{
+    error::{Error, Result},
+    operation::{
+        AggregateReadOutcome, AggregateReadRequest, AggregateReadResult, DispatchOutcome, OperationOutcome,
+        OperationRequest,
+    },
+    traits::{Adapter, AuditSink, NamespaceStore, PolicyEngine},
+    types::{AuditEvent, AuditOutcome, PlannedAction, ProviderKind, ResolvedNamespace, ToolKind},
 };
-use crate::traits::{Adapter, AuditSink, NamespaceStore, PolicyEngine};
-use crate::types::{AuditEvent, AuditOutcome, PlannedAction, ProviderKind, ResolvedNamespace, ToolKind};
 
 #[derive(Default)]
 pub struct AdapterRegistry {

@@ -1,9 +1,11 @@
-use crate::error::Result;
-use crate::types::{
-    AuditEvent, PlannedAction, PolicyDecision, ProviderKind, ResolvedNamespace, ToolDescriptor, ToolName, ToolOutput,
-    ToolRequest,
+use crate::{
+    error::Result,
+    types::{
+        AuditEvent, PlannedAction, PolicyDecision, ProviderKind, ResolvedNamespace, ToolDescriptor, ToolName,
+        ToolOutput, ToolRequest,
+    },
+    NamespaceId,
 };
-use crate::NamespaceId;
 
 pub trait NamespaceStore: Send + Sync {
     fn get(&self, id: &NamespaceId) -> Option<ResolvedNamespace>;

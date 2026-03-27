@@ -1,5 +1,7 @@
-use std::error::Error as StdError;
-use std::fmt::{self, Display};
+use std::{
+    error::Error as StdError,
+    fmt::{self, Display},
+};
 
 use crate::types::ProviderKind;
 

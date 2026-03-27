@@ -1,9 +1,9 @@
 [workspace]
 members = [
-  "crates/switchboard-cli",
-  "crates/switchboard-core",
-  "crates/switchboard-providers",
-  "crates/switchboard-store",
+    "crates/switchboard-cli",
+    "crates/switchboard-core",
+    "crates/switchboard-providers",
+    "crates/switchboard-store",
 ]
 resolver = "2"
 

@@ -1,8 +1,4 @@
-use std::collections::BTreeMap;
-use std::env;
-use std::ffi::OsString;
-use std::process::ExitCode;
-use std::sync::Arc;
+use std::{collections::BTreeMap, env, ffi::OsString, process::ExitCode, sync::Arc};
 
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
