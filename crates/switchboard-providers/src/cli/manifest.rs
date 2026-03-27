@@ -155,7 +155,7 @@ fn build_manifest_command(
     };
 
     let (summarize, defaults) = build_manifest_summarize_strategy(
-        &descriptor.name,
+        tool_name.as_str(),
         command.strategy,
         execution.as_ref().map(|(binary, _)| binary.program.as_str()),
     )?;
@@ -801,7 +801,7 @@ fn validate_manifest_aliases(context: &str, aliases: Vec<String>) -> Result<Vec<
 
 #[cfg(test)]
 mod tests {
-    use switchboard_core::{ProviderKind, ToolArgumentTransport, ToolArgumentValueKind, ToolName};
+    use switchboard_core::{ProviderKind, ToolArgumentTransport, ToolArgumentValueKind};
 
     use crate::{
         cli::manifest::{validate_manifest_json, CliProviderCatalog},
@@ -810,7 +810,7 @@ mod tests {
 
     const GOOGLE_MANIFEST_JSON: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../manifests/google.json"
+        "/manifests/google.json"
     ));
 
     #[test]
@@ -835,7 +835,7 @@ mod tests {
         assert_eq!(to.value_kind, ToolArgumentValueKind::String);
 
         let raw_tool = catalog
-            .find_command(ToolName::new("google.cli.read").expect("tool name should build").as_str())
+            .find_command("google.cli.read")
             .expect("raw google read tool should exist");
         assert_eq!(raw_tool.descriptor.arguments.len(), 1);
         assert_eq!(raw_tool.descriptor.arguments[0].name, "argv");

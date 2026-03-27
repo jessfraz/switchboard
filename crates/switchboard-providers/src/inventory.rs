@@ -110,4 +110,23 @@ mod tests {
         assert_eq!(command.node_kind, CliInventoryNodeKind::Operation);
         assert_eq!(command.operation_kind, CliOperationKind::Read);
     }
+
+    #[test]
+    fn inventory_rejects_unknown_fields() {
+        let invalid_inventory = r#"
+        {
+          "provider": "github",
+          "program": "gh",
+          "commands": [],
+          "extra": true
+        }
+        "#;
+
+        let error = serde_json::from_str::<crate::inventory::CliInventory>(invalid_inventory)
+            .expect_err("inventory should reject unknown fields");
+        assert!(
+            error.to_string().contains("unknown field"),
+            "expected unknown field error, got {error}"
+        );
+    }
 }

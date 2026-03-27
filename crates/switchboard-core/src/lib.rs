@@ -19,7 +19,8 @@ pub use crate::{
         ExecutionMode, ExecutionTarget, NamespaceId, OperationApproval, OperationEffect, OperationId, OperationStatus,
         PlannedAction, PlanningTarget, PolicyDecision, ProviderKind, RegisteredTool, ResolvedAuth, ResolvedCredentials,
         ResolvedNamespace, ResolvedSecret, SecretRef, SecretSource, SecretString, StoredAuditEvent, StoredOperation,
-        ToolArgument, ToolArguments, ToolDescriptor, ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRef,
-        ToolRefKind, ToolRequest, ToolSurface, ToolUndoSupport, WritePolicy,
+        ToolArgument, ToolArgumentSpec, ToolArgumentTransport, ToolArguments, ToolArgumentValueKind, ToolDescriptor,
+        ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRef, ToolRefKind, ToolRequest, ToolSurface,
+        ToolUndoSupport, WritePolicy,
     },
 };
