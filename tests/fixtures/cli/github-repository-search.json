@@ -1,0 +1,38 @@
+[
+  {
+    "description": "A CLI for building disciplined local automation planes without losing the plot.",
+    "fullName": "jessfraz/switchboard",
+    "id": "R_kgDO000001",
+    "language": "Rust",
+    "name": "switchboard",
+    "owner": {
+      "id": "MDQ6VXNlcjEyMzQ1Ng==",
+      "is_bot": false,
+      "login": "jessfraz",
+      "type": "User",
+      "url": "https://github.com/jessfraz"
+    },
+    "stargazersCount": 4242,
+    "updatedAt": "2026-03-27T18:44:00Z",
+    "url": "https://github.com/jessfraz/switchboard",
+    "visibility": "public"
+  },
+  {
+    "description": "A smaller switchboard-shaped repo used to prove the JSON decoder is not lying.",
+    "fullName": "acme/switchboard-lite",
+    "id": "R_kgDO000002",
+    "language": "Go",
+    "name": "switchboard-lite",
+    "owner": {
+      "id": "MDEyOk9yZ2FuaXphdGlvbjEyMzQ=",
+      "is_bot": false,
+      "login": "acme",
+      "type": "Organization",
+      "url": "https://github.com/acme"
+    },
+    "stargazersCount": 73,
+    "updatedAt": "2026-03-25T10:00:00Z",
+    "url": "https://github.com/acme/switchboard-lite",
+    "visibility": "public"
+  }
+]

@@ -23,6 +23,7 @@ pub(crate) const ENV_MYCHART_REDIRECT_URI: &str = "MYCHART_REDIRECT_URI";
 pub(crate) const ENV_MYCHART_ACCESS_TOKEN: &str = "MYCHART_ACCESS_TOKEN";
 pub(crate) const ENV_MYCHART_REFRESH_TOKEN: &str = "MYCHART_REFRESH_TOKEN";
 pub(crate) const ENV_MYCHART_USERNAME: &str = "MYCHART_USERNAME";
+pub(crate) const ENV_MYCHART_DEBUG_AUTH: &str = "MYCHART_DEBUG_AUTH";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct AccountDiscoveryState {
@@ -273,6 +274,7 @@ impl StateStore {
 
 pub(crate) struct ResolvedContext {
     pub(crate) account: String,
+    pub(crate) debug_auth: bool,
     pub(crate) api_base_url: Option<String>,
     pub(crate) portal_base_url: Option<String>,
     pub(crate) client_id: Option<String>,
@@ -323,6 +325,7 @@ impl ResolvedContext {
 
         Ok(Self {
             account,
+            debug_auth: global.debug_auth,
             api_base_url: pick(global.base_url.clone(), persisted.api_base_url.clone()),
             portal_base_url: pick(global.portal_base_url.clone(), persisted.portal_base_url.clone()),
             client_id: pick(global.client_id.clone(), persisted.client_id.clone()),

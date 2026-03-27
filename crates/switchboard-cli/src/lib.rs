@@ -1792,6 +1792,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-issue-read.json"
     ));
+    const GITHUB_REPOSITORY_SEARCH_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-repository-search.json"
+    ));
     const GITHUB_REPO_VIEW_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-repo-view.json"
@@ -1996,6 +2000,18 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct GitHubIssueReadFields {
         issue: GitHubIssuePayload,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GitHubRepositorySearchFields {
+        count: usize,
+        repositories: Vec<GitHubRepositoryPayload>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GitHubRepositoryPayload {
+        full_name: String,
+        owner: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -3073,6 +3089,50 @@ mod tests {
     }
 
     #[test]
+    fn github_repository_search_returns_typed_repository_results() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "github.repository.search",
+            "--ns",
+            "github.personal",
+            "--query",
+            "switchboard",
+            "--limit",
+            "5",
+            "--owner",
+            "jessfraz",
+            "--topic",
+            "rust",
+            "--topic",
+            "cli",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: JsonExecutedResponse<GitHubRepositorySearchFields> = parse_json(&output);
+
+        assert_eq!(value.status, "executed");
+        assert_eq!(
+            value.tool,
+            ToolName::new("github.repository.search").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("github.personal").expect("namespace should build")
+        );
+        assert_eq!(value.fields.count, 2);
+        assert_eq!(value.fields.repositories[0].full_name, "jessfraz/switchboard");
+        assert_eq!(value.fields.repositories[0].owner, "jessfraz");
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Repository);
+        assert_eq!(value.refs[0].id, "jessfraz/switchboard");
+    }
+
+    #[test]
     fn repeated_namespace_flags_become_aggregate_reads() {
         let environment = TestEnvironment::new();
         let config_path = environment.path_string();
@@ -3403,6 +3463,7 @@ mod tests {
             .replace("__PR_SEARCH_FIXTURE__", GITHUB_PR_SEARCH_FIXTURE)
             .replace("__PR_READ_FIXTURE__", GITHUB_PR_READ_FIXTURE)
             .replace("__ISSUE_READ_FIXTURE__", GITHUB_ISSUE_READ_FIXTURE)
+            .replace("__REPOSITORY_SEARCH_FIXTURE__", GITHUB_REPOSITORY_SEARCH_FIXTURE)
             .replace("__REPO_VIEW_FIXTURE__", GITHUB_REPO_VIEW_FIXTURE)
     }
 }

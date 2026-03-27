@@ -567,13 +567,14 @@ impl ToolArguments {
             .any(|argument| matches!(argument, ToolArgument::Flag { name: candidate } if candidate == name))
     }
 
-    pub fn value<'a>(&'a self, name: &'a str) -> Option<&'a str> {
+    pub fn value(&self, name: &str) -> Option<&str> {
         self.values(name).last()
     }
 
-    pub fn values<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+    pub fn values<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> + 'a {
+        let name = name.to_owned();
         self.0.iter().filter_map(move |argument| match argument {
-            ToolArgument::Option { name: candidate, value } if candidate == name => Some(value.as_str()),
+            ToolArgument::Option { name: candidate, value } if candidate == &name => Some(value.as_str()),
             _ => None,
         })
     }

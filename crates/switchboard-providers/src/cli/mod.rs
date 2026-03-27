@@ -1,4 +1,5 @@
 mod command;
+mod declarative;
 mod executor;
 mod locator;
 mod manifest;

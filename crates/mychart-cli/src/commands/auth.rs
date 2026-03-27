@@ -143,7 +143,26 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
                 form.push(("client_id".into(), client_id.clone()));
             }
 
+            auth_debug(
+                context,
+                "oauth_refresh_request",
+                json!({
+                    "account": context.account,
+                    "token_endpoint": token_endpoint,
+                    "grant_type": "refresh_token",
+                    "redirect_uri": redirect_uri,
+                    "refresh_token_present": true,
+                    "body_fields": form_field_names(&form),
+                    "authorization_header": authorization_header
+                        .as_ref()
+                        .map(|_| "Basic <redacted>")
+                        .unwrap_or("none"),
+                    "client_secret_present": client_secret.is_some(),
+                }),
+            );
+
             let response = client.exchange_oauth_token(&token_endpoint, &form, authorization_header.as_deref())?;
+            auth_debug_token_response(context, "oauth_refresh_response", &response);
             ensure_json_success(&response)?;
             let token = parse_oauth_token_response(&response.body)?;
             let next_refresh_token = token.refresh_token.clone().or(Some(refresh_token));
@@ -279,6 +298,16 @@ fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value
         &prepared.oauth_state,
         Duration::from_secs(args.timeout_seconds),
     )?;
+    auth_debug(
+        context,
+        "oauth_callback_received",
+        json!({
+            "account": context.account,
+            "redirect_uri": prepared.redirect_uri,
+            "code_length": callback.code.len(),
+            "state_length": prepared.oauth_state.len(),
+        }),
+    );
 
     exchange_code(
         context,
@@ -335,6 +364,26 @@ fn prepare_authorization(
         )?;
     }
 
+    auth_debug(
+        context,
+        "oauth_authorize_prepared",
+        json!({
+            "account": context.account,
+            "base_url": base_url,
+            "authorize_endpoint": authorize_endpoint,
+            "token_endpoint": token_endpoint,
+            "redirect_uri": redirect_uri,
+            "scope_count": scopes.len(),
+            "scopes": scopes,
+            "client_secret_present": context.client_secret.is_some(),
+            "token_authentication": if context.client_secret.is_some() {
+                "basic"
+            } else {
+                "public_pkce"
+            },
+        }),
+    );
+
     Ok(PreparedAuthorization {
         base_url,
         client_id,
@@ -376,7 +425,35 @@ fn exchange_code(
         form.push(("client_id".into(), client_id.clone()));
     }
 
+    auth_debug(
+        context,
+        "oauth_token_exchange_request",
+        json!({
+            "account": context.account,
+            "token_endpoint": token_endpoint,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+            "code_length": form
+                .iter()
+                .find(|(key, _)| key == "code")
+                .map(|(_, value)| value.len())
+                .unwrap_or_default(),
+            "code_verifier_length": form
+                .iter()
+                .find(|(key, _)| key == "code_verifier")
+                .map(|(_, value)| value.len())
+                .unwrap_or_default(),
+            "body_fields": form_field_names(&form),
+            "authorization_header": authorization_header
+                .as_ref()
+                .map(|_| "Basic <redacted>")
+                .unwrap_or("none"),
+            "client_secret_present": client_secret.is_some(),
+        }),
+    );
+
     let response = client.exchange_oauth_token(&token_endpoint, &form, authorization_header.as_deref())?;
+    auth_debug_token_response(context, "oauth_token_exchange_response", &response);
     ensure_json_success(&response)?;
     let token = parse_oauth_token_response(&response.body)?;
     let refresh_token = token.refresh_token.clone().or_else(|| context.refresh_token.clone());
@@ -641,6 +718,43 @@ fn open_browser(url: &str) -> Result<()> {
         .map_err(|error| Error::Io(format!("failed to launch browser with {command}: {error}")))?;
 
     Ok(())
+}
+
+fn auth_debug(context: &ResolvedContext, stage: &str, details: Value) {
+    if !context.debug_auth {
+        return;
+    }
+    eprintln!("[mychart auth debug] {stage}\n{}", crate::render_json(&details, false));
+}
+
+fn auth_debug_token_response(context: &ResolvedContext, stage: &str, response: &crate::client::JsonResponse) {
+    if !context.debug_auth {
+        return;
+    }
+    auth_debug(
+        context,
+        stage,
+        json!({
+            "status_code": response.status_code,
+            "final_url": response.final_url.as_str(),
+            "content_type": response.content_type,
+            "body": if response.status_code >= 400 {
+                response.body.clone()
+            } else {
+                json!({
+                    "body_keys": response
+                        .body
+                        .as_object()
+                        .map(|body| body.keys().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                })
+            },
+        }),
+    );
+}
+
+fn form_field_names(form: &[(String, String)]) -> Vec<&str> {
+    form.iter().map(|(key, _)| key.as_str()).collect()
 }
 
 fn basic_auth_header(client_id: &str, client_secret: &str) -> String {

@@ -22,6 +22,10 @@
       "args": ["search", "prs", "--help"]
     },
     {
+      "id": "gh_search_repos",
+      "args": ["search", "repos", "--help"]
+    },
+    {
       "id": "gh_pr_view",
       "args": ["pr", "view", "--help"]
     },
@@ -108,7 +112,58 @@
         "template": "Search GitHub repositories matching {arg:query}"
       },
       "execution": {
-        "kind": "planning_only"
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_search_repos"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "search" },
+          { "kind": "literal", "value": "repos" },
+          { "kind": "required_positional", "aliases": ["query"] },
+          { "kind": "literal", "value": "--json" },
+          {
+            "kind": "literal",
+            "value": "id,name,fullName,description,language,stargazersCount,updatedAt,url,visibility,owner"
+          },
+          { "kind": "option", "flag": "--limit", "aliases": ["limit"] },
+          { "kind": "option", "flag": "--owner", "aliases": ["owner"], "repeated": true },
+          { "kind": "option", "flag": "--language", "aliases": ["language"] },
+          { "kind": "option", "flag": "--sort", "aliases": ["sort"] },
+          { "kind": "option", "flag": "--order", "aliases": ["order"] },
+          { "kind": "option", "flag": "--topic", "aliases": ["topic"], "repeated": true },
+          { "kind": "option", "flag": "--match", "aliases": ["match"], "repeated": true },
+          { "kind": "option", "flag": "--visibility", "aliases": ["visibility"], "repeated": true },
+          { "kind": "option", "flag": "--stars", "aliases": ["stars"] },
+          { "kind": "option", "flag": "--forks", "aliases": ["forks"] },
+          { "kind": "option", "flag": "--updated", "aliases": ["updated"] },
+          { "kind": "option", "flag": "--created", "aliases": ["created"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "repositories",
+        "shape": "array",
+        "count_field": "count",
+        "fields": [
+          { "name": "id", "pointer": "/id" },
+          { "name": "name", "pointer": "/name" },
+          { "name": "full_name", "pointer": "/fullName" },
+          { "name": "description", "pointer": "/description" },
+          { "name": "language", "pointer": "/language" },
+          { "name": "owner", "pointer": "/owner/login" },
+          { "name": "stargazers_count", "pointer": "/stargazersCount" },
+          { "name": "updated_at", "pointer": "/updatedAt" },
+          { "name": "url", "pointer": "/url" },
+          { "name": "visibility", "pointer": "/visibility" }
+        ],
+        "refs": {
+          "kind": "repository",
+          "id_field": "full_name",
+          "label_field": "name",
+          "url_field": "url"
+        }
       }
     },
     {

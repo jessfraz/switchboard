@@ -8,7 +8,11 @@ use switchboard_core::{
 use crate::{
     cli::command::{
         CliArgsStrategy, CliBinarySpec, CliBuildArgsFn, CliCapabilityProbe, CliCommandSpec, CliDecodeFn,
-        CliDecodeStrategy, CliExecutableSpec, CliSummarizeFn, CliSummarizeStrategy, CliSummaryTemplate,
+        CliDecodeStrategy, CliExecutableSpec, CliSummarizeFn, CliSummarizeStrategy,
+    },
+    cli::declarative::{
+        CliArgsSegment, CliArgsTemplate, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionShape,
+        CliJsonRefsSpec, CliSummaryTemplate,
     },
     inventory::{CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind},
 };
@@ -174,76 +178,39 @@ fn build_manifest_command(
         CliManifestExecution::PlanningOnly => None,
     };
 
-    let (summarize, executable) = match command.strategy {
-        CliManifestStrategy::Handler { id } => {
-            let handler = handlers.get(id.as_str()).ok_or_else(|| {
-                Error::Config(format!(
-                    "manifest command {} references unknown handler {}",
-                    descriptor.name, id
-                ))
-            })?;
-
-            let executable = match execution {
-                Some((binary, capability)) => {
-                    let build_args = handler.build_args.ok_or_else(|| {
-                        Error::Config(format!(
-                            "handler {} for tool {} is missing build_args",
-                            handler.id, descriptor.name
-                        ))
-                    })?;
-                    let decode = handler.decode.ok_or_else(|| {
-                        Error::Config(format!(
-                            "handler {} for tool {} is missing decode",
-                            handler.id, descriptor.name
-                        ))
-                    })?;
-
-                    Some(CliExecutableSpec {
-                        binary,
-                        capability,
-                        args: CliArgsStrategy::Handler(build_args),
-                        decode: CliDecodeStrategy::Handler(decode),
-                    })
-                }
-                None => None,
-            };
-
-            (CliSummarizeStrategy::Handler(handler.summarize), executable)
-        }
-        CliManifestStrategy::SummaryTemplate { template } => {
-            if execution.is_some() {
+    let (summarize, defaults) = build_manifest_summarize_strategy(
+        &descriptor.name,
+        command.strategy,
+        execution.as_ref().map(|(binary, _)| binary.program.as_str()),
+        handlers,
+    )?;
+    let executable = match execution {
+        Some((binary, capability)) => Some(CliExecutableSpec {
+            binary: binary.clone(),
+            capability: capability.clone(),
+            args: build_manifest_args_strategy(&descriptor.name, command.args, &defaults, handlers)?,
+            decode: build_manifest_decode_strategy(
+                &descriptor.name,
+                binary.program.as_str(),
+                command.decode,
+                &defaults,
+                handlers,
+            )?,
+        }),
+        None => {
+            if command.args.is_some() {
                 return Err(Error::Config(format!(
-                    "tool {} uses summary_template but executable commands still need a handler or raw_passthrough strategy",
+                    "tool {} defines args but is planning_only",
                     descriptor.name
                 )));
             }
-
-            (
-                CliSummarizeStrategy::Template(CliSummaryTemplate::parse(template)?),
-                None,
-            )
-        }
-        CliManifestStrategy::RawPassthrough { prefix } => {
-            let (binary, capability) = execution.ok_or_else(|| {
-                Error::Config(format!(
-                    "tool {} uses raw_passthrough but is not executable",
+            if command.decode.is_some() {
+                return Err(Error::Config(format!(
+                    "tool {} defines decode but is planning_only",
                     descriptor.name
-                ))
-            })?;
-            let program = binary.program.clone();
-
-            (
-                CliSummarizeStrategy::RawInventory {
-                    program: program.clone(),
-                    prefix: prefix.clone(),
-                },
-                Some(CliExecutableSpec {
-                    binary,
-                    capability,
-                    args: CliArgsStrategy::RawInventory { prefix: prefix.clone() },
-                    decode: CliDecodeStrategy::RawInventory { program, prefix },
-                }),
-            )
+                )));
+            }
+            None
         }
     };
 
@@ -337,6 +304,10 @@ struct CliManifestCommand {
     summary: String,
     strategy: CliManifestStrategy,
     execution: CliManifestExecution,
+    #[serde(default)]
+    args: Option<CliManifestArgsStrategy>,
+    #[serde(default)]
+    decode: Option<CliManifestDecodeStrategy>,
     #[serde(default = "default_surface")]
     surface: ToolSurface,
     #[serde(default)]
@@ -367,10 +338,272 @@ enum CliManifestExecution {
     PlanningOnly,
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CliManifestArgsStrategy {
+    Handler {
+        id: String,
+    },
+    Template {
+        segments: Vec<CliManifestArgsSegment>,
+    },
+    RawPassthrough {
+        #[serde(default)]
+        prefix: Vec<String>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CliManifestArgsSegment {
+    Literal {
+        value: String,
+    },
+    RequiredPositional {
+        aliases: Vec<String>,
+    },
+    OptionalPositional {
+        aliases: Vec<String>,
+    },
+    Option {
+        flag: String,
+        aliases: Vec<String>,
+        #[serde(default)]
+        repeated: bool,
+        #[serde(default)]
+        required: bool,
+    },
+    Flag {
+        flag: String,
+        aliases: Vec<String>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CliManifestDecodeStrategy {
+    Handler {
+        id: String,
+    },
+    JsonProjection {
+        response_field: String,
+        shape: CliManifestJsonProjectionShape,
+        fields: Vec<CliManifestJsonField>,
+        #[serde(default)]
+        count_field: Option<String>,
+        #[serde(default)]
+        refs: Option<CliManifestJsonRefs>,
+    },
+    RawPassthrough {
+        #[serde(default)]
+        prefix: Vec<String>,
+    },
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CliManifestJsonProjectionShape {
+    Object,
+    Array,
+}
+
+#[derive(Deserialize)]
+struct CliManifestJsonField {
+    name: String,
+    pointer: String,
+}
+
+#[derive(Deserialize)]
+struct CliManifestJsonRefs {
+    kind: switchboard_core::ToolRefKind,
+    id_field: String,
+    #[serde(default)]
+    parent_id_field: Option<String>,
+    #[serde(default)]
+    label_field: Option<String>,
+    #[serde(default)]
+    url_field: Option<String>,
+}
+
 fn default_surface() -> ToolSurface {
     ToolSurface::Curated
 }
 
 fn default_undo_support() -> ToolUndoSupport {
     ToolUndoSupport::None
+}
+
+enum CliManifestDefaultStrategies<'a> {
+    Handler(&'a CliCommandHandler),
+    RawPassthrough { prefix: Vec<String> },
+    None,
+}
+
+fn build_manifest_summarize_strategy<'a>(
+    tool: &str,
+    strategy: CliManifestStrategy,
+    program: Option<&str>,
+    handlers: &'a HashMap<&'static str, &'static CliCommandHandler>,
+) -> Result<(CliSummarizeStrategy, CliManifestDefaultStrategies<'a>)> {
+    match strategy {
+        CliManifestStrategy::Handler { id } => {
+            let handler = resolve_handler(tool, &id, handlers)?;
+            Ok((
+                CliSummarizeStrategy::Handler(handler.summarize),
+                CliManifestDefaultStrategies::Handler(handler),
+            ))
+        }
+        CliManifestStrategy::SummaryTemplate { template } => Ok((
+            CliSummarizeStrategy::Template(CliSummaryTemplate::parse(template)?),
+            CliManifestDefaultStrategies::None,
+        )),
+        CliManifestStrategy::RawPassthrough { prefix } => Ok((
+            CliSummarizeStrategy::RawInventory {
+                program: program
+                    .ok_or_else(|| Error::Config(format!("tool {tool} uses raw_passthrough but is not executable")))?
+                    .to_owned(),
+                prefix: prefix.clone(),
+            },
+            CliManifestDefaultStrategies::RawPassthrough { prefix },
+        )),
+    }
+}
+
+fn build_manifest_args_strategy(
+    tool: &str,
+    strategy: Option<CliManifestArgsStrategy>,
+    defaults: &CliManifestDefaultStrategies<'_>,
+    handlers: &HashMap<&'static str, &'static CliCommandHandler>,
+) -> Result<CliArgsStrategy> {
+    match strategy {
+        Some(CliManifestArgsStrategy::Handler { id }) => {
+            let handler = resolve_handler(tool, &id, handlers)?;
+            let build_args = handler.build_args.ok_or_else(|| {
+                Error::Config(format!(
+                    "handler {} for tool {} is missing build_args",
+                    handler.id, tool
+                ))
+            })?;
+            Ok(CliArgsStrategy::Handler(build_args))
+        }
+        Some(CliManifestArgsStrategy::Template { segments }) => {
+            let segments = segments
+                .into_iter()
+                .map(build_manifest_args_segment)
+                .collect::<Result<Vec<_>>>()?;
+            Ok(CliArgsStrategy::Template(CliArgsTemplate::new(segments)?))
+        }
+        Some(CliManifestArgsStrategy::RawPassthrough { prefix }) => Ok(CliArgsStrategy::RawInventory { prefix }),
+        None => match defaults {
+            CliManifestDefaultStrategies::Handler(handler) => {
+                let build_args = handler.build_args.ok_or_else(|| {
+                    Error::Config(format!(
+                        "handler {} for tool {} is missing build_args",
+                        handler.id, tool
+                    ))
+                })?;
+                Ok(CliArgsStrategy::Handler(build_args))
+            }
+            CliManifestDefaultStrategies::RawPassthrough { prefix } => {
+                Ok(CliArgsStrategy::RawInventory { prefix: prefix.clone() })
+            }
+            CliManifestDefaultStrategies::None => Err(Error::Config(format!(
+                "tool {tool} is executable and uses summary_template, so it must define args explicitly"
+            ))),
+        },
+    }
+}
+
+fn build_manifest_decode_strategy(
+    tool: &str,
+    program: &str,
+    strategy: Option<CliManifestDecodeStrategy>,
+    defaults: &CliManifestDefaultStrategies<'_>,
+    handlers: &HashMap<&'static str, &'static CliCommandHandler>,
+) -> Result<CliDecodeStrategy> {
+    match strategy {
+        Some(CliManifestDecodeStrategy::Handler { id }) => {
+            let handler = resolve_handler(tool, &id, handlers)?;
+            let decode = handler
+                .decode
+                .ok_or_else(|| Error::Config(format!("handler {} for tool {} is missing decode", handler.id, tool)))?;
+            Ok(CliDecodeStrategy::Handler(decode))
+        }
+        Some(CliManifestDecodeStrategy::JsonProjection {
+            response_field,
+            shape,
+            fields,
+            count_field,
+            refs,
+        }) => {
+            let mappings = fields
+                .into_iter()
+                .map(|field| CliJsonFieldMapping::new(field.name, field.pointer))
+                .collect::<Result<Vec<_>>>()?;
+            let shape = match shape {
+                CliManifestJsonProjectionShape::Object => CliJsonProjectionShape::object(mappings)?,
+                CliManifestJsonProjectionShape::Array => CliJsonProjectionShape::array(mappings)?,
+            };
+            let refs = refs.map(|refs| {
+                CliJsonRefsSpec::new(
+                    refs.kind,
+                    refs.id_field,
+                    refs.parent_id_field,
+                    refs.label_field,
+                    refs.url_field,
+                )
+            });
+            Ok(CliDecodeStrategy::JsonProjection(CliJsonProjection::new(
+                response_field,
+                shape,
+                count_field,
+                refs,
+            )?))
+        }
+        Some(CliManifestDecodeStrategy::RawPassthrough { prefix }) => Ok(CliDecodeStrategy::RawInventory {
+            program: program.to_owned(),
+            prefix,
+        }),
+        None => match defaults {
+            CliManifestDefaultStrategies::Handler(handler) => {
+                let decode = handler.decode.ok_or_else(|| {
+                    Error::Config(format!("handler {} for tool {} is missing decode", handler.id, tool))
+                })?;
+                Ok(CliDecodeStrategy::Handler(decode))
+            }
+            CliManifestDefaultStrategies::RawPassthrough { prefix } => Ok(CliDecodeStrategy::RawInventory {
+                program: program.to_owned(),
+                prefix: prefix.clone(),
+            }),
+            CliManifestDefaultStrategies::None => Err(Error::Config(format!(
+                "tool {tool} is executable and uses summary_template, so it must define decode explicitly"
+            ))),
+        },
+    }
+}
+
+fn build_manifest_args_segment(segment: CliManifestArgsSegment) -> Result<CliArgsSegment> {
+    match segment {
+        CliManifestArgsSegment::Literal { value } => CliArgsSegment::literal(value),
+        CliManifestArgsSegment::RequiredPositional { aliases } => CliArgsSegment::required_positional(aliases),
+        CliManifestArgsSegment::OptionalPositional { aliases } => CliArgsSegment::optional_positional(aliases),
+        CliManifestArgsSegment::Option {
+            flag,
+            aliases,
+            repeated,
+            required,
+        } => CliArgsSegment::option(flag, aliases, repeated, required),
+        CliManifestArgsSegment::Flag { flag, aliases } => CliArgsSegment::flag(flag, aliases),
+    }
+}
+
+fn resolve_handler<'a>(
+    tool: &str,
+    id: &str,
+    handlers: &'a HashMap<&'static str, &'static CliCommandHandler>,
+) -> Result<&'a CliCommandHandler> {
+    handlers
+        .get(id)
+        .copied()
+        .ok_or_else(|| Error::Config(format!("manifest command {tool} references unknown handler {id}")))
 }

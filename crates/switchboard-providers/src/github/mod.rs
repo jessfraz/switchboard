@@ -133,6 +133,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-issue-read.json"
     ));
+    const REPOSITORY_SEARCH_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-repository-search.json"
+    ));
     const REPO_VIEW_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-repo-view.json"
@@ -421,6 +425,59 @@ mod tests {
     }
 
     #[test]
+    fn repository_search_executes_through_manifest_projection() {
+        let _env_guard = lock_env();
+        let script = TempScript::new("gh-test", &render_github_script());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
+
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.repository.search",
+            "github.personal",
+            ExecutionMode::Auto,
+            vec![
+                ToolArgument::option("query", "switchboard").expect("query should build"),
+                ToolArgument::option("limit", "5").expect("limit should build"),
+                ToolArgument::option("owner", "jessfraz").expect("owner should build"),
+                ToolArgument::option("topic", "rust").expect("topic should build"),
+                ToolArgument::option("topic", "cli").expect("topic should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(output.summary, "Search GitHub repositories matching switchboard");
+        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Repository);
+        assert_eq!(output.refs[0].id, "jessfraz/switchboard");
+        assert_eq!(
+            output
+                .fields
+                .get("repositories")
+                .and_then(Value::as_array)
+                .and_then(|repositories| repositories.first())
+                .and_then(|repository| repository.get("owner"))
+                .and_then(Value::as_str),
+            Some("jessfraz")
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=search repos switchboard --json"));
+        assert!(captured.contains("--limit 5"));
+        assert!(captured.contains("--owner jessfraz"));
+        assert!(captured.contains("--topic rust"));
+        assert!(captured.contains("--topic cli"));
+    }
+
+    #[test]
     fn planning_only_comment_tool_uses_manifest_summary_template() {
         let adapter = GitHubAdapter::default();
         let planning = planning_target();
@@ -457,7 +514,7 @@ mod tests {
         let repository_search = adapter
             .find_tool(&ToolName::new("github.repository.search").expect("tool should build"))
             .expect("tool should exist");
-        assert_eq!(repository_search.execution_support, ToolExecutionSupport::PlanningOnly);
+        assert_eq!(repository_search.execution_support, ToolExecutionSupport::Executable);
 
         let raw_read = adapter
             .find_tool(&ToolName::new("github.cli.read").expect("tool should build"))
@@ -477,6 +534,7 @@ mod tests {
             .replace("__PR_SEARCH_FIXTURE__", PR_SEARCH_FIXTURE)
             .replace("__PR_READ_FIXTURE__", PR_READ_FIXTURE)
             .replace("__ISSUE_READ_FIXTURE__", ISSUE_READ_FIXTURE)
+            .replace("__REPOSITORY_SEARCH_FIXTURE__", REPOSITORY_SEARCH_FIXTURE)
             .replace("__REPO_VIEW_FIXTURE__", REPO_VIEW_FIXTURE)
     }
 

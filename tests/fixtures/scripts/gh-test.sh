@@ -29,6 +29,11 @@ if [ "$1" = "search" ] && [ "$2" = "prs" ] && [ "$3" = "--help" ]; then
   exit 0
 fi
 
+if [ "$1" = "search" ] && [ "$2" = "repos" ] && [ "$3" = "--help" ]; then
+  echo 'search repos help'
+  exit 0
+fi
+
 if [ "$1" = "pr" ] && [ "$2" = "view" ] && [ "$3" = "--help" ]; then
   echo 'pr view help'
   exit 0
@@ -63,6 +68,20 @@ ARGV=$*
 EOF
   cat <<'JSON'
 __PR_SEARCH_FIXTURE__
+JSON
+  exit 0
+fi
+
+if [ "$1" = "search" ] && [ "$2" = "repos" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+GH_CONFIG_DIR=$GH_CONFIG_DIR
+GH_TOKEN=$GH_TOKEN
+GITHUB_TOKEN=$GITHUB_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__REPOSITORY_SEARCH_FIXTURE__
 JSON
   exit 0
 fi

@@ -31,8 +31,8 @@ use crate::{
     },
     state::{
         ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
-        ENV_MYCHART_CLIENT_SECRET, ENV_MYCHART_CONFIG, ENV_MYCHART_PORTAL_BASE_URL, ENV_MYCHART_REDIRECT_URI,
-        ENV_MYCHART_REFRESH_TOKEN, ENV_MYCHART_USERNAME,
+        ENV_MYCHART_CLIENT_SECRET, ENV_MYCHART_CONFIG, ENV_MYCHART_DEBUG_AUTH, ENV_MYCHART_PORTAL_BASE_URL,
+        ENV_MYCHART_REDIRECT_URI, ENV_MYCHART_REFRESH_TOKEN, ENV_MYCHART_USERNAME,
     },
 };
 
@@ -160,6 +160,9 @@ pub(crate) struct GlobalArgs {
 
     #[arg(long, global = true, env = ENV_MYCHART_USERNAME, value_name = "USERNAME")]
     username: Option<String>,
+
+    #[arg(long, global = true, env = ENV_MYCHART_DEBUG_AUTH)]
+    debug_auth: bool,
 
     #[arg(long, global = true)]
     compact: bool,
@@ -2513,6 +2516,7 @@ mod tests {
             access_token: None,
             refresh_token: None,
             username: None,
+            debug_auth: false,
             compact: true,
         })
         .expect("context should resolve")
