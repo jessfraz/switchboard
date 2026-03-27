@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Map, Value};
 use switchboard_core::{
     Error, ExecutionTarget, OperationEffect, PlannedAction, Result, ToolOutput, ToolRef, ToolRefKind, ToolRequest,
@@ -60,6 +61,14 @@ impl CliSummaryTemplate {
             match segment {
                 CliSummarySegment::Literal(value) => summary.push_str(value),
                 CliSummarySegment::Namespace => summary.push_str(namespace.id.as_str()),
+                CliSummarySegment::ModeVerb { planned, applied } => match request.mode {
+                    switchboard_core::ExecutionMode::Plan | switchboard_core::ExecutionMode::Draft => {
+                        summary.push_str(planned)
+                    }
+                    switchboard_core::ExecutionMode::Auto | switchboard_core::ExecutionMode::Apply => {
+                        summary.push_str(applied)
+                    }
+                },
                 CliSummarySegment::Arg { aliases, repeated } => {
                     let value = render_summary_arg(request, aliases, *repeated)?;
                     summary.push_str(&value);
@@ -75,12 +84,27 @@ impl CliSummaryTemplate {
 enum CliSummarySegment {
     Literal(String),
     Namespace,
+    ModeVerb { planned: String, applied: String },
     Arg { aliases: Vec<String>, repeated: bool },
 }
 
 fn parse_summary_segment(template: &str, token: String) -> Result<CliSummarySegment> {
     if token == "namespace" {
         return Ok(CliSummarySegment::Namespace);
+    }
+
+    if let Some(value) = token.strip_prefix("mode_verb:") {
+        let Some((planned, applied)) = value.split_once(',') else {
+            return Err(Error::Config(format!(
+                "invalid summary template {template:?}: placeholder {{{token}}} must provide planned and applied text"
+            )));
+        };
+        validate_non_empty("summary template planned mode verb", planned)?;
+        validate_non_empty("summary template applied mode verb", applied)?;
+        return Ok(CliSummarySegment::ModeVerb {
+            planned: planned.trim().to_owned(),
+            applied: applied.trim().to_owned(),
+        });
     }
 
     if let Some(value) = token.strip_prefix("arg:") {
@@ -179,6 +203,7 @@ impl CliArgsTemplate {
                         args.push(value);
                     }
                 }
+                CliArgsSegment::Json { template } => args.push(template.render(action)?),
                 CliArgsSegment::Option {
                     flag,
                     aliases,
@@ -221,6 +246,43 @@ impl CliArgsTemplate {
                         args.push(value);
                     }
                 }
+                CliArgsSegment::KeyValueOption {
+                    flag,
+                    key,
+                    aliases,
+                    repeated,
+                    required,
+                    boolish,
+                } => {
+                    let values = action_values(action, aliases, *boolish);
+                    if values.is_empty() {
+                        if *required {
+                            return Err(Error::InvalidArguments(format!(
+                                "missing required argument {} for {}",
+                                render_aliases(aliases),
+                                action.tool
+                            )));
+                        }
+                        continue;
+                    }
+
+                    if *repeated {
+                        for value in values {
+                            args.push(flag.clone());
+                            args.push(render_key_value_argument(key, &value, *boolish, aliases)?);
+                        }
+                    } else {
+                        let Some(value) = values.last() else {
+                            return Err(Error::InvalidArguments(format!(
+                                "missing required argument {} for {}",
+                                render_aliases(aliases),
+                                action.tool
+                            )));
+                        };
+                        args.push(flag.clone());
+                        args.push(render_key_value_argument(key, value, *boolish, aliases)?);
+                    }
+                }
                 CliArgsSegment::Flag { flag, aliases } => {
                     if flag_enabled(action, aliases)? {
                         args.push(flag.clone());
@@ -242,11 +304,22 @@ pub(crate) enum CliArgsSegment {
     OptionalPositional {
         aliases: Vec<String>,
     },
+    Json {
+        template: CliJsonArgumentTemplate,
+    },
     Option {
         flag: String,
         aliases: Vec<String>,
         repeated: bool,
         required: bool,
+    },
+    KeyValueOption {
+        flag: String,
+        key: String,
+        aliases: Vec<String>,
+        repeated: bool,
+        required: bool,
+        boolish: bool,
     },
     Flag {
         flag: String,
@@ -273,6 +346,10 @@ impl CliArgsSegment {
         })
     }
 
+    pub(crate) fn json(template: CliJsonArgumentTemplate) -> Self {
+        Self::Json { template }
+    }
+
     pub(crate) fn option(
         flag: impl Into<String>,
         aliases: Vec<String>,
@@ -288,6 +365,27 @@ impl CliArgsSegment {
         })
     }
 
+    pub(crate) fn key_value_option(
+        flag: impl Into<String>,
+        key: impl Into<String>,
+        aliases: Vec<String>,
+        repeated: bool,
+        required: bool,
+        boolish: bool,
+    ) -> Result<Self> {
+        let flag = validate_flag(flag.into())?;
+        let key = key.into();
+        validate_non_empty("cli key/value option key", &key)?;
+        Ok(Self::KeyValueOption {
+            flag,
+            key,
+            aliases: validate_aliases("key/value option argument", aliases)?,
+            repeated,
+            required,
+            boolish,
+        })
+    }
+
     pub(crate) fn flag(flag: impl Into<String>, aliases: Vec<String>) -> Result<Self> {
         let flag = validate_flag(flag.into())?;
         Ok(Self::Flag {
@@ -298,26 +396,149 @@ impl CliArgsSegment {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct CliJsonArgumentTemplate {
+    value: CliJsonArgumentValue,
+}
+
+impl CliJsonArgumentTemplate {
+    pub(crate) fn new(value: CliJsonArgumentValue) -> Self {
+        Self { value }
+    }
+
+    fn render(&self, action: &PlannedAction) -> Result<String> {
+        serde_json::to_string(&self.value.render(action)?)
+            .map_err(|error| Error::Execution(format!("failed to render CLI JSON argument: {error}")))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum CliJsonArgumentValue {
+    Literal(Value),
+    Argument {
+        aliases: Vec<String>,
+        required: bool,
+        repeated: bool,
+        default: Option<Value>,
+    },
+    Object {
+        fields: Vec<CliJsonArgumentField>,
+    },
+    Array {
+        items: Vec<CliJsonArgumentValue>,
+    },
+    Computed(CliComputedJsonValue),
+}
+
+impl CliJsonArgumentValue {
+    fn render(&self, action: &PlannedAction) -> Result<Value> {
+        match self {
+            Self::Literal(value) => Ok(value.clone()),
+            Self::Argument {
+                aliases,
+                required,
+                repeated,
+                default,
+            } => render_json_argument_value(action, aliases, *required, *repeated, default.as_ref()),
+            Self::Object { fields } => {
+                let mut object = Map::new();
+                for field in fields {
+                    let value = field.value.render(action)?;
+                    if field.omit_if_null && value.is_null() {
+                        continue;
+                    }
+                    object.insert(field.name.clone(), value);
+                }
+                Ok(Value::Object(object))
+            }
+            Self::Array { items } => items
+                .iter()
+                .map(|item| item.render(action))
+                .collect::<Result<Vec<_>>>()
+                .map(Value::Array),
+            Self::Computed(value) => value.render(action),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CliJsonArgumentField {
+    name: String,
+    value: CliJsonArgumentValue,
+    omit_if_null: bool,
+}
+
+impl CliJsonArgumentField {
+    pub(crate) fn new(name: impl Into<String>, value: CliJsonArgumentValue, omit_if_null: bool) -> Result<Self> {
+        let name = name.into();
+        validate_non_empty("cli json argument field name", &name)?;
+        Ok(Self {
+            name,
+            value,
+            omit_if_null,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum CliComputedJsonValue {
+    GmailRawMessage,
+}
+
+impl CliComputedJsonValue {
+    fn render(&self, action: &PlannedAction) -> Result<Value> {
+        match self {
+            Self::GmailRawMessage => build_gmail_raw_message(action).map(Value::String),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct CliJsonProjection {
     response_field: String,
+    source_pointer: Option<String>,
     shape: CliJsonProjectionShape,
     count_field: Option<String>,
+    extra_fields: Vec<CliJsonFieldMapping>,
     summary_template: Option<CliProjectionTemplate>,
-    refs: Option<CliJsonRefsSpec>,
+    refs: Vec<CliJsonRefsSpec>,
     effect: Option<CliJsonEffectSpec>,
+    empty_stdout_json: Option<Value>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CliJsonProjectionConfig {
+    pub(crate) response_field: String,
+    pub(crate) source_pointer: Option<String>,
+    pub(crate) shape: CliJsonProjectionShape,
+    pub(crate) count_field: Option<String>,
+    pub(crate) extra_fields: Vec<CliJsonFieldMapping>,
+    pub(crate) summary_template: Option<CliProjectionTemplate>,
+    pub(crate) refs: Vec<CliJsonRefsSpec>,
+    pub(crate) effect: Option<CliJsonEffectSpec>,
+    pub(crate) empty_stdout_json: Option<Value>,
 }
 
 impl CliJsonProjection {
-    pub(crate) fn new(
-        response_field: impl Into<String>,
-        shape: CliJsonProjectionShape,
-        count_field: Option<String>,
-        summary_template: Option<CliProjectionTemplate>,
-        refs: Option<CliJsonRefsSpec>,
-        effect: Option<CliJsonEffectSpec>,
-    ) -> Result<Self> {
-        let response_field = response_field.into();
+    pub(crate) fn new(config: CliJsonProjectionConfig) -> Result<Self> {
+        let CliJsonProjectionConfig {
+            response_field,
+            source_pointer,
+            shape,
+            count_field,
+            extra_fields,
+            summary_template,
+            refs,
+            effect,
+            empty_stdout_json,
+        } = config;
         validate_non_empty("decode response_field", &response_field)?;
+        if let Some(source_pointer) = source_pointer.as_ref() {
+            if !source_pointer.is_empty() && !source_pointer.starts_with('/') {
+                return Err(Error::Config(
+                    "decode source_pointer must be empty or start with '/'".into(),
+                ));
+            }
+        }
 
         if count_field.is_some() && !matches!(shape, CliJsonProjectionShape::Array { .. }) {
             return Err(Error::Config(
@@ -325,7 +546,7 @@ impl CliJsonProjection {
             ));
         }
 
-        if let Some(refs) = refs.as_ref() {
+        for refs in &refs {
             refs.validate()?;
         }
         if let Some(effect) = effect.as_ref() {
@@ -334,11 +555,14 @@ impl CliJsonProjection {
 
         Ok(Self {
             response_field,
+            source_pointer,
             shape,
             count_field,
+            extra_fields,
             summary_template,
             refs,
             effect,
+            empty_stdout_json,
         })
     }
 
@@ -354,9 +578,27 @@ impl CliJsonProjection {
             stdout,
             stderr,
         } = response;
-        let value: Value = serde_json::from_str(&stdout).map_err(|error| {
+        let value: Value = if stdout.trim().is_empty() {
+            self.empty_stdout_json.clone().ok_or_else(|| {
+                Error::Execution(format!(
+                    "{} returned empty stdout for {}",
+                    program.display(),
+                    action.tool
+                ))
+            })?
+        } else {
+            serde_json::from_str(&stdout).map_err(|error| {
+                Error::Execution(format!(
+                    "{} returned invalid JSON for {}: {error}",
+                    program.display(),
+                    action.tool
+                ))
+            })?
+        };
+
+        let projection_source = self.projection_source(&value).ok_or_else(|| {
             Error::Execution(format!(
-                "{} returned invalid JSON for {}: {error}",
+                "{} returned JSON missing projection source for {}",
                 program.display(),
                 action.tool
             ))
@@ -364,12 +606,12 @@ impl CliJsonProjection {
 
         let (projected, refs, count) = match &self.shape {
             CliJsonProjectionShape::Object { fields } => {
-                let projected = Value::Object(project_object(action, &value, fields));
+                let projected = Value::Object(project_object(action, projection_source, fields));
                 let refs = self.extract_refs(action, &[projected.clone()])?;
                 (projected, refs, None)
             }
             CliJsonProjectionShape::Array { fields } => {
-                let items = value.as_array().ok_or_else(|| {
+                let items = projection_source.as_array().ok_or_else(|| {
                     Error::Execution(format!(
                         "{} returned non-array JSON for {}",
                         program.display(),
@@ -408,6 +650,9 @@ impl CliJsonProjection {
         if let Some((count_field, count)) = self.count_field.as_ref().zip(count) {
             output = output.with_value_field(count_field.clone(), json!(count));
         }
+        for field in &self.extra_fields {
+            output = output.with_value_field(field.name.clone(), project_field_value(action, &value, field));
+        }
         if let Some(effect) = effect {
             output = output.with_effect(effect);
         }
@@ -419,37 +664,46 @@ impl CliJsonProjection {
         Ok(output)
     }
 
+    fn projection_source<'a>(&self, value: &'a Value) -> Option<&'a Value> {
+        match self.source_pointer.as_deref() {
+            Some("") | None => Some(value),
+            Some(pointer) => value.pointer(pointer),
+        }
+    }
+
     fn extract_refs(&self, action: &PlannedAction, items: &[Value]) -> Result<Vec<ToolRef>> {
-        let Some(spec) = self.refs.as_ref() else {
+        if self.refs.is_empty() {
             return Ok(Vec::new());
-        };
+        }
 
         let provider = action.tool.provider()?;
         let mut refs = Vec::new();
-        for item in items {
-            let Some(object) = item.as_object() else {
-                continue;
-            };
-            let Some(id) = extract_field_string(object, &spec.id_field) else {
-                continue;
-            };
-            let mut tool_ref = ToolRef::new(provider.clone(), action.namespace.clone(), spec.kind, id)?;
-            if let Some(parent_id_field) = spec.parent_id_field.as_ref() {
-                if let Some(parent_id) = extract_field_string(object, parent_id_field) {
-                    tool_ref = tool_ref.with_parent_id(parent_id)?;
+        for spec in &self.refs {
+            for item in items {
+                let Some(object) = item.as_object() else {
+                    continue;
+                };
+                let Some(id) = extract_field_string(object, &spec.id_field) else {
+                    continue;
+                };
+                let mut tool_ref = ToolRef::new(provider.clone(), action.namespace.clone(), spec.kind, id)?;
+                if let Some(parent_id_field) = spec.parent_id_field.as_ref() {
+                    if let Some(parent_id) = extract_field_string(object, parent_id_field) {
+                        tool_ref = tool_ref.with_parent_id(parent_id)?;
+                    }
                 }
-            }
-            if let Some(label_field) = spec.label_field.as_ref() {
-                if let Some(label) = extract_field_string(object, label_field) {
-                    tool_ref = tool_ref.with_label(label)?;
+                if let Some(label_field) = spec.label_field.as_ref() {
+                    if let Some(label) = extract_field_string(object, label_field) {
+                        tool_ref = tool_ref.with_label(label)?;
+                    }
                 }
-            }
-            if let Some(url_field) = spec.url_field.as_ref() {
-                if let Some(url) = extract_field_string(object, url_field) {
-                    tool_ref = tool_ref.with_web_url(url)?;
+                if let Some(url_field) = spec.url_field.as_ref() {
+                    if let Some(url) = extract_field_string(object, url_field) {
+                        tool_ref = tool_ref.with_web_url(url)?;
+                    }
                 }
+                refs.push(tool_ref);
             }
-            refs.push(tool_ref);
         }
 
         Ok(refs)
@@ -532,6 +786,28 @@ impl CliJsonFieldMapping {
         })
     }
 
+    pub(crate) fn from_argument_values(name: impl Into<String>, aliases: Vec<String>) -> Result<Self> {
+        let name = name.into();
+        validate_non_empty("json projection field name", &name)?;
+        Ok(Self {
+            name,
+            source: CliJsonFieldSource::ArgumentValues {
+                aliases: validate_aliases("json projection argument values source", aliases)?,
+            },
+        })
+    }
+
+    pub(crate) fn from_argument_presence(name: impl Into<String>, aliases: Vec<String>) -> Result<Self> {
+        let name = name.into();
+        validate_non_empty("json projection field name", &name)?;
+        Ok(Self {
+            name,
+            source: CliJsonFieldSource::ArgumentPresence {
+                aliases: validate_aliases("json projection argument presence source", aliases)?,
+            },
+        })
+    }
+
     pub(crate) fn from_literal(name: impl Into<String>, value: Value) -> Result<Self> {
         let name = name.into();
         validate_non_empty("json projection field name", &name)?;
@@ -551,6 +827,12 @@ enum CliJsonFieldSource {
     Argument {
         aliases: Vec<String>,
         default: Option<String>,
+    },
+    ArgumentValues {
+        aliases: Vec<String>,
+    },
+    ArgumentPresence {
+        aliases: Vec<String>,
     },
     Literal(Value),
 }
@@ -755,20 +1037,36 @@ fn parse_projection_segment(template: &str, token: String) -> Result<CliProjecti
 fn project_object(action: &PlannedAction, value: &Value, fields: &[CliJsonFieldMapping]) -> Map<String, Value> {
     fields
         .iter()
-        .map(|field| {
-            let value = match &field.source {
-                CliJsonFieldSource::Pointer { pointer, item_pointer } => {
-                    project_pointer_value(value, pointer, item_pointer)
-                }
-                CliJsonFieldSource::Argument { aliases, default } => first_action_value(action, aliases)
-                    .map(Value::String)
-                    .or_else(|| default.as_ref().map(|value| Value::String(value.clone())))
-                    .unwrap_or(Value::Null),
-                CliJsonFieldSource::Literal(value) => value.clone(),
-            };
-            (field.name.clone(), value)
-        })
+        .map(|field| (field.name.clone(), project_field_value(action, value, field)))
         .collect()
+}
+
+fn project_field_value(action: &PlannedAction, value: &Value, field: &CliJsonFieldMapping) -> Value {
+    match &field.source {
+        CliJsonFieldSource::Pointer { pointer, item_pointer } => project_pointer_value(value, pointer, item_pointer),
+        CliJsonFieldSource::Argument { aliases, default } => first_action_value(action, aliases)
+            .map(Value::String)
+            .or_else(|| default.as_ref().map(|value| Value::String(value.clone())))
+            .unwrap_or(Value::Null),
+        CliJsonFieldSource::ArgumentValues { aliases } => Value::Array(
+            aliases
+                .iter()
+                .find_map(|alias| {
+                    let values = action.args.values(alias).map(ToOwned::to_owned).collect::<Vec<_>>();
+                    (!values.is_empty()).then_some(values)
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .map(Value::String)
+                .collect(),
+        ),
+        CliJsonFieldSource::ArgumentPresence { aliases } => Value::Bool(
+            aliases
+                .iter()
+                .any(|alias| action.args.has_flag(alias) || action.args.value(alias).is_some()),
+        ),
+        CliJsonFieldSource::Literal(value) => value.clone(),
+    }
 }
 
 fn project_pointer_value(value: &Value, pointer: &str, item_pointer: &Option<String>) -> Value {
@@ -800,6 +1098,46 @@ fn project_pointer_value(value: &Value, pointer: &str, item_pointer: &Option<Str
     }
 }
 
+fn render_json_argument_value(
+    action: &PlannedAction,
+    aliases: &[String],
+    required: bool,
+    repeated: bool,
+    default: Option<&Value>,
+) -> Result<Value> {
+    if repeated {
+        let values = collect_action_values(action, aliases);
+        if values.is_empty() {
+            if required {
+                return Err(Error::InvalidArguments(format!(
+                    "missing required argument {} for {}",
+                    render_aliases(aliases),
+                    action.tool
+                )));
+            }
+            return Ok(default.cloned().unwrap_or_else(|| Value::Array(Vec::new())));
+        }
+
+        return Ok(Value::Array(values.into_iter().map(Value::String).collect()));
+    }
+
+    if let Some(value) = first_action_value(action, aliases) {
+        return Ok(Value::String(value));
+    }
+    if let Some(default) = default {
+        return Ok(default.clone());
+    }
+    if required {
+        return Err(Error::InvalidArguments(format!(
+            "missing required argument {} for {}",
+            render_aliases(aliases),
+            action.tool
+        )));
+    }
+
+    Ok(Value::Null)
+}
+
 fn required_action_value(action: &PlannedAction, aliases: &[String]) -> Result<String> {
     first_action_value(action, aliases).ok_or_else(|| {
         Error::InvalidArguments(format!(
@@ -814,6 +1152,34 @@ fn first_action_value(action: &PlannedAction, aliases: &[String]) -> Option<Stri
     aliases
         .iter()
         .find_map(|alias| action.args.value(alias).map(ToOwned::to_owned))
+}
+
+fn collect_action_values(action: &PlannedAction, aliases: &[String]) -> Vec<String> {
+    aliases
+        .iter()
+        .find_map(|alias| {
+            let values = action.args.values(alias).map(ToOwned::to_owned).collect::<Vec<_>>();
+            (!values.is_empty()).then_some(values)
+        })
+        .unwrap_or_default()
+}
+
+fn collect_action_values_for_name(action: &PlannedAction, name: &str) -> Vec<String> {
+    action.args.values(name).map(ToOwned::to_owned).collect()
+}
+
+fn action_values(action: &PlannedAction, aliases: &[String], include_true_flags: bool) -> Vec<String> {
+    if include_true_flags && aliases.iter().any(|alias| action.args.has_flag(alias)) {
+        return vec!["true".to_owned()];
+    }
+
+    aliases
+        .iter()
+        .find_map(|alias| {
+            let values = action.args.values(alias).map(ToOwned::to_owned).collect::<Vec<_>>();
+            (!values.is_empty()).then_some(values)
+        })
+        .unwrap_or_default()
 }
 
 fn flag_enabled(action: &PlannedAction, aliases: &[String]) -> Result<bool> {
@@ -872,6 +1238,117 @@ fn parse_boolish(aliases: &[String], value: &str) -> Result<bool> {
     }
 }
 
+fn render_key_value_argument(key: &str, value: &str, boolish: bool, aliases: &[String]) -> Result<String> {
+    let rendered = if boolish {
+        parse_boolish(aliases, value)?.to_string()
+    } else {
+        value.to_owned()
+    };
+
+    Ok(format!("{key}={rendered}"))
+}
+
+fn build_gmail_raw_message(action: &PlannedAction) -> Result<String> {
+    let to = collect_action_values_for_name(action, "to");
+    if to.is_empty() {
+        return Err(Error::InvalidArguments(format!(
+            "missing required argument --to for {}",
+            action.tool
+        )));
+    }
+    for recipient in &to {
+        validate_header_value("to", recipient)?;
+    }
+
+    let cc = collect_action_values_for_name(action, "cc");
+    for recipient in &cc {
+        validate_header_value("cc", recipient)?;
+    }
+
+    let bcc = collect_action_values_for_name(action, "bcc");
+    for recipient in &bcc {
+        validate_header_value("bcc", recipient)?;
+    }
+
+    if let Some(from) = action.args.value("from") {
+        validate_header_value("from", from)?;
+    }
+    if let Some(reply_to) = action.args.value("reply-to") {
+        validate_header_value("reply-to", reply_to)?;
+    }
+    if let Some(subject) = action.args.value("subject") {
+        validate_header_value("subject", subject)?;
+    }
+    if let Some(in_reply_to) = action.args.value("in-reply-to") {
+        validate_header_value("in-reply-to", in_reply_to)?;
+    }
+
+    let references = collect_action_values_for_name(action, "reference");
+    for reference in &references {
+        validate_header_value("reference", reference)?;
+    }
+
+    let content = render_gmail_body_part(action.args.value("body-text"), action.args.value("body-html"))?;
+    let mut message = String::new();
+
+    if let Some(from) = action.args.value("from") {
+        message.push_str(&format!("From: {from}\r\n"));
+    }
+    message.push_str(&format!("To: {}\r\n", to.join(", ")));
+    if !cc.is_empty() {
+        message.push_str(&format!("Cc: {}\r\n", cc.join(", ")));
+    }
+    if !bcc.is_empty() {
+        message.push_str(&format!("Bcc: {}\r\n", bcc.join(", ")));
+    }
+    if let Some(reply_to) = action.args.value("reply-to") {
+        message.push_str(&format!("Reply-To: {reply_to}\r\n"));
+    }
+    if let Some(subject) = action.args.value("subject") {
+        message.push_str(&format!("Subject: {subject}\r\n"));
+    }
+    if let Some(in_reply_to) = action.args.value("in-reply-to") {
+        message.push_str(&format!("In-Reply-To: {in_reply_to}\r\n"));
+    }
+    if !references.is_empty() {
+        message.push_str(&format!("References: {}\r\n", references.join(" ")));
+    }
+    message.push_str("MIME-Version: 1.0\r\n");
+    message.push_str(&content);
+
+    Ok(URL_SAFE_NO_PAD.encode(message.as_bytes()))
+}
+
+fn render_gmail_body_part(body_text: Option<&str>, body_html: Option<&str>) -> Result<String> {
+    match (body_text, body_html) {
+        (Some(body_text), Some(body_html)) => {
+            let boundary = "switchboard-alt-boundary";
+            Ok(format!(
+                "Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n\r\n--{boundary}\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body_text}\r\n--{boundary}\r\nContent-Type: text/html; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body_html}\r\n--{boundary}--\r\n"
+            ))
+        }
+        (Some(body_text), None) => Ok(format!(
+            "Content-Type: text/plain; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body_text}\r\n"
+        )),
+        (None, Some(body_html)) => Ok(format!(
+            "Content-Type: text/html; charset=\"UTF-8\"\r\nContent-Transfer-Encoding: 8bit\r\n\r\n{body_html}\r\n"
+        )),
+        (None, None) => Err(Error::InvalidArguments(
+            "gmail draft requires either --body-text or --body-html".into(),
+        )),
+    }
+}
+
+fn validate_header_value(header: &str, value: &str) -> Result<()> {
+    if value.contains('\r') || value.contains('\n') {
+        return Err(Error::InvalidArguments(format!(
+            "gmail draft argument --{header} cannot contain newlines"
+        )));
+    }
+
+    Ok(())
+}
+
 fn extract_field_string(object: &Map<String, Value>, field: &str) -> Option<String> {
     match object.get(field)? {
         Value::String(value) if !value.trim().is_empty() => Some(value.clone()),
@@ -884,7 +1361,8 @@ fn extract_field_string(object: &Map<String, Value>, field: &str) -> Option<Stri
 mod tests {
     use std::path::PathBuf;
 
-    use serde_json::{json, Value};
+    use serde::Deserialize;
+    use serde_json::{json, Map, Value};
     use switchboard_core::{
         AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind,
         ResolvedAuth, ResolvedCredentials, ResolvedNamespace, ToolArgument, ToolKind, ToolRefKind, ToolRequest,
@@ -893,7 +1371,8 @@ mod tests {
     use crate::cli::{
         command::CliResponse,
         declarative::{
-            CliArgsSegment, CliArgsTemplate, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection,
+            CliArgsSegment, CliArgsTemplate, CliComputedJsonValue, CliJsonArgumentField, CliJsonArgumentTemplate,
+            CliJsonArgumentValue, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionConfig,
             CliJsonProjectionShape, CliJsonRefsSpec, CliProjectionTemplate, CliSummaryTemplate,
         },
     };
@@ -920,6 +1399,49 @@ mod tests {
 
         let summary = template.render(&namespace, &request).expect("summary should render");
         assert_eq!(summary, "Search is:open in github.personal");
+    }
+
+    #[test]
+    fn summary_template_renders_mode_specific_verbs() {
+        let template =
+            CliSummaryTemplate::parse("{mode_verb:Draft delete of,Delete} event {arg:event-id} in {namespace}")
+                .expect("template should parse");
+        let namespace = ResolvedNamespace::new(
+            "google.work",
+            ProviderKind::GoogleWorkspace,
+            "Google Workspace work",
+            "google.work_auth",
+            false,
+            None,
+        )
+        .expect("namespace should build");
+        let draft_request = ToolRequest::new(
+            "google.calendar.delete",
+            "google.work",
+            ExecutionMode::Draft,
+            vec![ToolArgument::option("event-id", "evt-123").expect("argument should build")],
+        )
+        .expect("request should build");
+        let apply_request = ToolRequest::new(
+            "google.calendar.delete",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![ToolArgument::option("event-id", "evt-123").expect("argument should build")],
+        )
+        .expect("request should build");
+
+        assert_eq!(
+            template
+                .render(&namespace, &draft_request)
+                .expect("draft summary should render"),
+            "Draft delete of event evt-123 in google.work"
+        );
+        assert_eq!(
+            template
+                .render(&namespace, &apply_request)
+                .expect("apply summary should render"),
+            "Delete event evt-123 in google.work"
+        );
     }
 
     #[test]
@@ -1004,30 +1526,132 @@ mod tests {
     }
 
     #[test]
+    fn args_template_builds_key_value_options() {
+        let template = CliArgsTemplate::new(vec![
+            CliArgsSegment::literal("api").expect("segment should build"),
+            CliArgsSegment::literal("notifications").expect("segment should build"),
+            CliArgsSegment::key_value_option("-F", "all", vec!["all".into()], false, false, true)
+                .expect("segment should build"),
+            CliArgsSegment::key_value_option("-F", "per_page", vec!["per_page".into()], false, false, false)
+                .expect("segment should build"),
+        ])
+        .expect("template should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "github.notifications.list",
+                "github.personal",
+                ExecutionMode::Auto,
+                vec![
+                    ToolArgument::option("all", "true").expect("argument should build"),
+                    ToolArgument::option("per_page", "50").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &planning_target(),
+            ToolKind::Read,
+            "List notifications",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let args = template.build_args(&action).expect("args should build");
+        assert_eq!(
+            args,
+            vec!["api", "notifications", "-F", "all=true", "-F", "per_page=50"]
+        );
+    }
+
+    #[test]
+    fn args_template_builds_json_segments_with_computed_values() {
+        let template = CliArgsTemplate::new(vec![
+            CliArgsSegment::literal("gmail").expect("segment should build"),
+            CliArgsSegment::literal("users").expect("segment should build"),
+            CliArgsSegment::literal("drafts").expect("segment should build"),
+            CliArgsSegment::literal("create").expect("segment should build"),
+            CliArgsSegment::literal("--json").expect("segment should build"),
+            CliArgsSegment::json(CliJsonArgumentTemplate::new(CliJsonArgumentValue::Object {
+                fields: vec![CliJsonArgumentField::new(
+                    "message",
+                    CliJsonArgumentValue::Object {
+                        fields: vec![
+                            CliJsonArgumentField::new(
+                                "raw",
+                                CliJsonArgumentValue::Computed(CliComputedJsonValue::GmailRawMessage),
+                                false,
+                            )
+                            .expect("field should build"),
+                            CliJsonArgumentField::new(
+                                "threadId",
+                                CliJsonArgumentValue::Argument {
+                                    aliases: vec!["thread-id".into()],
+                                    required: false,
+                                    repeated: false,
+                                    default: None,
+                                },
+                                true,
+                            )
+                            .expect("field should build"),
+                        ],
+                    },
+                    false,
+                )
+                .expect("field should build")],
+            })),
+        ])
+        .expect("template should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "google.mail.draft",
+                "google.work",
+                ExecutionMode::Apply,
+                vec![
+                    ToolArgument::option("to", "dogs@example.com").expect("argument should build"),
+                    ToolArgument::option("subject", "Boarding request").expect("argument should build"),
+                    ToolArgument::option("body-text", "Hi there").expect("argument should build"),
+                    ToolArgument::option("thread-id", "thread-123").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &google_planning_target(),
+            ToolKind::Write,
+            "Draft Gmail email to dogs@example.com in google.work",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let args = template.build_args(&action).expect("args should build");
+        let json_arg: Value = serde_json::from_str(&args[5]).expect("json segment should parse");
+        assert_eq!(args[..5], ["gmail", "users", "drafts", "create", "--json"]);
+        assert_eq!(json_arg["message"]["threadId"], "thread-123");
+        assert!(json_arg["message"]["raw"].as_str().is_some());
+    }
+
+    #[test]
     fn json_projection_decodes_array_response_and_refs() {
-        let projection = CliJsonProjection::new(
-            "repositories",
-            CliJsonProjectionShape::array(vec![
+        let projection = CliJsonProjection::new(CliJsonProjectionConfig {
+            response_field: "repositories".into(),
+            source_pointer: None,
+            shape: CliJsonProjectionShape::array(vec![
                 CliJsonFieldMapping::from_pointer_with_items("name", "/name", None).expect("field should build"),
                 CliJsonFieldMapping::from_pointer_with_items("full_name", "/fullName", None)
                     .expect("field should build"),
                 CliJsonFieldMapping::from_pointer_with_items("url", "/url", None).expect("field should build"),
             ])
             .expect("shape should build"),
-            Some("count".into()),
-            Some(
+            count_field: Some("count".into()),
+            extra_fields: Vec::new(),
+            summary_template: Some(
                 CliProjectionTemplate::parse("Found {count} repositories for {namespace}")
                     .expect("template should build"),
             ),
-            Some(CliJsonRefsSpec::new(
+            refs: vec![CliJsonRefsSpec::new(
                 ToolRefKind::Repository,
                 "full_name",
                 None,
                 Some("name".into()),
                 Some("url".into()),
-            )),
-            None,
-        )
+            )],
+            effect: None,
+            empty_stdout_json: None,
+        })
         .expect("projection should build");
         let action = PlannedAction::new(
             &ToolRequest::new(
@@ -1057,18 +1681,9 @@ mod tests {
             .expect("projection should decode");
 
         assert_eq!(output.summary, "Found 1 repositories for github.personal");
-        assert_eq!(output.fields.get("count"), Some(&json!(1)));
-        assert_eq!(
-            output
-                .fields
-                .get("repositories")
-                .and_then(Value::as_array)
-                .and_then(|repositories| repositories.first())
-                .and_then(Value::as_object)
-                .and_then(|repository| repository.get("full_name"))
-                .and_then(Value::as_str),
-            Some("KeepSafe/Switchboard")
-        );
+        let fields: RepositoryProjectionFields = parse_output_fields(&output);
+        assert_eq!(fields.count, 1);
+        assert_eq!(fields.repositories[0].full_name, "KeepSafe/Switchboard");
         assert_eq!(output.refs.len(), 1);
         assert_eq!(output.refs[0].kind, ToolRefKind::Repository);
         assert_eq!(output.refs[0].id, "KeepSafe/Switchboard");
@@ -1076,28 +1691,30 @@ mod tests {
 
     #[test]
     fn json_projection_supports_argument_fields_and_effect_templates() {
-        let projection = CliJsonProjection::new(
-            "event",
-            CliJsonProjectionShape::object(vec![
+        let projection = CliJsonProjection::new(CliJsonProjectionConfig {
+            response_field: "event".into(),
+            source_pointer: None,
+            shape: CliJsonProjectionShape::object(vec![
                 CliJsonFieldMapping::from_pointer_with_items("event_id", "/id", None).expect("field should build"),
                 CliJsonFieldMapping::from_pointer_with_items("title", "/summary", None).expect("field should build"),
                 CliJsonFieldMapping::from_argument("calendar", vec!["calendar".into()], Some("primary".into()))
                     .expect("field should build"),
             ])
             .expect("shape should build"),
-            None,
-            Some(
+            count_field: None,
+            extra_fields: Vec::new(),
+            summary_template: Some(
                 CliProjectionTemplate::parse("Created calendar event \"{field:title}\" for {namespace}")
                     .expect("template should build"),
             ),
-            Some(CliJsonRefsSpec::new(
+            refs: vec![CliJsonRefsSpec::new(
                 ToolRefKind::Event,
                 "event_id",
                 Some("calendar".into()),
                 Some("title".into()),
                 None,
-            )),
-            Some(CliJsonEffectSpec::new(
+            )],
+            effect: Some(CliJsonEffectSpec::new(
                 true,
                 true,
                 Some(
@@ -1105,7 +1722,8 @@ mod tests {
                         .expect("template should build"),
                 ),
             )),
-        )
+            empty_stdout_json: None,
+        })
         .expect("projection should build");
         let action = PlannedAction::new(
             &ToolRequest::new(
@@ -1152,9 +1770,10 @@ mod tests {
 
     #[test]
     fn json_projection_supports_array_field_extraction() {
-        let projection = CliJsonProjection::new(
-            "pull_request",
-            CliJsonProjectionShape::object(vec![
+        let projection = CliJsonProjection::new(CliJsonProjectionConfig {
+            response_field: "pull_request".into(),
+            source_pointer: None,
+            shape: CliJsonProjectionShape::object(vec![
                 CliJsonFieldMapping::from_pointer_with_items("title", "/title", None).expect("field should build"),
                 CliJsonFieldMapping::from_pointer_with_items("assignees", "/assignees", Some("/login".into()))
                     .expect("field should build"),
@@ -1162,11 +1781,15 @@ mod tests {
                     .expect("field should build"),
             ])
             .expect("shape should build"),
-            None,
-            Some(CliProjectionTemplate::parse("Read {field:title} for {namespace}").expect("template should build")),
-            None,
-            None,
-        )
+            count_field: None,
+            extra_fields: Vec::new(),
+            summary_template: Some(
+                CliProjectionTemplate::parse("Read {field:title} for {namespace}").expect("template should build"),
+            ),
+            refs: Vec::new(),
+            effect: None,
+            empty_stdout_json: None,
+        })
         .expect("projection should build");
         let action = PlannedAction::new(
             &ToolRequest::new(
@@ -1199,22 +1822,207 @@ mod tests {
             )
             .expect("projection should decode");
 
-        assert_eq!(
+        let fields: PullRequestProjectionFields = parse_output_fields(&output);
+        assert_eq!(fields.pull_request.assignees, vec!["jessfraz"]);
+        assert_eq!(fields.pull_request.labels, vec!["infra", "tooling"]);
+    }
+
+    #[test]
+    fn json_projection_supports_extra_fields_empty_stdout_and_multiple_refs() {
+        let projection = CliJsonProjection::new(CliJsonProjectionConfig {
+            response_field: "message".into(),
+            source_pointer: None,
+            shape: CliJsonProjectionShape::object(vec![
+                CliJsonFieldMapping::from_argument("gmail_message_id", vec!["message-id".into()], None)
+                    .expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("gmail_thread_id", "/thread_id", None)
+                    .expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("subject", "/subject", None).expect("field should build"),
+            ])
+            .expect("shape should build"),
+            count_field: None,
+            extra_fields: vec![
+                CliJsonFieldMapping::from_argument("query", vec!["query".into()], None).expect("field should build")
+            ],
+            summary_template: Some(
+                CliProjectionTemplate::parse("Read Gmail message \"{field:subject}\" for {namespace}")
+                    .expect("template should build"),
+            ),
+            refs: vec![
+                CliJsonRefsSpec::new(
+                    ToolRefKind::Message,
+                    "gmail_message_id",
+                    Some("gmail_thread_id".into()),
+                    Some("subject".into()),
+                    None,
+                ),
+                CliJsonRefsSpec::new(
+                    ToolRefKind::Thread,
+                    "gmail_thread_id",
+                    None,
+                    Some("subject".into()),
+                    None,
+                ),
+            ],
+            effect: None,
+            empty_stdout_json: Some(json!({
+                "thread_id": "thread-123",
+                "subject": "Dog hotel booking"
+            })),
+        })
+        .expect("projection should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "google.mail.read",
+                "google.work",
+                ExecutionMode::Auto,
+                vec![
+                    ToolArgument::option("message-id", "msg-123").expect("argument should build"),
+                    ToolArgument::option("query", "from:doghotel").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &google_planning_target(),
+            ToolKind::Read,
+            "Read Gmail message msg-123 in google.work",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let output = projection
+            .decode(
+                &google_execution_target(),
+                &action,
+                CliResponse {
+                    program: PathBuf::from("gws"),
+                    version: "gws 0.99.0-test".into(),
+                    stdout: String::new(),
+                    stderr: String::new(),
+                },
+            )
+            .expect("projection should decode");
+
+        let fields: MessageProjectionFields = parse_output_fields(&output);
+        assert_eq!(fields.query, "from:doghotel");
+        assert_eq!(fields.message.gmail_message_id, "msg-123");
+        assert_eq!(fields.message.gmail_thread_id, "thread-123");
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].kind, ToolRefKind::Message);
+        assert_eq!(output.refs[0].parent_id.as_deref(), Some("thread-123"));
+        assert_eq!(output.refs[1].kind, ToolRefKind::Thread);
+    }
+
+    #[test]
+    fn json_projection_supports_argument_values_and_presence_fields() {
+        let projection = CliJsonProjection::new(CliJsonProjectionConfig {
+            response_field: "draft".into(),
+            source_pointer: None,
+            shape: CliJsonProjectionShape::object(vec![
+                CliJsonFieldMapping::from_pointer_with_items("draft_id", "/id", None).expect("field should build"),
+                CliJsonFieldMapping::from_argument_values("to", vec!["to".into()]).expect("field should build"),
+                CliJsonFieldMapping::from_argument_presence("has_body_text", vec!["body-text".into()])
+                    .expect("field should build"),
+            ])
+            .expect("shape should build"),
+            count_field: None,
+            extra_fields: Vec::new(),
+            summary_template: None,
+            refs: Vec::new(),
+            effect: None,
+            empty_stdout_json: None,
+        })
+        .expect("projection should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "google.mail.draft",
+                "google.work",
+                ExecutionMode::Apply,
+                vec![
+                    ToolArgument::option("to", "dogs@example.com").expect("argument should build"),
+                    ToolArgument::option("to", "frontdesk@example.com").expect("argument should build"),
+                    ToolArgument::option("body-text", "Hi there").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &google_planning_target(),
+            ToolKind::Write,
+            "Draft Gmail email to dogs@example.com, frontdesk@example.com in google.work",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let output = projection
+            .decode(
+                &google_execution_target(),
+                &action,
+                CliResponse {
+                    program: PathBuf::from("gws"),
+                    version: "gws 0.99.0-test".into(),
+                    stdout: r#"{"id":"draft-123"}"#.into(),
+                    stderr: String::new(),
+                },
+            )
+            .expect("projection should decode");
+
+        let fields: MailDraftProjectionFields = parse_output_fields(&output);
+        assert_eq!(fields.draft.draft_id, "draft-123");
+        assert_eq!(fields.draft.to, vec!["dogs@example.com", "frontdesk@example.com"]);
+        assert!(fields.draft.has_body_text);
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RepositoryProjectionFields {
+        count: usize,
+        repositories: Vec<RepositoryProjectionItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RepositoryProjectionItem {
+        full_name: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PullRequestProjectionFields {
+        pull_request: PullRequestProjectionItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PullRequestProjectionItem {
+        assignees: Vec<String>,
+        labels: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MessageProjectionFields {
+        query: String,
+        message: MessageProjectionItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MessageProjectionItem {
+        gmail_message_id: String,
+        gmail_thread_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailDraftProjectionFields {
+        draft: MailDraftProjectionItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailDraftProjectionItem {
+        draft_id: String,
+        to: Vec<String>,
+        has_body_text: bool,
+    }
+
+    fn parse_output_fields<T: for<'de> Deserialize<'de>>(output: &switchboard_core::ToolOutput) -> T {
+        serde_json::from_value(Value::Object(
             output
                 .fields
-                .get("pull_request")
-                .and_then(|pull_request| pull_request.get("assignees"))
-                .and_then(Value::as_array),
-            Some(&vec![json!("jessfraz")])
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("pull_request")
-                .and_then(|pull_request| pull_request.get("labels"))
-                .and_then(Value::as_array),
-            Some(&vec![json!("infra"), json!("tooling")])
-        );
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Map<String, Value>>(),
+        ))
+        .expect("output fields should deserialize")
     }
 
     fn planning_target() -> PlanningTarget {

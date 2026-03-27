@@ -7,23 +7,16 @@ use switchboard_core::{
 
 use crate::{
     cli::command::{
-        CliArgsStrategy, CliBinarySpec, CliBuildArgsFn, CliCapabilityProbe, CliCommandSpec, CliDecodeFn,
-        CliDecodeStrategy, CliExecutableSpec, CliSummarizeFn, CliSummarizeStrategy,
+        CliArgsStrategy, CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliDecodeStrategy, CliExecutableSpec,
+        CliSummarizeStrategy,
     },
     cli::declarative::{
-        CliArgsSegment, CliArgsTemplate, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection,
+        CliArgsSegment, CliArgsTemplate, CliComputedJsonValue, CliJsonArgumentField, CliJsonArgumentTemplate,
+        CliJsonArgumentValue, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionConfig,
         CliJsonProjectionShape, CliJsonRefsSpec, CliProjectionTemplate, CliSummaryTemplate,
     },
     inventory::{CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind},
 };
-
-#[derive(Clone, Copy)]
-pub(crate) struct CliCommandHandler {
-    pub id: &'static str,
-    pub summarize: CliSummarizeFn,
-    pub build_args: Option<CliBuildArgsFn>,
-    pub decode: Option<CliDecodeFn>,
-}
 
 pub(crate) struct CliProviderCatalog {
     tools: Vec<ToolDescriptor>,
@@ -31,11 +24,7 @@ pub(crate) struct CliProviderCatalog {
 }
 
 impl CliProviderCatalog {
-    pub(crate) fn from_embedded(
-        manifest_json: &'static str,
-        inventory: &CliInventory,
-        handlers: &'static [CliCommandHandler],
-    ) -> Result<Self> {
+    pub(crate) fn from_embedded(manifest_json: &'static str, inventory: &CliInventory) -> Result<Self> {
         let manifest: CliManifest = serde_json::from_str(manifest_json)
             .map_err(|error| Error::Config(format!("invalid CLI manifest: {error}")))?;
 
@@ -73,17 +62,12 @@ impl CliProviderCatalog {
                 )
             })
             .collect::<HashMap<_, _>>();
-        let handlers = handlers
-            .iter()
-            .map(|handler| (handler.id, handler))
-            .collect::<HashMap<_, _>>();
-
         let mut tools = Vec::new();
         let mut commands = Vec::new();
         let mut registered_names = HashSet::new();
 
         for command in manifest.commands {
-            let spec = build_manifest_command(command, manifest.provider.clone(), &binaries, &capabilities, &handlers)?;
+            let spec = build_manifest_command(command, manifest.provider.clone(), &binaries, &capabilities)?;
             registered_names.insert(spec.descriptor.name.clone());
             tools.push(spec.descriptor.clone());
             commands.push(spec);
@@ -125,7 +109,6 @@ fn build_manifest_command(
     provider: ProviderKind,
     binaries: &HashMap<String, CliBinarySpec>,
     capabilities: &HashMap<String, CliCapabilityProbe>,
-    handlers: &HashMap<&'static str, &'static CliCommandHandler>,
 ) -> Result<CliCommandSpec> {
     let tool_name = ToolName::new(&command.name)?;
     let tool_provider = tool_name.provider()?;
@@ -182,19 +165,17 @@ fn build_manifest_command(
         &descriptor.name,
         command.strategy,
         execution.as_ref().map(|(binary, _)| binary.program.as_str()),
-        handlers,
     )?;
     let executable = match execution {
         Some((binary, capability)) => Some(CliExecutableSpec {
             binary: binary.clone(),
             capability: capability.clone(),
-            args: build_manifest_args_strategy(&descriptor.name, command.args, &defaults, handlers)?,
+            args: build_manifest_args_strategy(&descriptor.name, command.args, &defaults)?,
             decode: build_manifest_decode_strategy(
                 &descriptor.name,
                 binary.program.as_str(),
                 command.decode,
                 &defaults,
-                handlers,
             )?,
         }),
         None => {
@@ -319,9 +300,6 @@ struct CliManifestCommand {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum CliManifestStrategy {
-    Handler {
-        id: String,
-    },
     SummaryTemplate {
         template: String,
     },
@@ -341,9 +319,6 @@ enum CliManifestExecution {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum CliManifestArgsStrategy {
-    Handler {
-        id: String,
-    },
     Template {
         segments: Vec<CliManifestArgsSegment>,
     },
@@ -365,6 +340,9 @@ enum CliManifestArgsSegment {
     OptionalPositional {
         aliases: Vec<String>,
     },
+    Json {
+        value: CliManifestJsonArgValue,
+    },
     Option {
         flag: String,
         aliases: Vec<String>,
@@ -372,6 +350,17 @@ enum CliManifestArgsSegment {
         repeated: bool,
         #[serde(default)]
         required: bool,
+    },
+    KeyValueOption {
+        flag: String,
+        key: String,
+        aliases: Vec<String>,
+        #[serde(default)]
+        repeated: bool,
+        #[serde(default)]
+        required: bool,
+        #[serde(default)]
+        boolish: bool,
     },
     Flag {
         flag: String,
@@ -382,9 +371,6 @@ enum CliManifestArgsSegment {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum CliManifestDecodeStrategy {
-    Handler {
-        id: String,
-    },
     JsonProjection(Box<CliManifestJsonProjection>),
     RawPassthrough {
         #[serde(default)]
@@ -409,24 +395,68 @@ struct CliManifestJsonField {
     #[serde(default)]
     arg: Option<Vec<String>>,
     #[serde(default)]
+    args: Option<Vec<String>>,
+    #[serde(default)]
+    arg_present: Option<Vec<String>>,
+    #[serde(default)]
     default: Option<String>,
     #[serde(default)]
     literal: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CliManifestJsonArgValue {
+    Literal {
+        value: serde_json::Value,
+    },
+    Argument {
+        aliases: Vec<String>,
+        #[serde(default)]
+        required: bool,
+        #[serde(default)]
+        repeated: bool,
+        #[serde(default)]
+        default: Option<serde_json::Value>,
+    },
+    Object {
+        fields: Vec<CliManifestJsonArgField>,
+    },
+    Array {
+        items: Vec<CliManifestJsonArgValue>,
+    },
+    Computed {
+        id: String,
+    },
+}
+
+#[derive(Deserialize)]
+struct CliManifestJsonArgField {
+    name: String,
+    value: CliManifestJsonArgValue,
+    #[serde(default)]
+    omit_if_null: bool,
+}
+
+#[derive(Deserialize)]
 struct CliManifestJsonProjection {
     response_field: String,
+    #[serde(default)]
+    source_pointer: Option<String>,
     shape: CliManifestJsonProjectionShape,
     fields: Vec<CliManifestJsonField>,
     #[serde(default)]
     count_field: Option<String>,
     #[serde(default)]
+    extra_fields: Vec<CliManifestJsonField>,
+    #[serde(default)]
     summary_template: Option<String>,
     #[serde(default)]
-    refs: Option<CliManifestJsonRefs>,
+    refs: Option<CliManifestJsonRefsConfig>,
     #[serde(default)]
     effect: Option<CliManifestJsonEffect>,
+    #[serde(default)]
+    empty_stdout_json: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -439,6 +469,13 @@ struct CliManifestJsonRefs {
     label_field: Option<String>,
     #[serde(default)]
     url_field: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CliManifestJsonRefsConfig {
+    One(CliManifestJsonRefs),
+    Many(Vec<CliManifestJsonRefs>),
 }
 
 #[derive(Deserialize)]
@@ -458,26 +495,17 @@ fn default_undo_support() -> ToolUndoSupport {
     ToolUndoSupport::None
 }
 
-enum CliManifestDefaultStrategies<'a> {
-    Handler(&'a CliCommandHandler),
+enum CliManifestDefaultStrategies {
     RawPassthrough { prefix: Vec<String> },
     None,
 }
 
-fn build_manifest_summarize_strategy<'a>(
+fn build_manifest_summarize_strategy(
     tool: &str,
     strategy: CliManifestStrategy,
     program: Option<&str>,
-    handlers: &'a HashMap<&'static str, &'static CliCommandHandler>,
-) -> Result<(CliSummarizeStrategy, CliManifestDefaultStrategies<'a>)> {
+) -> Result<(CliSummarizeStrategy, CliManifestDefaultStrategies)> {
     match strategy {
-        CliManifestStrategy::Handler { id } => {
-            let handler = resolve_handler(tool, &id, handlers)?;
-            Ok((
-                CliSummarizeStrategy::Handler(handler.summarize),
-                CliManifestDefaultStrategies::Handler(handler),
-            ))
-        }
         CliManifestStrategy::SummaryTemplate { template } => Ok((
             CliSummarizeStrategy::Template(CliSummaryTemplate::parse(template)?),
             CliManifestDefaultStrategies::None,
@@ -497,20 +525,9 @@ fn build_manifest_summarize_strategy<'a>(
 fn build_manifest_args_strategy(
     tool: &str,
     strategy: Option<CliManifestArgsStrategy>,
-    defaults: &CliManifestDefaultStrategies<'_>,
-    handlers: &HashMap<&'static str, &'static CliCommandHandler>,
+    defaults: &CliManifestDefaultStrategies,
 ) -> Result<CliArgsStrategy> {
     match strategy {
-        Some(CliManifestArgsStrategy::Handler { id }) => {
-            let handler = resolve_handler(tool, &id, handlers)?;
-            let build_args = handler.build_args.ok_or_else(|| {
-                Error::Config(format!(
-                    "handler {} for tool {} is missing build_args",
-                    handler.id, tool
-                ))
-            })?;
-            Ok(CliArgsStrategy::Handler(build_args))
-        }
         Some(CliManifestArgsStrategy::Template { segments }) => {
             let segments = segments
                 .into_iter()
@@ -520,15 +537,6 @@ fn build_manifest_args_strategy(
         }
         Some(CliManifestArgsStrategy::RawPassthrough { prefix }) => Ok(CliArgsStrategy::RawInventory { prefix }),
         None => match defaults {
-            CliManifestDefaultStrategies::Handler(handler) => {
-                let build_args = handler.build_args.ok_or_else(|| {
-                    Error::Config(format!(
-                        "handler {} for tool {} is missing build_args",
-                        handler.id, tool
-                    ))
-                })?;
-                Ok(CliArgsStrategy::Handler(build_args))
-            }
             CliManifestDefaultStrategies::RawPassthrough { prefix } => {
                 Ok(CliArgsStrategy::RawInventory { prefix: prefix.clone() })
             }
@@ -543,28 +551,27 @@ fn build_manifest_decode_strategy(
     tool: &str,
     program: &str,
     strategy: Option<CliManifestDecodeStrategy>,
-    defaults: &CliManifestDefaultStrategies<'_>,
-    handlers: &HashMap<&'static str, &'static CliCommandHandler>,
+    defaults: &CliManifestDefaultStrategies,
 ) -> Result<CliDecodeStrategy> {
     match strategy {
-        Some(CliManifestDecodeStrategy::Handler { id }) => {
-            let handler = resolve_handler(tool, &id, handlers)?;
-            let decode = handler
-                .decode
-                .ok_or_else(|| Error::Config(format!("handler {} for tool {} is missing decode", handler.id, tool)))?;
-            Ok(CliDecodeStrategy::Handler(decode))
-        }
         Some(CliManifestDecodeStrategy::JsonProjection(projection)) => {
             let CliManifestJsonProjection {
                 response_field,
+                source_pointer,
                 shape,
                 fields,
                 count_field,
+                extra_fields,
                 summary_template,
                 refs,
                 effect,
+                empty_stdout_json,
             } = *projection;
             let mappings = fields
+                .into_iter()
+                .map(build_manifest_json_field_mapping)
+                .collect::<Result<Vec<_>>>()?;
+            let extra_fields = extra_fields
                 .into_iter()
                 .map(build_manifest_json_field_mapping)
                 .collect::<Result<Vec<_>>>()?;
@@ -572,15 +579,7 @@ fn build_manifest_decode_strategy(
                 CliManifestJsonProjectionShape::Object => CliJsonProjectionShape::object(mappings)?,
                 CliManifestJsonProjectionShape::Array => CliJsonProjectionShape::array(mappings)?,
             };
-            let refs = refs.map(|refs| {
-                CliJsonRefsSpec::new(
-                    refs.kind,
-                    refs.id_field,
-                    refs.parent_id_field,
-                    refs.label_field,
-                    refs.url_field,
-                )
-            });
+            let refs = refs.map(build_manifest_json_refs).transpose()?.unwrap_or_default();
             let summary_template = summary_template.map(CliProjectionTemplate::parse).transpose()?;
             let effect = effect
                 .map(|effect| {
@@ -592,12 +591,17 @@ fn build_manifest_decode_strategy(
                 })
                 .transpose()?;
             Ok(CliDecodeStrategy::JsonProjection(CliJsonProjection::new(
-                response_field,
-                shape,
-                count_field,
-                summary_template,
-                refs,
-                effect,
+                CliJsonProjectionConfig {
+                    response_field,
+                    source_pointer,
+                    shape,
+                    count_field,
+                    extra_fields,
+                    summary_template,
+                    refs,
+                    effect,
+                    empty_stdout_json,
+                },
             )?))
         }
         Some(CliManifestDecodeStrategy::RawPassthrough { prefix }) => Ok(CliDecodeStrategy::RawInventory {
@@ -605,12 +609,6 @@ fn build_manifest_decode_strategy(
             prefix,
         }),
         None => match defaults {
-            CliManifestDefaultStrategies::Handler(handler) => {
-                let decode = handler.decode.ok_or_else(|| {
-                    Error::Config(format!("handler {} for tool {} is missing decode", handler.id, tool))
-                })?;
-                Ok(CliDecodeStrategy::Handler(decode))
-            }
             CliManifestDefaultStrategies::RawPassthrough { prefix } => Ok(CliDecodeStrategy::RawInventory {
                 program: program.to_owned(),
                 prefix: prefix.clone(),
@@ -627,14 +625,89 @@ fn build_manifest_args_segment(segment: CliManifestArgsSegment) -> Result<CliArg
         CliManifestArgsSegment::Literal { value } => CliArgsSegment::literal(value),
         CliManifestArgsSegment::RequiredPositional { aliases } => CliArgsSegment::required_positional(aliases),
         CliManifestArgsSegment::OptionalPositional { aliases } => CliArgsSegment::optional_positional(aliases),
+        CliManifestArgsSegment::Json { value } => Ok(CliArgsSegment::json(CliJsonArgumentTemplate::new(
+            build_manifest_json_arg_value(value)?,
+        ))),
         CliManifestArgsSegment::Option {
             flag,
             aliases,
             repeated,
             required,
         } => CliArgsSegment::option(flag, aliases, repeated, required),
+        CliManifestArgsSegment::KeyValueOption {
+            flag,
+            key,
+            aliases,
+            repeated,
+            required,
+            boolish,
+        } => CliArgsSegment::key_value_option(flag, key, aliases, repeated, required, boolish),
         CliManifestArgsSegment::Flag { flag, aliases } => CliArgsSegment::flag(flag, aliases),
     }
+}
+
+fn build_manifest_json_arg_value(value: CliManifestJsonArgValue) -> Result<CliJsonArgumentValue> {
+    match value {
+        CliManifestJsonArgValue::Literal { value } => Ok(CliJsonArgumentValue::Literal(value)),
+        CliManifestJsonArgValue::Argument {
+            aliases,
+            required,
+            repeated,
+            default,
+        } => Ok(CliJsonArgumentValue::Argument {
+            aliases: validate_manifest_aliases("json argument source", aliases)?,
+            required,
+            repeated,
+            default,
+        }),
+        CliManifestJsonArgValue::Object { fields } => Ok(CliJsonArgumentValue::Object {
+            fields: fields
+                .into_iter()
+                .map(|field| {
+                    CliJsonArgumentField::new(
+                        field.name,
+                        build_manifest_json_arg_value(field.value)?,
+                        field.omit_if_null,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?,
+        }),
+        CliManifestJsonArgValue::Array { items } => Ok(CliJsonArgumentValue::Array {
+            items: items
+                .into_iter()
+                .map(build_manifest_json_arg_value)
+                .collect::<Result<Vec<_>>>()?,
+        }),
+        CliManifestJsonArgValue::Computed { id } => {
+            Ok(CliJsonArgumentValue::Computed(build_manifest_computed_json_value(&id)?))
+        }
+    }
+}
+
+fn build_manifest_computed_json_value(id: &str) -> Result<CliComputedJsonValue> {
+    match id {
+        "gmail_raw_message" => Ok(CliComputedJsonValue::GmailRawMessage),
+        _ => Err(Error::Config(format!("unknown computed json value {id}"))),
+    }
+}
+
+fn build_manifest_json_refs(config: CliManifestJsonRefsConfig) -> Result<Vec<CliJsonRefsSpec>> {
+    let refs = match config {
+        CliManifestJsonRefsConfig::One(refs) => vec![refs],
+        CliManifestJsonRefsConfig::Many(refs) => refs,
+    };
+
+    refs.into_iter()
+        .map(|refs| {
+            Ok(CliJsonRefsSpec::new(
+                refs.kind,
+                refs.id_field,
+                refs.parent_id_field,
+                refs.label_field,
+                refs.url_field,
+            ))
+        })
+        .collect()
 }
 
 fn build_manifest_json_field_mapping(field: CliManifestJsonField) -> Result<CliJsonFieldMapping> {
@@ -643,39 +716,64 @@ fn build_manifest_json_field_mapping(field: CliManifestJsonField) -> Result<CliJ
         pointer,
         item_pointer,
         arg,
+        args,
+        arg_present,
         default,
         literal,
     } = field;
 
-    match (pointer, item_pointer, arg, literal) {
-        (Some(pointer), item_pointer, None, None) => {
-            CliJsonFieldMapping::from_pointer_with_items(name, pointer, item_pointer)
-        }
-        (None, None, Some(aliases), None) => CliJsonFieldMapping::from_argument(name, aliases, default),
-        (None, None, None, Some(value)) => {
-            if default.is_some() {
-                return Err(Error::Config(format!(
-                    "json projection field {name} cannot define both literal and default"
-                )));
-            }
-            CliJsonFieldMapping::from_literal(name, value)
-        }
-        (None, None, None, None) => Err(Error::Config(format!(
-            "json projection field {name} must define exactly one of pointer, arg, or literal"
-        ))),
-        _ => Err(Error::Config(format!(
-            "json projection field {name} mixes incompatible source definitions"
-        ))),
+    let source_count = usize::from(pointer.is_some())
+        + usize::from(arg.is_some())
+        + usize::from(args.is_some())
+        + usize::from(arg_present.is_some())
+        + usize::from(literal.is_some());
+    if source_count != 1 {
+        return Err(Error::Config(format!(
+            "json projection field {name} must define exactly one source"
+        )));
     }
+
+    if item_pointer.is_some() && pointer.is_none() {
+        return Err(Error::Config(format!(
+            "json projection field {name} cannot define item_pointer without pointer"
+        )));
+    }
+    if default.is_some() && arg.is_none() {
+        return Err(Error::Config(format!(
+            "json projection field {name} can only define default with arg"
+        )));
+    }
+
+    if let Some(pointer) = pointer {
+        return CliJsonFieldMapping::from_pointer_with_items(name, pointer, item_pointer);
+    }
+    if let Some(aliases) = arg {
+        return CliJsonFieldMapping::from_argument(name, aliases, default);
+    }
+    if let Some(aliases) = args {
+        return CliJsonFieldMapping::from_argument_values(name, aliases);
+    }
+    if let Some(aliases) = arg_present {
+        return CliJsonFieldMapping::from_argument_presence(name, aliases);
+    }
+    if let Some(value) = literal {
+        return CliJsonFieldMapping::from_literal(name, value);
+    }
+
+    Err(Error::Config(format!(
+        "json projection field {name} must define exactly one source"
+    )))
 }
 
-fn resolve_handler<'a>(
-    tool: &str,
-    id: &str,
-    handlers: &'a HashMap<&'static str, &'static CliCommandHandler>,
-) -> Result<&'a CliCommandHandler> {
-    handlers
-        .get(id)
-        .copied()
-        .ok_or_else(|| Error::Config(format!("manifest command {tool} references unknown handler {id}")))
+fn validate_manifest_aliases(context: &str, aliases: Vec<String>) -> Result<Vec<String>> {
+    let aliases = aliases
+        .into_iter()
+        .map(|alias| alias.trim().to_owned())
+        .filter(|alias| !alias.is_empty())
+        .collect::<Vec<_>>();
+    if aliases.is_empty() {
+        return Err(Error::Config(format!("{context} must name at least one argument")));
+    }
+
+    Ok(aliases)
 }

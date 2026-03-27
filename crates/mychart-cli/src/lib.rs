@@ -43,9 +43,10 @@ const AFTER_HELP: &str = concat!(
     "  mychart connect ucla medical center\n",
     "  mychart auth login --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback --scope patient/*.read\n",
-    "  mychart auth login --dynamic-client --scope offline_access --scope patient/*.read\n",
+    "  mychart auth login --dynamic-client --scope patient/*.read\n",
     "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
+    "  mychart auth exchange-url 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'\n",
     "  mychart timeline --limit 25\n",
     "  mychart labs a1c ferritin tsh --spark\n",
     "  mychart appointments upcoming --limit 5\n",
@@ -1282,6 +1283,64 @@ mod tests {
     }
 
     #[test]
+    fn exchange_url_parses_callback_and_stores_tokens_for_api_use() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-exchange-url");
+        let config_path = temp_dir.join("config.json");
+        let redirect_uri = "https://jessfraz.github.io/switchboard/mychart-callback/";
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("client-123".into()),
+                redirect_uri: Some(redirect_uri.into()),
+                pending_oauth_state: Some("test-state".into()),
+                pending_code_verifier: Some("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "auth",
+            "exchange-url",
+            "https://jessfraz.github.io/switchboard/mychart-callback/?code=oauth-code&state=test-state",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("access-token"));
+        assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
+
+        let requests = server.requests();
+        let token_request = requests.get(1).expect("token request should be captured");
+        assert!(token_request.contains(
+            "redirect_uri=https%3A%2F%2Fjessfraz.github.io%2Fswitchboard%2Fmychart-callback%2F"
+        ));
+    }
+
+    #[test]
     fn exchange_code_uses_basic_auth_for_confidential_clients() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
@@ -1526,7 +1585,7 @@ mod tests {
                 json!({
                     "access_token": "initial-access-token",
                     "token_type": "Bearer",
-                    "scope": "patient/*.read offline_access",
+                    "scope": "patient/*.read",
                     "patient": "patient-123",
                     "expires_in": 3600
                 }),
@@ -1549,7 +1608,7 @@ mod tests {
                 json!({
                     "access_token": "persistent-access-token",
                     "token_type": "Bearer",
-                    "scope": "patient/*.read offline_access",
+                    "scope": "patient/*.read",
                     "patient": "patient-123",
                     "expires_in": 3600
                 }),
@@ -1586,8 +1645,6 @@ mod tests {
                 "--no-open",
                 "--scope",
                 "patient/*.read",
-                "--scope",
-                "offline_access",
                 "--state",
                 "test-state",
                 "--code-verifier",
@@ -1800,19 +1857,15 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
-            "mychart",
-            "--config",
-            config_path.to_str().expect("config path should be utf-8"),
-            "--compact",
-            "connect",
-            "ucla",
-            "medical",
-            "center",
-        ]);
+        let mut context = resolved_context(&config_path);
+        let output = crate::commands::connect::run_resolve_output(
+            vec!["ucla".into(), "medical".into(), "center".into()],
+            &mut context,
+        )
+        .expect("connect resolve should succeed");
 
-        assert_eq!(output["status"], "connected");
-        assert_eq!(output["selected_account"], "ucla-medical-center");
+        assert_eq!(output.status, "connected");
+        assert_eq!(output.selected_account.as_deref(), Some("ucla-medical-center"));
 
         let state = StateStore::new(config_path).load().expect("state should load");
         assert_eq!(state.current_account.as_deref(), Some("ucla-medical-center"));
@@ -1874,17 +1927,12 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
-            "mychart",
-            "--config",
-            config_path.to_str().expect("config path should be utf-8"),
-            "--compact",
-            "connect",
-            "ucla",
-        ]);
+        let mut context = resolved_context(&config_path);
+        let output = crate::commands::connect::run_resolve_output(vec!["ucla".into()], &mut context)
+            .expect("connect resolve should succeed");
 
-        assert_eq!(output["status"], "ambiguous");
-        assert_eq!(output["matches"].as_array().map(Vec::len), Some(2));
+        assert_eq!(output.status, "ambiguous");
+        assert_eq!(output.matches.len(), 2);
     }
 
     #[test]
@@ -1908,21 +1956,23 @@ mod tests {
             })
             .expect("state should save");
 
-        let output = run_command(&[
-            "mychart",
-            "--config",
-            config_path.to_str().expect("config path should be utf-8"),
-            "--compact",
-            "connect",
-            "add",
-            "--name",
-            "epic-sandbox",
-            "--base-url",
-            "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4",
-            "--clear-client-secret",
-        ]);
+        let mut context = resolved_context(&config_path);
+        let output = crate::commands::connect::run_add_output(
+            crate::commands::connect::ConnectAddArgs {
+                name: "epic-sandbox".into(),
+                base_url: "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4".into(),
+                portal_base_url: None,
+                client_id: None,
+                client_secret: None,
+                clear_client_secret: true,
+                redirect_uri: None,
+                no_use: false,
+            },
+            &mut context,
+        )
+        .expect("connect add should succeed");
 
-        assert_eq!(output["status"], "connected");
+        assert_eq!(output.status, "connected");
         let state = StateStore::new(config_path).load().expect("state should load");
         let account = state
             .accounts

@@ -8,8 +8,8 @@ mod probe;
 mod runtime;
 
 pub(crate) use crate::cli::{
-    command::{CliCommandSpec, CliResponse},
-    manifest::{CliCommandHandler, CliProviderCatalog},
+    command::CliCommandSpec,
+    manifest::CliProviderCatalog,
     runtime::{CliProviderBackend, CliRuntimeMaterializer},
 };
 

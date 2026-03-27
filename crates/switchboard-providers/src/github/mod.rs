@@ -1,4 +1,3 @@
-mod commands;
 mod materializer;
 
 use std::sync::OnceLock;
@@ -10,7 +9,7 @@ use switchboard_core::{
 
 use crate::{
     cli::{CliProviderBackend, CliProviderCatalog},
-    github::{commands::HANDLERS, materializer::DefaultGitHubCliMaterializer},
+    github::materializer::DefaultGitHubCliMaterializer,
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/github.json"));
@@ -32,7 +31,7 @@ impl GitHubAdapter {
     fn catalog() -> &'static CliProviderCatalog {
         CATALOG.get_or_init(|| {
             let inventory = embedded_inventory(ProviderKind::GitHub).expect("github inventory should be valid");
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory, HANDLERS)
+            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)
                 .expect("github provider manifest should be valid")
         })
     }
@@ -105,7 +104,8 @@ impl Adapter for GitHubAdapter {
 mod tests {
     use std::{env, path::PathBuf};
 
-    use serde_json::Value;
+    use serde::Deserialize;
+    use serde_json::{Map, Value};
     use switchboard_core::{
         Adapter, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
         ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest,
@@ -171,21 +171,13 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: NotificationsFields = parse_output_fields(&output);
 
         assert_eq!(output.summary, "Listed 2 GitHub notifications for github.personal");
-        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(fields.count, 2);
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Notification);
-        assert_eq!(
-            output
-                .fields
-                .get("notifications")
-                .and_then(Value::as_array)
-                .and_then(|notifications| notifications.first())
-                .and_then(|notification| notification.get("repository"))
-                .and_then(Value::as_str),
-            Some("KittyCAD/modeling-app")
-        );
+        assert_eq!(fields.notifications[0].repository, "KittyCAD/modeling-app");
 
         let captured = script.capture_contents();
         assert!(captured.contains("GH_CONFIG_DIR=/tmp/gh-personal"));
@@ -222,22 +214,14 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: PullRequestSearchFields = parse_output_fields(&output);
 
         assert_eq!(output.summary, "Found 2 GitHub pull requests for github.personal");
-        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(fields.count, 2);
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::PullRequest);
         assert_eq!(output.refs[0].parent_id.as_deref(), Some("openai/codex"));
-        assert_eq!(
-            output
-                .fields
-                .get("pull_requests")
-                .and_then(Value::as_array)
-                .and_then(|pull_requests| pull_requests.first())
-                .and_then(|pull_request| pull_request.get("repository"))
-                .and_then(Value::as_str),
-            Some("openai/codex")
-        );
+        assert_eq!(fields.pull_requests[0].repository, "openai/codex");
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=search prs is:open review-requested:@me --json"));
@@ -272,6 +256,7 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: PullRequestReadFields = parse_output_fields(&output);
 
         assert_eq!(
             output.summary,
@@ -280,33 +265,9 @@ mod tests {
         assert_eq!(output.refs.len(), 1);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::PullRequest);
         assert_eq!(output.refs[0].parent_id.as_deref(), Some("openai/codex"));
-        assert_eq!(
-            output
-                .fields
-                .get("pull_request")
-                .and_then(|pull_request| pull_request.get("number"))
-                .and_then(Value::as_u64),
-            Some(1382)
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("pull_request")
-                .and_then(|pull_request| pull_request.get("assignees"))
-                .and_then(Value::as_array)
-                .and_then(|assignees| assignees.first())
-                .and_then(Value::as_str),
-            Some("jessfraz")
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("pull_request")
-                .and_then(|pull_request| pull_request.get("labels"))
-                .and_then(Value::as_array)
-                .map(Vec::len),
-            Some(2)
-        );
+        assert_eq!(fields.pull_request.number, 1382);
+        assert_eq!(fields.pull_request.assignees[0], "jessfraz");
+        assert_eq!(fields.pull_request.labels.len(), 2);
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=pr view 1382 --repo openai/codex --json"));
@@ -337,6 +298,7 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: IssueReadFields = parse_output_fields(&output);
 
         assert_eq!(
             output.summary,
@@ -345,24 +307,8 @@ mod tests {
         assert_eq!(output.refs.len(), 1);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Issue);
         assert_eq!(output.refs[0].parent_id.as_deref(), Some("openai/codex"));
-        assert_eq!(
-            output
-                .fields
-                .get("issue")
-                .and_then(|issue| issue.get("number"))
-                .and_then(Value::as_u64),
-            Some(77)
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("issue")
-                .and_then(|issue| issue.get("labels"))
-                .and_then(Value::as_array)
-                .and_then(|labels| labels.first())
-                .and_then(Value::as_str),
-            Some("enhancement")
-        );
+        assert_eq!(fields.issue.number, 77);
+        assert_eq!(fields.issue.labels[0], "enhancement");
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=issue view 77 --repo openai/codex --json"));
@@ -394,24 +340,10 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: RawRepositoryViewFields = parse_output_fields(&output);
 
-        assert_eq!(
-            output
-                .fields
-                .get("response")
-                .and_then(|response| response.get("name"))
-                .and_then(Value::as_str),
-            Some("codex")
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("response")
-                .and_then(|response| response.get("owner"))
-                .and_then(|owner| owner.get("login"))
-                .and_then(Value::as_str),
-            Some("openai")
-        );
+        assert_eq!(fields.response.name, "codex");
+        assert_eq!(fields.response.owner.login, "openai");
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=repo view openai/codex --json name,owner,isPrivate"));
@@ -443,14 +375,11 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: RawPullRequestViewFields = parse_output_fields(&output);
 
         assert_eq!(
-            output
-                .fields
-                .get("response")
-                .and_then(|response| response.get("title"))
-                .and_then(Value::as_str),
-            Some("Tighten agenda aggregation for personal + work calendars")
+            fields.response.title,
+            "Tighten agenda aggregation for personal + work calendars"
         );
 
         let captured = script.capture_contents();
@@ -485,22 +414,14 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: RepositorySearchFields = parse_output_fields(&output);
 
         assert_eq!(output.summary, "Found 2 GitHub repositories for github.personal");
-        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(fields.count, 2);
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Repository);
         assert_eq!(output.refs[0].id, "jessfraz/switchboard");
-        assert_eq!(
-            output
-                .fields
-                .get("repositories")
-                .and_then(Value::as_array)
-                .and_then(|repositories| repositories.first())
-                .and_then(|repository| repository.get("owner"))
-                .and_then(Value::as_str),
-            Some("jessfraz")
-        );
+        assert_eq!(fields.repositories[0].owner, "jessfraz");
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=search repos switchboard --json"));
@@ -559,6 +480,99 @@ mod tests {
             .expect("tool should exist");
         assert_eq!(inventory_raw.surface, ToolSurface::Raw);
         assert_eq!(inventory_raw.execution_support, ToolExecutionSupport::Executable);
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct NotificationsFields {
+        count: usize,
+        notifications: Vec<NotificationItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct NotificationItem {
+        repository: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PullRequestSearchFields {
+        count: usize,
+        pull_requests: Vec<PullRequestSearchItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PullRequestSearchItem {
+        repository: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PullRequestReadFields {
+        pull_request: PullRequestReadItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PullRequestReadItem {
+        number: u64,
+        assignees: Vec<String>,
+        labels: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct IssueReadFields {
+        issue: IssueReadItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct IssueReadItem {
+        number: u64,
+        labels: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawRepositoryViewFields {
+        response: RawRepositoryView,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawRepositoryView {
+        name: String,
+        owner: RawRepositoryOwner,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawRepositoryOwner {
+        login: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawPullRequestViewFields {
+        response: RawPullRequestView,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawPullRequestView {
+        title: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RepositorySearchFields {
+        count: usize,
+        repositories: Vec<RepositorySearchItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RepositorySearchItem {
+        owner: String,
+    }
+
+    fn parse_output_fields<T: for<'de> Deserialize<'de>>(output: &switchboard_core::ToolOutput) -> T {
+        serde_json::from_value(Value::Object(
+            output
+                .fields
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Map<String, Value>>(),
+        ))
+        .expect("output fields should deserialize")
     }
 
     fn render_github_script() -> String {

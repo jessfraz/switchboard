@@ -35,6 +35,8 @@ pub(crate) enum AuthSubcommand {
     AuthorizeUrl(AuthAuthorizeUrlArgs),
     #[command(name = "exchange-code")]
     ExchangeCode(AuthExchangeCodeArgs),
+    #[command(name = "exchange-url")]
+    ExchangeUrl(AuthExchangeUrlArgs),
     Refresh(AuthRefreshArgs),
     Status,
     Logout,
@@ -95,6 +97,14 @@ pub(crate) struct AuthExchangeCodeArgs {
 }
 
 #[derive(Debug, Args)]
+pub(crate) struct AuthExchangeUrlArgs {
+    callback_url: String,
+
+    #[arg(long)]
+    no_store: bool,
+}
+
+#[derive(Debug, Args)]
 pub(crate) struct AuthRefreshArgs {
     #[arg(long)]
     refresh_token: Option<String>,
@@ -135,6 +145,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
         AuthSubcommand::ExchangeCode(args) => {
             exchange_code(context, args.code, args.redirect_uri, args.code_verifier, args.no_store)
         }
+        AuthSubcommand::ExchangeUrl(args) => exchange_url(context, args.callback_url, args.no_store),
         AuthSubcommand::Refresh(args) => {
             if args.refresh_token.is_none() && context.dynamic_client().is_some() {
                 return refresh_with_dynamic_client(context, args.no_store);
@@ -240,17 +251,16 @@ struct TokenExchangeResult {
 }
 
 fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value> {
+    let mut options = args.options.clone();
+    if args.dynamic_client {
+        options.scopes.retain(|scope| scope != "offline_access");
+    }
     let token_auth = if args.dynamic_client {
         TokenExchangeAuth::ForcePublic
     } else {
         TokenExchangeAuth::StoredClientStrategy
     };
-    let prepared = prepare_authorization(context, args.options, true, token_auth)?;
-    if args.dynamic_client && !prepared.scopes.iter().any(|scope| scope == "offline_access") {
-        return Err(Error::Arguments(
-            "auth login --dynamic-client requires the offline_access scope so Epic can grant persistent access".into(),
-        ));
-    }
+    let prepared = prepare_authorization(context, options, true, token_auth)?;
     let redirect_uri = Url::parse(&prepared.redirect_uri)
         .map_err(|error| Error::Config(format!("invalid redirect URI {:?}: {error}", prepared.redirect_uri)))?;
     let bind_address = loopback_bind_address(&redirect_uri)?;
@@ -322,11 +332,15 @@ fn prepare_authorization(
         Some(verifier) => ensure_code_verifier(verifier)?,
         None => ensure_code_verifier(generate_nonce(48)?)?,
     };
-    let scopes = if options.scopes.is_empty() {
+    let mut scopes = if options.scopes.is_empty() {
         default_patient_scopes()
     } else {
-        dedupe_preserving_order(options.scopes)
+        options.scopes
     };
+    if matches!(token_auth, TokenExchangeAuth::ForcePublic) {
+        scopes.retain(|scope| scope != "offline_access");
+    }
+    let scopes = dedupe_preserving_order(scopes);
     let authorize_url = build_authorize_url(
         &authorize_endpoint,
         &client_id,
@@ -428,6 +442,95 @@ fn exchange_code(
         "refresh_token_available": refresh_token.is_some(),
         "stored": !no_store,
     }))
+}
+
+fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: bool) -> Result<Value> {
+    let parsed_url = Url::parse(&callback_url).map_err(|error| {
+        Error::Arguments(format!(
+            "callback URL must be an absolute URL copied from the browser redirect: {error}"
+        ))
+    })?;
+    let redirect_uri = context.require_redirect_uri(None)?;
+    let expected_redirect_uri = Url::parse(&redirect_uri).map_err(|error| {
+        Error::Config(format!("invalid stored redirect URI {:?}: {error}", redirect_uri))
+    })?;
+    let mut normalized_callback = parsed_url.clone();
+    normalized_callback.set_query(None);
+    normalized_callback.set_fragment(None);
+    let mut normalized_expected = expected_redirect_uri.clone();
+    normalized_expected.set_query(None);
+    normalized_expected.set_fragment(None);
+    if normalized_callback != normalized_expected {
+        return Err(Error::Auth {
+            message: "OAuth callback URL did not match the configured redirect URI".into(),
+            details: json!({
+                "expected_redirect_uri": normalized_expected.as_str(),
+                "received_callback_url": normalized_callback.as_str(),
+            }),
+        });
+    }
+
+    let params = parsed_url.query_pairs().collect::<Vec<_>>();
+    if let Some(error) = params
+        .iter()
+        .find(|(key, _)| key == "error")
+        .map(|(_, value)| value.to_string())
+    {
+        let error_description = params
+            .iter()
+            .find(|(key, _)| key == "error_description")
+            .map(|(_, value)| value.to_string());
+        return Err(Error::Auth {
+            message: format!("OAuth authorization failed with error {error}"),
+            details: json!({
+                "error": error,
+                "error_description": error_description,
+                "callback_url": parsed_url.as_str(),
+            }),
+        });
+    }
+
+    let returned_state = params
+        .iter()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string())
+        .ok_or_else(|| Error::Auth {
+            message: "OAuth callback URL was missing the state parameter".into(),
+            details: json!({
+                "callback_url": parsed_url.as_str(),
+            }),
+        })?;
+    let expected_state = context.pending_oauth_state.clone().ok_or_else(|| {
+        Error::Config("missing pending OAuth state, run mychart auth authorize-url first".into())
+    })?;
+    if returned_state != expected_state {
+        return Err(Error::Auth {
+            message: "OAuth callback state mismatch".into(),
+            details: json!({
+                "expected_state": expected_state,
+                "received_state": returned_state,
+            }),
+        });
+    }
+
+    let code = params
+        .iter()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.to_string())
+        .ok_or_else(|| Error::Auth {
+            message: "OAuth callback URL was missing the authorization code".into(),
+            details: json!({
+                "callback_url": parsed_url.as_str(),
+            }),
+        })?;
+
+    exchange_code(
+        context,
+        code,
+        Some(normalized_expected.to_string()),
+        None,
+        no_store,
+    )
 }
 
 fn login_with_dynamic_client(
@@ -851,7 +954,7 @@ fn loopback_bind_address(redirect_uri: &Url) -> Result<String> {
         .ok_or_else(|| Error::Arguments("auth login requires a redirect URI with an explicit host".into()))?;
     if host != "127.0.0.1" && host != "localhost" {
         return Err(Error::Arguments(
-            "auth login currently requires a loopback redirect URI like http://127.0.0.1:8910/callback".into(),
+            "auth login currently requires a loopback redirect URI like http://127.0.0.1:8910/callback, use auth authorize-url plus auth exchange-url for hosted HTTPS callbacks".into(),
         ));
     }
     let port = redirect_uri

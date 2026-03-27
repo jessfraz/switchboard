@@ -45,7 +45,7 @@ pub(crate) struct DiscoveryBrand {
     pub(crate) facilities: Vec<DiscoveryFacility>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub(crate) struct DiscoveryFacility {
     pub(crate) name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

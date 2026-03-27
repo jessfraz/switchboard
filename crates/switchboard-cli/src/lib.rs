@@ -1941,17 +1941,12 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct GoogleCalendarDeleteFields {
         event: GoogleCalendarDeleteEvent,
-        response: GoogleCalendarDeleteResponse,
     }
 
     #[derive(Debug, Deserialize)]
     struct GoogleCalendarDeleteEvent {
         event_id: String,
         calendar: String,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct GoogleCalendarDeleteResponse {
         status: String,
     }
 
@@ -2032,8 +2027,24 @@ mod tests {
         labels: Vec<String>,
     }
 
+    #[derive(Debug, Deserialize)]
+    struct StubStatusFields {
+        status: String,
+    }
+
     fn parse_json<T: DeserializeOwned>(output: &str) -> T {
         serde_json::from_str(output).expect("output should be valid json")
+    }
+
+    fn parse_output_fields<T: DeserializeOwned>(output: &switchboard_core::ToolOutput) -> T {
+        serde_json::from_value(serde_json::Value::Object(
+            output
+                .fields
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        ))
+        .expect("tool output fields should deserialize")
     }
 
     #[test]
@@ -2628,7 +2639,7 @@ mod tests {
         assert_ne!(compensating_operation_id, original_operation_id);
         assert_eq!(undo_value.fields.event.calendar, "primary");
         assert_eq!(undo_value.fields.event.event_id, "event-1960budgetwork");
-        assert_eq!(undo_value.fields.response.status, "deleted");
+        assert_eq!(undo_value.fields.event.status, "deleted");
 
         let original_show = Cli::try_parse_from([
             "switchboard",
@@ -2946,10 +2957,8 @@ mod tests {
         let outcome = switchboard.dispatch(request).expect("dispatch should succeed");
         match outcome {
             DispatchOutcome::Executed(output) => {
-                assert_eq!(
-                    output.fields.get("status").and_then(serde_json::Value::as_str),
-                    Some("stub")
-                );
+                let fields: StubStatusFields = parse_output_fields(&output);
+                assert_eq!(fields.status, "stub");
             }
             DispatchOutcome::Planned(_) => {
                 panic!("read requests should execute by default");

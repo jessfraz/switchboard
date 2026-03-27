@@ -26,7 +26,7 @@ pub(crate) const ENV_MYCHART_REFRESH_TOKEN: &str = "MYCHART_REFRESH_TOKEN";
 pub(crate) const ENV_MYCHART_USERNAME: &str = "MYCHART_USERNAME";
 pub(crate) const ENV_MYCHART_DEBUG_AUTH: &str = "MYCHART_DEBUG_AUTH";
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub(crate) struct AccountDiscoveryState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) query: Option<String>,

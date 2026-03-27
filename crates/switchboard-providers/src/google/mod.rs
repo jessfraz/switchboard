@@ -1,4 +1,3 @@
-mod commands;
 mod materializer;
 
 use std::sync::OnceLock;
@@ -10,7 +9,7 @@ use switchboard_core::{
 
 use crate::{
     cli::{CliProviderBackend, CliProviderCatalog},
-    google::{commands::HANDLERS, materializer::DefaultGoogleWorkspaceCliMaterializer},
+    google::materializer::DefaultGoogleWorkspaceCliMaterializer,
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
@@ -33,7 +32,7 @@ impl GoogleWorkspaceAdapter {
         CATALOG.get_or_init(|| {
             let inventory =
                 embedded_inventory(ProviderKind::GoogleWorkspace).expect("google inventory should be valid");
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory, HANDLERS)
+            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)
                 .expect("google provider manifest should be valid")
         })
     }
@@ -138,7 +137,8 @@ impl Adapter for GoogleWorkspaceAdapter {
 mod tests {
     use std::{env, path::PathBuf};
 
-    use serde_json::Value;
+    use serde::Deserialize;
+    use serde_json::{Map, Value};
     use switchboard_core::{
         Adapter, ApprovalState, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationApproval,
         PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument,
@@ -204,19 +204,11 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: CalendarListFields = parse_output_fields(&output);
 
         assert_eq!(output.summary, "Listed 2 calendar events for google.work");
-        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
-        assert_eq!(
-            output
-                .fields
-                .get("events")
-                .and_then(Value::as_array)
-                .and_then(|events| events.first())
-                .and_then(|event| event.get("title"))
-                .and_then(Value::as_str),
-            Some("Standup")
-        );
+        assert_eq!(fields.count, 2);
+        assert_eq!(fields.events[0].title, "Standup");
 
         let captured = script.capture_contents();
         assert!(captured.contains("CONFIG_DIR=/tmp/gws-work"));
@@ -253,22 +245,14 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: MailSearchFields = parse_output_fields(&output);
 
         assert_eq!(output.summary, "Found 2 Gmail messages for google.work");
-        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(fields.count, 2);
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].id, "1960abc123work");
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Message);
-        assert_eq!(
-            output
-                .fields
-                .get("messages")
-                .and_then(Value::as_array)
-                .and_then(|messages| messages.first())
-                .and_then(|message| message.get("gmail_message_id"))
-                .and_then(Value::as_str),
-            Some("1960abc123work")
-        );
+        assert_eq!(fields.messages[0].gmail_message_id, "1960abc123work");
 
         let captured = script.capture_contents();
         assert!(
@@ -298,26 +282,13 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: MailReadFields = parse_output_fields(&output);
 
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].id, "1960abc456work");
         assert_eq!(output.refs[1].id, "1960thread123work");
-        assert_eq!(
-            output
-                .fields
-                .get("message")
-                .and_then(|message| message.get("gmail_message_id"))
-                .and_then(Value::as_str),
-            Some("1960abc456work")
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("message")
-                .and_then(|message| message.get("rfc_message_id"))
-                .and_then(Value::as_str),
-            Some("<booking-2026-03-26@doghotel.example>")
-        );
+        assert_eq!(fields.message.gmail_message_id, "1960abc456work");
+        assert_eq!(fields.message.rfc_message_id, "<booking-2026-03-26@doghotel.example>");
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=gmail +read --id 1960abc456work --format json"));
@@ -351,27 +322,14 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: MailDraftFields = parse_output_fields(&output);
 
         assert_eq!(
             output.summary,
             "Drafted Gmail message \"Boarding request\" for google.work"
         );
-        assert_eq!(
-            output
-                .fields
-                .get("draft")
-                .and_then(|draft| draft.get("draft_id"))
-                .and_then(Value::as_str),
-            Some("draft-1960work")
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("draft")
-                .and_then(|draft| draft.get("gmail_message_id"))
-                .and_then(Value::as_str),
-            Some("1960draftmsgwork")
-        );
+        assert_eq!(fields.draft.draft_id, "draft-1960work");
+        assert_eq!(fields.draft.gmail_message_id, "1960draftmsgwork");
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Message);
         assert_eq!(output.refs[1].kind, switchboard_core::ToolRefKind::Thread);
@@ -415,19 +373,13 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: CalendarCreateFields = parse_output_fields(&output);
 
         assert_eq!(
             output.summary,
             "Created calendar event \"Budget review\" for google.work"
         );
-        assert_eq!(
-            output
-                .fields
-                .get("event")
-                .and_then(|event| event.get("event_id"))
-                .and_then(Value::as_str),
-            Some("event-1960budgetwork")
-        );
+        assert_eq!(fields.event.event_id, "event-1960budgetwork");
         assert_eq!(output.refs.len(), 1);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Event);
         assert_eq!(output.refs[0].id, "event-1960budgetwork");
@@ -481,23 +433,10 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: RawDraftResponseFields = parse_output_fields(&output);
 
-        assert_eq!(
-            output
-                .fields
-                .get("response")
-                .and_then(|response| response.get("id"))
-                .and_then(Value::as_str),
-            Some("draft-1960work")
-        );
-        assert_eq!(
-            output
-                .fields
-                .get("argv")
-                .and_then(Value::as_array)
-                .map(|argv| argv.len()),
-            Some(10)
-        );
+        assert_eq!(fields.response.id, "draft-1960work");
+        assert_eq!(fields.argv.len(), 10);
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=gmail users drafts create --params {\"userId\":\"me\"}"));
@@ -530,15 +469,9 @@ mod tests {
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
+        let fields: RawResponseCountFields = parse_output_fields(&output);
 
-        assert_eq!(
-            output
-                .fields
-                .get("response")
-                .and_then(|response| response.get("count"))
-                .and_then(Value::as_u64),
-            Some(2)
-        );
+        assert_eq!(fields.response.count, 2);
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=calendar +agenda --format json --today"));
@@ -640,6 +573,92 @@ mod tests {
             .expect("tool should exist");
         assert_eq!(inventory_raw.surface, ToolSurface::Raw);
         assert_eq!(inventory_raw.execution_support, ToolExecutionSupport::Executable);
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CalendarListFields {
+        count: usize,
+        events: Vec<CalendarListEvent>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CalendarListEvent {
+        title: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailSearchFields {
+        count: usize,
+        messages: Vec<MailSearchMessage>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailSearchMessage {
+        gmail_message_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailReadFields {
+        message: MailReadMessage,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailReadMessage {
+        gmail_message_id: String,
+        rfc_message_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailDraftFields {
+        draft: MailDraftDetails,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MailDraftDetails {
+        draft_id: String,
+        gmail_message_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CalendarCreateFields {
+        event: CalendarCreateEvent,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CalendarCreateEvent {
+        event_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawDraftResponseFields {
+        response: RawDraftResponse,
+        argv: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawDraftResponse {
+        id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RawResponseCountFields {
+        response: CountResponse,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CountResponse {
+        count: usize,
+    }
+
+    fn parse_output_fields<T: for<'de> Deserialize<'de>>(output: &switchboard_core::ToolOutput) -> T {
+        serde_json::from_value(Value::Object(
+            output
+                .fields
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Map<String, Value>>(),
+        ))
+        .expect("output fields should deserialize")
     }
 
     fn google_test_script() -> TempScript {

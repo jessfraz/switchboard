@@ -39,11 +39,55 @@
       "name": "github.notifications.list",
       "kind": "read",
       "summary": "List notifications for a GitHub namespace",
-      "strategy": { "kind": "handler", "id": "notifications_list" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "List GitHub notifications for {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gh",
         "capability": "gh_api"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "api" },
+          { "kind": "literal", "value": "notifications" },
+          { "kind": "key_value_option", "flag": "-F", "key": "all", "aliases": ["all"], "boolish": true },
+          {
+            "kind": "key_value_option",
+            "flag": "-F",
+            "key": "participating",
+            "aliases": ["participating"],
+            "boolish": true
+          },
+          { "kind": "key_value_option", "flag": "-F", "key": "since", "aliases": ["since"] },
+          { "kind": "key_value_option", "flag": "-F", "key": "before", "aliases": ["before"] },
+          { "kind": "key_value_option", "flag": "-F", "key": "per_page", "aliases": ["per_page"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "notifications",
+        "shape": "array",
+        "count_field": "count",
+        "summary_template": "Listed {count} GitHub notifications for {namespace}",
+        "fields": [
+          { "name": "id", "pointer": "/id" },
+          { "name": "unread", "pointer": "/unread" },
+          { "name": "reason", "pointer": "/reason" },
+          { "name": "updated_at", "pointer": "/updated_at" },
+          { "name": "title", "pointer": "/subject/title" },
+          { "name": "type", "pointer": "/subject/type" },
+          { "name": "repository", "pointer": "/repository/full_name" },
+          { "name": "url", "pointer": "/url" }
+        ],
+        "refs": {
+          "kind": "notification",
+          "id_field": "id",
+          "parent_id_field": "repository",
+          "label_field": "title"
+        }
       }
     },
     {

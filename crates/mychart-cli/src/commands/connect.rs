@@ -42,28 +42,28 @@ pub(crate) struct ConnectSearchArgs {
 #[derive(Debug, Args)]
 pub(crate) struct ConnectAddArgs {
     #[arg(long)]
-    name: String,
+    pub(crate) name: String,
 
     #[arg(long, value_name = "URL")]
-    base_url: String,
+    pub(crate) base_url: String,
 
     #[arg(long, value_name = "URL")]
-    portal_base_url: Option<String>,
+    pub(crate) portal_base_url: Option<String>,
 
     #[arg(long)]
-    client_id: Option<String>,
+    pub(crate) client_id: Option<String>,
 
     #[arg(long)]
-    client_secret: Option<String>,
+    pub(crate) client_secret: Option<String>,
 
     #[arg(long)]
-    clear_client_secret: bool,
+    pub(crate) clear_client_secret: bool,
 
     #[arg(long, value_name = "URL")]
-    redirect_uri: Option<String>,
+    pub(crate) redirect_uri: Option<String>,
 
     #[arg(long)]
-    no_use: bool,
+    pub(crate) no_use: bool,
 }
 
 #[derive(Debug, Args)]
@@ -76,7 +76,7 @@ pub(crate) struct ConnectUseArgs {
     account: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub(crate) struct RenderedAccount {
     pub(crate) name: String,
     pub(crate) selected: bool,
@@ -90,7 +90,7 @@ pub(crate) struct RenderedAccount {
     pub(crate) discovery: Option<AccountDiscoveryState>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DiscoveryBrandOutput {
     pub(crate) brand_name: String,
     pub(crate) account_name: String,
@@ -107,12 +107,12 @@ pub(crate) struct DiscoveryBrandOutput {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub(crate) struct DiscoveryMatchOutput {
-    pub(crate) score: f64,
+    pub(crate) score: u32,
     pub(crate) exact: bool,
     pub(crate) brand: DiscoveryBrandOutput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub(crate) struct ConnectAddOutput {
     pub(crate) status: String,
     pub(crate) selected_account: Option<String>,
@@ -184,7 +184,7 @@ fn run_search(args: ConnectSearchArgs, context: &mut ResolvedContext) -> Result<
     }))
 }
 
-fn run_add_output(args: ConnectAddArgs, context: &mut ResolvedContext) -> Result<ConnectAddOutput> {
+pub(crate) fn run_add_output(args: ConnectAddArgs, context: &mut ResolvedContext) -> Result<ConnectAddOutput> {
     if args.client_secret.is_some() && args.clear_client_secret {
         return Err(Error::Arguments(
             "pass either --client-secret or --clear-client-secret, not both".into(),
@@ -369,9 +369,6 @@ fn render_output<T>(output: T) -> Result<Value>
 where
     T: Serialize,
 {
-    serde_json::to_value(output).map_err(|error| {
-        Error::Config(format!(
-            "failed to serialize MyChart connect output: {error}"
-        ))
-    })
+    serde_json::to_value(output)
+        .map_err(|error| Error::Config(format!("failed to serialize MyChart connect output: {error}")))
 }

@@ -43,33 +43,218 @@
       "name": "google.mail.search",
       "kind": "read",
       "summary": "Search Gmail",
-      "strategy": { "kind": "handler", "id": "mail_search" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Search Gmail in {namespace} for {arg:query}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gws",
         "capability": "gmail_triage"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "gmail" },
+          { "kind": "literal", "value": "+triage" },
+          { "kind": "literal", "value": "--format" },
+          { "kind": "literal", "value": "json" },
+          { "kind": "literal", "value": "--query" },
+          { "kind": "required_positional", "aliases": ["query"] },
+          { "kind": "option", "flag": "--max", "aliases": ["max"] },
+          { "kind": "flag", "flag": "--labels", "aliases": ["labels"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "messages",
+        "source_pointer": "/messages",
+        "shape": "array",
+        "count_field": "count",
+        "extra_fields": [
+          { "name": "query", "arg": ["query"] },
+          { "name": "result_size_estimate", "pointer": "/resultSizeEstimate" }
+        ],
+        "summary_template": "Found {count} Gmail messages for {namespace}",
+        "fields": [
+          { "name": "gmail_message_id", "pointer": "/id" },
+          { "name": "from", "pointer": "/from" },
+          { "name": "subject", "pointer": "/subject" },
+          { "name": "date", "pointer": "/date" },
+          { "name": "labels", "pointer": "/labels" }
+        ],
+        "refs": {
+          "kind": "message",
+          "id_field": "gmail_message_id",
+          "label_field": "subject"
+        },
+        "empty_stdout_json": {
+          "messages": [],
+          "resultSizeEstimate": 0
+        }
       }
     },
     {
       "name": "google.mail.read",
       "kind": "read",
       "summary": "Read a Gmail message",
-      "strategy": { "kind": "handler", "id": "mail_read" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read Gmail message {arg:gmail-message-id|message-id|id} in {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gws",
         "capability": "gmail_read"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "gmail" },
+          { "kind": "literal", "value": "+read" },
+          {
+            "kind": "option",
+            "flag": "--id",
+            "aliases": ["gmail-message-id", "message-id", "id"],
+            "required": true
+          },
+          { "kind": "literal", "value": "--format" },
+          { "kind": "literal", "value": "json" }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "message",
+        "shape": "object",
+        "summary_template": "Read Gmail message \"{field:subject}\" for {namespace}",
+        "fields": [
+          { "name": "gmail_message_id", "arg": ["gmail-message-id", "message-id", "id"] },
+          { "name": "gmail_thread_id", "pointer": "/thread_id" },
+          { "name": "rfc_message_id", "pointer": "/message_id" },
+          { "name": "references", "pointer": "/references" },
+          { "name": "from", "pointer": "/from" },
+          { "name": "reply_to", "pointer": "/reply_to" },
+          { "name": "to", "pointer": "/to" },
+          { "name": "cc", "pointer": "/cc" },
+          { "name": "subject", "pointer": "/subject" },
+          { "name": "date", "pointer": "/date" },
+          { "name": "body_text", "pointer": "/body_text" },
+          { "name": "body_html", "pointer": "/body_html" }
+        ],
+        "refs": [
+          {
+            "kind": "message",
+            "id_field": "gmail_message_id",
+            "parent_id_field": "gmail_thread_id",
+            "label_field": "subject"
+          },
+          {
+            "kind": "thread",
+            "id_field": "gmail_thread_id",
+            "label_field": "subject"
+          }
+        ]
       }
     },
     {
       "name": "google.mail.draft",
       "kind": "write",
       "summary": "Draft a Gmail message",
-      "strategy": { "kind": "handler", "id": "mail_draft" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Draft Gmail email to {args:to} in {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gws",
         "capability": "gmail_draft_create"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "gmail" },
+          { "kind": "literal", "value": "users" },
+          { "kind": "literal", "value": "drafts" },
+          { "kind": "literal", "value": "create" },
+          { "kind": "literal", "value": "--params" },
+          {
+            "kind": "json",
+            "value": {
+              "kind": "object",
+              "fields": [
+                {
+                  "name": "userId",
+                  "value": { "kind": "literal", "value": "me" }
+                }
+              ]
+            }
+          },
+          { "kind": "literal", "value": "--json" },
+          {
+            "kind": "json",
+            "value": {
+              "kind": "object",
+              "fields": [
+                {
+                  "name": "message",
+                  "value": {
+                    "kind": "object",
+                    "fields": [
+                      {
+                        "name": "raw",
+                        "value": { "kind": "computed", "id": "gmail_raw_message" }
+                      },
+                      {
+                        "name": "threadId",
+                        "value": {
+                          "kind": "argument",
+                          "aliases": ["thread-id"]
+                        },
+                        "omit_if_null": true
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          { "kind": "literal", "value": "--format" },
+          { "kind": "literal", "value": "json" }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "draft",
+        "shape": "object",
+        "summary_template": "Drafted Gmail message \"{field:subject}\" for {namespace}",
+        "fields": [
+          { "name": "draft_id", "pointer": "/id" },
+          { "name": "gmail_message_id", "pointer": "/message/id" },
+          { "name": "gmail_thread_id", "pointer": "/message/threadId" },
+          { "name": "to", "args": ["to"] },
+          { "name": "cc", "args": ["cc"] },
+          { "name": "bcc", "args": ["bcc"] },
+          { "name": "subject", "arg": ["subject"], "default": "draft email" },
+          { "name": "label_ids", "pointer": "/message/labelIds" },
+          { "name": "has_body_text", "arg_present": ["body-text"] },
+          { "name": "has_body_html", "arg_present": ["body-html"] }
+        ],
+        "refs": [
+          {
+            "kind": "message",
+            "id_field": "gmail_message_id",
+            "parent_id_field": "gmail_thread_id",
+            "label_field": "subject"
+          },
+          {
+            "kind": "thread",
+            "id_field": "gmail_thread_id",
+            "label_field": "subject"
+          }
+        ],
+        "effect": {
+          "undoable": false
+        }
       }
     },
     {
@@ -88,18 +273,58 @@
       "name": "google.calendar.list",
       "kind": "read",
       "summary": "List calendar events",
-      "strategy": { "kind": "handler", "id": "calendar_list" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "List calendar events for {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gws",
         "capability": "calendar_agenda"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "calendar" },
+          { "kind": "literal", "value": "+agenda" },
+          { "kind": "literal", "value": "--format" },
+          { "kind": "literal", "value": "json" },
+          { "kind": "flag", "flag": "--today", "aliases": ["today"] },
+          { "kind": "flag", "flag": "--tomorrow", "aliases": ["tomorrow"] },
+          { "kind": "flag", "flag": "--week", "aliases": ["week"] },
+          { "kind": "option", "flag": "--days", "aliases": ["days"] },
+          { "kind": "option", "flag": "--calendar", "aliases": ["calendar"] },
+          { "kind": "option", "flag": "--timezone", "aliases": ["timezone"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "events",
+        "source_pointer": "/events",
+        "shape": "array",
+        "count_field": "count",
+        "extra_fields": [
+          { "name": "time_min", "pointer": "/timeMin" },
+          { "name": "time_max", "pointer": "/timeMax" }
+        ],
+        "summary_template": "Listed {count} calendar events for {namespace}",
+        "fields": [
+          { "name": "start", "pointer": "/start" },
+          { "name": "end", "pointer": "/end" },
+          { "name": "title", "pointer": "/summary" },
+          { "name": "calendar", "pointer": "/calendar" },
+          { "name": "location", "pointer": "/location" }
+        ]
       }
     },
     {
       "name": "google.calendar.create",
       "kind": "write",
       "summary": "Create a calendar event",
-      "strategy": { "kind": "handler", "id": "calendar_create" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "{mode_verb:Draft,Create} calendar event {arg:title|summary} starting at {arg:start} for {namespace}"
+      },
       "undo_support": "compensating_action",
       "execution": {
         "kind": "executable",
@@ -163,11 +388,62 @@
       "name": "google.calendar.delete",
       "kind": "write",
       "summary": "Delete a calendar event",
-      "strategy": { "kind": "handler", "id": "calendar_delete" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "{mode_verb:Draft delete of,Delete} calendar event {arg:event-id} in {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gws",
         "capability": "calendar_delete"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "calendar" },
+          { "kind": "literal", "value": "events" },
+          { "kind": "literal", "value": "delete" },
+          { "kind": "literal", "value": "--format" },
+          { "kind": "literal", "value": "json" },
+          { "kind": "literal", "value": "--params" },
+          {
+            "kind": "json",
+            "value": {
+              "kind": "object",
+              "fields": [
+                {
+                  "name": "calendarId",
+                  "value": {
+                    "kind": "argument",
+                    "aliases": ["calendar"],
+                    "default": "primary"
+                  }
+                },
+                {
+                  "name": "eventId",
+                  "value": {
+                    "kind": "argument",
+                    "aliases": ["event-id"],
+                    "required": true
+                  }
+                }
+              ]
+            }
+          },
+          { "kind": "option", "flag": "--send-updates", "aliases": ["send-updates"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "event",
+        "shape": "object",
+        "summary_template": "Deleted calendar event \"{field:event_id}\" from {namespace}",
+        "fields": [
+          { "name": "event_id", "arg": ["event-id"] },
+          { "name": "calendar", "arg": ["calendar"], "default": "primary" },
+          { "name": "status", "pointer": "/status" }
+        ],
+        "empty_stdout_json": {}
       }
     },
     {

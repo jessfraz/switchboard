@@ -2,7 +2,7 @@ mod api;
 pub(crate) mod appointments;
 mod auth;
 mod claims;
-mod connect;
+pub(crate) mod connect;
 mod labs;
 pub(crate) mod meds;
 mod notes;

@@ -9,10 +9,6 @@ use crate::cli::{
     passthrough,
 };
 
-pub(crate) type CliSummarizeFn = fn(&ResolvedNamespace, &ToolRequest) -> Result<String>;
-pub(crate) type CliBuildArgsFn = fn(&PlannedAction) -> Result<Vec<String>>;
-pub(crate) type CliDecodeFn = fn(&ExecutionTarget, &PlannedAction, CliResponse) -> Result<ToolOutput>;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CliBinarySpec {
     pub program: String,
@@ -27,7 +23,6 @@ pub(crate) struct CliCapabilityProbe {
 }
 
 pub(crate) enum CliSummarizeStrategy {
-    Handler(CliSummarizeFn),
     Template(CliSummaryTemplate),
     RawInventory { program: String, prefix: Vec<String> },
 }
@@ -35,7 +30,6 @@ pub(crate) enum CliSummarizeStrategy {
 impl CliSummarizeStrategy {
     pub(crate) fn summarize(&self, namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {
         match self {
-            Self::Handler(handler) => handler(namespace, request),
             Self::Template(template) => template.render(namespace, request),
             Self::RawInventory { program, prefix } => {
                 passthrough::summarize_prefixed_passthrough(namespace, request, program, prefix)
@@ -45,7 +39,6 @@ impl CliSummarizeStrategy {
 }
 
 pub(crate) enum CliArgsStrategy {
-    Handler(CliBuildArgsFn),
     Template(CliArgsTemplate),
     RawInventory { prefix: Vec<String> },
 }
@@ -53,7 +46,6 @@ pub(crate) enum CliArgsStrategy {
 impl CliArgsStrategy {
     pub(crate) fn build_args(&self, action: &PlannedAction) -> Result<Vec<String>> {
         match self {
-            Self::Handler(handler) => handler(action),
             Self::Template(template) => template.build_args(action),
             Self::RawInventory { prefix } => passthrough::build_prefixed_passthrough_args(action, prefix),
         }
@@ -61,7 +53,6 @@ impl CliArgsStrategy {
 }
 
 pub(crate) enum CliDecodeStrategy {
-    Handler(CliDecodeFn),
     JsonProjection(CliJsonProjection),
     RawInventory { program: String, prefix: Vec<String> },
 }
@@ -74,7 +65,6 @@ impl CliDecodeStrategy {
         response: CliResponse,
     ) -> Result<ToolOutput> {
         match self {
-            Self::Handler(handler) => handler(target, action, response),
             Self::JsonProjection(projection) => projection.decode(target, action, response),
             Self::RawInventory { program, prefix } => {
                 passthrough::decode_prefixed_passthrough(target, action, response, program, prefix)
