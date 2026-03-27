@@ -126,11 +126,7 @@ fn build_mail_draft_args(action: &PlannedAction) -> Result<Vec<String>> {
         "--params".to_owned(),
         json!({ "userId": "me" }).to_string(),
         "--json".to_owned(),
-        Value::Object(Map::from_iter([(
-            String::from("message"),
-            Value::Object(message),
-        )]))
-        .to_string(),
+        Value::Object(Map::from_iter([(String::from("message"), Value::Object(message))])).to_string(),
         "--format".to_owned(),
         "json".to_owned(),
     ])

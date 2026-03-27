@@ -4,9 +4,8 @@ use reqwest::Method;
 use serde_json::Value;
 
 use crate::{
-    client::JsonResponse,
-    api_client, ensure_json_success, fetch_capability_summary, merge_bundle_pages, normalize_token,
-    state::ResolvedContext, ApiResourceCapability, CapabilitySummary, Error, Result,
+    api_client, client::JsonResponse, ensure_json_success, fetch_capability_summary, merge_bundle_pages,
+    normalize_token, state::ResolvedContext, ApiResourceCapability, CapabilitySummary, Error, Result,
 };
 
 pub(crate) struct PatientSession {
@@ -37,9 +36,11 @@ impl PatientSession {
         if resource.supports("search-type") {
             return Ok(self
                 .search_resource(resource_token, &[("_id".into(), id.to_owned())], false)?
-                .and_then(|bundle| bundle_entries(&bundle).into_iter().find(|resource| {
-                    first_string(resource, &["/id"]).as_deref() == Some(id)
-                })));
+                .and_then(|bundle| {
+                    bundle_entries(&bundle)
+                        .into_iter()
+                        .find(|resource| first_string(resource, &["/id"]).as_deref() == Some(id))
+                }));
         }
 
         Ok(None)

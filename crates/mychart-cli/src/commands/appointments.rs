@@ -92,7 +92,7 @@ fn run_find(args: AppointmentsFindArgs, context: &crate::state::ResolvedContext)
         .into_iter()
         .filter(|resource| {
             let start = first_string(resource, &["/start"]).unwrap_or_default();
-            iso_on_or_after(&through, &start)
+            iso_on_or_before(&start, &through)
                 && (normalized_query.is_empty() || appointment_matches_query(resource, &normalized_query))
         })
         .filter_map(|resource| render_appointment(&resource))
@@ -143,9 +143,7 @@ fn load_upcoming_appointments(
         })
         .collect::<Vec<_>>();
 
-    upcoming.sort_by(|left, right| {
-        first_string(left, &["/start"]).cmp(&first_string(right, &["/start"]))
-    });
+    upcoming.sort_by_key(|appointment| first_string(appointment, &["/start"]));
     Ok(upcoming)
 }
 
@@ -160,7 +158,12 @@ fn appointment_search_text(resource: &Value) -> String {
         fields.push(description);
     }
 
-    for path in ["/appointmentType", "/serviceCategory/0", "/specialty/0", "/reasonCode/0"] {
+    for path in [
+        "/appointmentType",
+        "/serviceCategory/0",
+        "/specialty/0",
+        "/reasonCode/0",
+    ] {
         if let Some(value) = resource.pointer(path).and_then(concept_text) {
             fields.push(value);
         }
@@ -237,4 +240,8 @@ fn appointment_status_excluded(status: &str) -> bool {
         status,
         "cancelled" | "noshow" | "entered-in-error" | "fulfilled" | "checked-in"
     )
+}
+
+fn iso_on_or_before(candidate: &str, ceiling: &str) -> bool {
+    candidate.chars().take(10).collect::<String>() <= ceiling.chars().take(10).collect::<String>()
 }

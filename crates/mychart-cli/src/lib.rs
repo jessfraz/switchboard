@@ -45,8 +45,10 @@ const AFTER_HELP: &str = concat!(
     "  mychart timeline --limit 25\n",
     "  mychart labs a1c ferritin tsh --spark\n",
     "  mychart appointments upcoming --limit 5\n",
+    "  mychart appointments find derm --next 30d\n",
     "  mychart meds reconcile\n",
     "  mychart notes search --query migraine\n",
+    "  mychart notes get note-123\n",
     "  mychart claims audit --since 1y\n",
     "  mychart pack doctor\n",
     "  mychart auth exchange-code --code <oauth-code>\n",
@@ -1637,6 +1639,170 @@ mod tests {
         assert_eq!(output["status"], "ok");
         assert_eq!(output["appointments"].as_array().map(Vec::len), Some(1));
         assert_eq!(output["appointments"][0]["id"], "appt-future");
+    }
+
+    #[test]
+    fn appointments_find_filters_by_text_and_future_window() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[json!({
+                        "type": "Appointment",
+                        "interaction": [
+                            {"code": "read"},
+                            {"code": "search-type"}
+                        ],
+                        "searchParam": [
+                            {"name": "patient", "type": "reference"},
+                            {"name": "date", "type": "date"}
+                        ]
+                    })],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [
+                        {
+                            "resource": {
+                                "resourceType": "Appointment",
+                                "id": "appt-derm-soon",
+                                "status": "booked",
+                                "start": "2100-01-10T10:00:00Z",
+                                "description": "Dermatology consult",
+                                "specialty": [{"text": "Dermatology"}]
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "Appointment",
+                                "id": "appt-cardio",
+                                "status": "booked",
+                                "start": "2100-01-11T10:00:00Z",
+                                "description": "Cardiology follow-up",
+                                "specialty": [{"text": "Cardiology"}]
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "Appointment",
+                                "id": "appt-derm-late",
+                                "status": "booked",
+                                "start": "2100-03-20T10:00:00Z",
+                                "description": "Dermatology follow-up",
+                                "specialty": [{"text": "Dermatology"}]
+                            }
+                        }
+                    ]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-appointments-find");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "appointments",
+            "find",
+            "derm",
+            "--next",
+            "2100-02-01",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["query"], "derm");
+        assert_eq!(output["appointments"].as_array().map(Vec::len), Some(1));
+        assert_eq!(output["appointments"][0]["id"], "appt-derm-soon");
+        let requests = server.requests();
+        assert!(requests[1].contains("date=ge"));
+    }
+
+    #[test]
+    fn notes_get_fetches_binary_body_text() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("DocumentReference", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "DocumentReference",
+                    "id": "note-1",
+                    "date": "2099-12-02",
+                    "type": {"text": "Progress Note"},
+                    "description": "Neurology note",
+                    "author": [{"display": "Dr. Headache"}],
+                    "content": [{
+                        "attachment": {
+                            "title": "Note body",
+                            "contentType": "text/plain",
+                            "url": "Binary/note-1-body"
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Binary",
+                    "contentType": "text/plain",
+                    "data": "UGF0aWVudCByZXBvcnRzIG1pZ3JhaW5lIGltcHJvdmVtZW50Lg=="
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-notes-get");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "notes",
+            "get",
+            "note-1",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["note"]["body_text"], "Patient reports migraine improvement.");
+        assert_eq!(
+            output["note"]["content"][0]["body_text"],
+            "Patient reports migraine improvement."
+        );
+        let requests = server.requests();
+        assert!(requests[1].contains("GET /DocumentReference/note-1"));
+        assert!(requests[2].contains("GET /Binary/note-1-body"));
     }
 
     #[test]

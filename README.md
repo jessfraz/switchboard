@@ -416,6 +416,7 @@ The model does not get silent write authority just because it sounds confident.
 
 Writes always create an operation record first.
 What happens after that depends on policy, not vibes.
+Approvals should be ergonomic enough that a human or agent can see pending work and move one stored operation from approval to execution without command-line calisthenics.
 
 Write policy should be configurable:
 
@@ -527,6 +528,13 @@ switchboard op approve op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc \
   --note 'user approved dinner plan'
 
 switchboard op apply op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc \
+  --json
+
+switchboard op list --pending
+
+switchboard op approve op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc \
+  --actor codex \
+  --apply \
   --json
 ```
 
@@ -832,6 +840,14 @@ switchboard google.mail.search \
 switchboard google.mail.read \
   --ns google.work \
   --message-id 18c7f6... \
+  --json
+
+switchboard google.mail.draft \
+  --ns google.work \
+  --to finance@company.com \
+  --subject 'Budget review follow-up' \
+  --body-text 'Can we move this to Thursday?' \
+  --draft \
   --json
 
 switchboard google.calendar.create \

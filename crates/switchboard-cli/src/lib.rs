@@ -1270,8 +1270,7 @@ fn render_operation_status(status: switchboard_core::OperationStatus) -> &'stati
 }
 
 fn operation_needs_attention(operation: &StoredOperation) -> bool {
-    operation.status == switchboard_core::OperationStatus::Planned
-        && operation.approval.state == ApprovalState::Pending
+    operation.status == switchboard_core::OperationStatus::Planned && operation.approval.state == ApprovalState::Pending
 }
 
 fn render_audit_outcome(outcome: &switchboard_core::AuditOutcome) -> &'static str {
@@ -2114,6 +2113,214 @@ mod tests {
         assert!(value.summary.contains("calendar"));
         assert_eq!(value.effect.as_ref().map(|effect| effect.undoable), Some(true));
         assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Event);
+    }
+
+    #[test]
+    fn operation_list_pending_filters_for_attention_only() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+
+        let pending_write = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.mail.draft",
+            "--ns",
+            "google.work",
+            "--to",
+            "dogs@example.com",
+            "--subject",
+            "Boarding request",
+            "--body-text",
+            "Can you board the dogs next week?",
+            "--draft",
+            "--json",
+        ])
+        .expect("draft cli should parse");
+        let pending_output = run(pending_write).expect("draft should succeed");
+        let pending_value: JsonPlannedResponse = parse_json(&pending_output);
+        let pending_operation_id = pending_value.operation_id.expect("pending operation should exist");
+
+        let approved_write = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.calendar.create",
+            "--ns",
+            "google.work",
+            "--title",
+            "Budget review",
+            "--start",
+            "2026-03-30T15:00:00-07:00",
+            "--end",
+            "2026-03-30T15:30:00-07:00",
+            "--draft",
+            "--json",
+        ])
+        .expect("calendar draft cli should parse");
+        let approved_output = run(approved_write).expect("calendar draft should succeed");
+        let approved_value: JsonPlannedResponse = parse_json(&approved_output);
+        let approved_operation_id = approved_value.operation_id.expect("approved operation should exist");
+
+        let approve = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "approve",
+            &approved_operation_id.to_string(),
+            "--actor",
+            "codex",
+            "--json",
+        ])
+        .expect("approve cli should parse");
+        run(approve).expect("approve should succeed");
+
+        let list_pending = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "list",
+            "--pending",
+            "--json",
+        ])
+        .expect("op list cli should parse");
+        let list_output = run(list_pending).expect("op list should succeed");
+        let list_value: JsonStoredOperationListEnvelope = parse_json(&list_output);
+
+        assert_eq!(list_value.status, "ok");
+        assert_eq!(list_value.operations.len(), 1);
+        assert_eq!(list_value.operations[0].id, pending_operation_id);
+        assert_eq!(list_value.operations[0].approval.state, ApprovalState::Pending);
+        assert_eq!(
+            list_value.operations[0].status,
+            switchboard_core::OperationStatus::Planned
+        );
+        assert_ne!(list_value.operations[0].id, approved_operation_id);
+    }
+
+    #[test]
+    fn approve_with_apply_executes_gmail_draft_in_one_step() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+
+        let draft = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.mail.draft",
+            "--ns",
+            "google.work",
+            "--to",
+            "dogs@example.com",
+            "--cc",
+            "frontdesk@example.com",
+            "--subject",
+            "Boarding request",
+            "--body-text",
+            "Hi there,\nCan you board the dogs next week?",
+            "--draft",
+            "--json",
+        ])
+        .expect("draft cli should parse");
+
+        let draft_output = run(draft).expect("draft should succeed");
+        let draft_value: JsonPlannedResponse = parse_json(&draft_output);
+        let operation_id = draft_value.operation_id.expect("draft operation id should exist");
+        let operation_id_string = operation_id.to_string();
+
+        let approve_apply = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "approve",
+            &operation_id_string,
+            "--actor",
+            "codex",
+            "--note",
+            "looks right",
+            "--apply",
+            "--json",
+        ])
+        .expect("approve apply cli should parse");
+
+        let output = run(approve_apply).expect("approve apply should succeed");
+        let value: JsonExecutedResponse<GoogleMailDraftFields> = parse_json(&output);
+
+        assert_eq!(value.status, "executed");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.mail.draft").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
+        assert_eq!(value.operation_id.as_ref(), Some(&operation_id));
+        assert_eq!(value.fields.draft.draft_id, "draft-1960work");
+        assert_eq!(value.fields.draft.gmail_message_id, "1960draftmsgwork");
+        assert_eq!(
+            value.fields.draft.gmail_thread_id.as_deref(),
+            Some("1960draftthreadwork")
+        );
+        assert_eq!(value.fields.draft.to, vec!["dogs@example.com"]);
+        assert_eq!(value.fields.draft.subject.as_deref(), Some("Boarding request"));
+        assert!(value.fields.draft.has_body_text);
+        assert!(!value.fields.draft.has_body_html);
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Message);
+        assert_eq!(value.refs[1].kind, switchboard_core::ToolRefKind::Thread);
+        assert_eq!(value.effect.as_ref().map(|effect| effect.undoable), Some(false));
+        assert!(
+            environment
+                .gws_capture_contents()
+                .contains("ARGV=gmail users drafts create --params {\"userId\":\"me\"}"),
+            "expected curated gmail draft command to run through gws"
+        );
+    }
+
+    #[test]
+    fn operation_show_renders_argument_preview_for_humans() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+
+        let draft = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.mail.draft",
+            "--ns",
+            "google.work",
+            "--to",
+            "dogs@example.com",
+            "--subject",
+            "Boarding request",
+            "--body-text",
+            "Hi there,\nCan you board the dogs next week?",
+            "--draft",
+            "--json",
+        ])
+        .expect("draft cli should parse");
+        let draft_output = run(draft).expect("draft should succeed");
+        let draft_value: JsonPlannedResponse = parse_json(&draft_output);
+        let operation_id = draft_value.operation_id.expect("draft operation id should exist");
+
+        let show = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "show",
+            &operation_id.to_string(),
+        ])
+        .expect("show cli should parse");
+        let output = run(show).expect("show should succeed");
+
+        assert!(output.contains("Args:"));
+        assert!(output.contains("--to=dogs@example.com"));
+        assert!(output.contains("--subject=Boarding request"));
+        assert!(output.contains("--body-text=Hi there,\\nCan you board the dogs next week?"));
     }
 
     #[test]
