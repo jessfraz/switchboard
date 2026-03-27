@@ -8,11 +8,13 @@ use clap::{Args, Subcommand};
 use reqwest::{Method, Url};
 use serde_json::{json, Value};
 
-pub(crate) use self::callback::redirect_uri_uses_loopback;
-pub(crate) use self::flow::{complete_or_wait_for_hosted_authorization, ensure_api_session};
 use self::flow::{
     exchange_code, exchange_code_token, exchange_url, refresh_with_dynamic_client, refresh_with_refresh_token,
     run_authorize_url, run_login,
+};
+pub(crate) use self::{
+    callback::redirect_uri_uses_loopback,
+    flow::{complete_or_wait_for_hosted_authorization, ensure_api_session},
 };
 use crate::{api_client, split_scopes, state::ResolvedContext, Error, Result};
 

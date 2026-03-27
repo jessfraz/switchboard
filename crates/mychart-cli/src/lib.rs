@@ -23,15 +23,17 @@ use clap::Parser;
 use reqwest::Url;
 use serde_json::{json, Value};
 
-pub(crate) use crate::api_support::{
-    fetch_capability_summary, merge_bundle_pages, normalize_operation_name, normalize_token,
-    parse_api_resource_command, parse_oauth_token_response, render_api_result, require_capability, resolve_id_argument,
-    ApiResourceCapability, CapabilitySummary, DynamicArgs, OAuthTokenResponse,
+pub(crate) use crate::{
+    api_support::{
+        fetch_capability_summary, merge_bundle_pages, normalize_operation_name, normalize_token,
+        parse_api_resource_command, parse_oauth_token_response, render_api_result, require_capability,
+        resolve_id_argument, ApiResourceCapability, CapabilitySummary, DynamicArgs, OAuthTokenResponse,
+    },
+    error::{Error, Result},
+    output::render_json,
 };
-use crate::args::{Cli, Commands, FinishCommand, LoginCommand};
-pub(crate) use crate::error::{Error, Result};
-pub(crate) use crate::output::render_json;
 use crate::{
+    args::{Cli, Commands, FinishCommand, LoginCommand},
     client::{normalize_api_base_url, JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
         complete_or_wait_for_hosted_authorization, ensure_api_session, redirect_uri_uses_loopback, run_api,

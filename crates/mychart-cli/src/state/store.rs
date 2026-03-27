@@ -4,9 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{Error, Result};
-
 use super::MyChartState;
+use crate::{Error, Result};
 
 pub(crate) struct StateStore {
     path: PathBuf,

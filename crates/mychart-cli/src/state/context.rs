@@ -3,14 +3,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use super::{store::resolve_state_path, MyChartAccountState, MyChartState, StateStore};
 use crate::{
     args::GlobalArgs,
     client::{cookie_names, normalize_api_base_url, StoredCookie},
     oauth::DynamicClientState,
     Error, Result,
 };
-
-use super::{store::resolve_state_path, MyChartAccountState, MyChartState, StateStore};
 
 pub(crate) struct ResolvedContext {
     pub(crate) account: String,

@@ -9,9 +9,8 @@ use std::{
 use reqwest::Url;
 use serde_json::{json, Value};
 
-use crate::{state::ResolvedContext, Error, Result};
-
 use super::auth_debug;
+use crate::{state::ResolvedContext, Error, Result};
 
 #[derive(Debug)]
 pub(super) struct BrowserLaunch {

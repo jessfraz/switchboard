@@ -3,22 +3,24 @@ use std::time::Duration;
 use reqwest::Url;
 use serde_json::{json, Value};
 
+use super::{
+    access_token_is_fresh, auth_debug, auth_debug_token_response,
+    callback::{
+        launch_browser_for_authorization, loopback_bind_address, parse_callback_input, prompt_for_callback_url,
+        redirect_uri_uses_loopback, wait_for_oauth_callback,
+    },
+    can_fallback_to_interactive_auth,
+    dynamic_client::{exchange_dynamic_client_token, login_with_dynamic_client},
+    renewal_method, token_exchange_auth_label, ApiSessionBootstrap, AuthAuthorizeOptions, AuthAuthorizeUrlArgs,
+    AuthExchangeUrlArgs, AuthLoginArgs, AuthRefreshArgs, HostedAuthorizationOutcome, PreparedAuthorization,
+    TokenExchangeAuth, TokenExchangeResult, AUTO_LOGIN_TIMEOUT_SECONDS,
+};
 use crate::{
     api_client, build_authorize_url, dedupe_preserving_order, default_patient_scopes, ensure_code_verifier,
     ensure_json_success, expires_at_epoch_seconds, fetch_capability_summary, generate_nonce,
     parse_oauth_token_response, split_scopes,
     state::{ApiSessionState, ResolvedContext},
     Error, Result,
-};
-
-use super::{
-    access_token_is_fresh, auth_debug, auth_debug_token_response, callback::launch_browser_for_authorization,
-    callback::loopback_bind_address, callback::parse_callback_input, callback::prompt_for_callback_url,
-    callback::redirect_uri_uses_loopback, callback::wait_for_oauth_callback, can_fallback_to_interactive_auth,
-    dynamic_client::exchange_dynamic_client_token, dynamic_client::login_with_dynamic_client, renewal_method,
-    token_exchange_auth_label, ApiSessionBootstrap, AuthAuthorizeOptions, AuthAuthorizeUrlArgs, AuthExchangeUrlArgs,
-    AuthLoginArgs, AuthRefreshArgs, HostedAuthorizationOutcome, PreparedAuthorization, TokenExchangeAuth,
-    TokenExchangeResult, AUTO_LOGIN_TIMEOUT_SECONDS,
 };
 
 pub(super) fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value> {

@@ -476,8 +476,10 @@ mod tests {
         env, fs,
         path::PathBuf,
         process,
-        sync::atomic::{AtomicU64, Ordering},
-        sync::Mutex,
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Mutex,
+        },
         time::{SystemTime, UNIX_EPOCH},
     };
 

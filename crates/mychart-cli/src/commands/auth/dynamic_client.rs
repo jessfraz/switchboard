@@ -1,16 +1,15 @@
 use reqwest::Method;
 use serde_json::{json, Value};
 
+use super::{
+    auth_debug, auth_debug_token_response, exchange_code_token, PreparedAuthorization, TokenExchangeAuth,
+    TokenExchangeResult,
+};
 use crate::{
     api_client, ensure_json_success, expires_at_epoch_seconds, fetch_capability_summary, parse_oauth_token_response,
     split_scopes,
     state::{ApiSessionState, ResolvedContext},
     Error, Result,
-};
-
-use super::{
-    auth_debug, auth_debug_token_response, exchange_code_token, PreparedAuthorization, TokenExchangeAuth,
-    TokenExchangeResult,
 };
 
 pub(super) fn login_with_dynamic_client(
