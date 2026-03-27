@@ -146,7 +146,7 @@ impl OperationStore for SqliteOperationStore {
                     effect_json,
                 ],
             )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {} applied: {error}", id)))?;
+            .map_err(|error| Error::Operation(format!("failed to mark operation {id} applied: {error}")))?;
 
         Ok(operation)
     }
@@ -167,7 +167,7 @@ impl OperationStore for SqliteOperationStore {
                     operation.failure_reason.as_deref(),
                 ],
             )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {} failed: {error}", id)))?;
+            .map_err(|error| Error::Operation(format!("failed to mark operation {id} failed: {error}")))?;
 
         Ok(operation)
     }
@@ -184,7 +184,7 @@ impl OperationStore for SqliteOperationStore {
                  WHERE operation_id = ?1",
                 params![operation.id.as_str(), operation_status_identifier(operation.status)],
             )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {} compensated: {error}", id)))?;
+            .map_err(|error| Error::Operation(format!("failed to mark operation {id} compensated: {error}")))?;
 
         Ok(operation)
     }
