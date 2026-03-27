@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -18,42 +18,7 @@ pub(crate) enum Error {
 
 impl Error {
     pub(crate) fn render(&self, compact: bool) -> String {
-        let value = match self {
-            Self::Api { status_code, body } => json!({
-                "status": "error",
-                "kind": "api",
-                "status_code": status_code,
-                "body": body,
-            }),
-            Self::Auth { message, details } => json!({
-                "status": "error",
-                "kind": "auth",
-                "message": message,
-                "details": details,
-            }),
-            Self::Arguments(message) => json!({
-                "status": "error",
-                "kind": "arguments",
-                "message": message,
-            }),
-            Self::Config(message) => json!({
-                "status": "error",
-                "kind": "config",
-                "message": message,
-            }),
-            Self::Http(message) => json!({
-                "status": "error",
-                "kind": "http",
-                "message": message,
-            }),
-            Self::Io(message) => json!({
-                "status": "error",
-                "kind": "io",
-                "message": message,
-            }),
-        };
-
-        crate::render_json(&value, compact)
+        crate::output::render_domain_error(self, compact)
     }
 }
 

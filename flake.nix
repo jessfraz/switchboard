@@ -104,8 +104,7 @@
         cargoPackage = "momence-cli";
         pname = "momence";
       };
-      zoo = self.packages.${system}.switchboard;
-      default = self.packages.${system}.zoo;
+      default = self.packages.${system}.switchboard;
     });
   };
 }

@@ -1,8 +1,10 @@
+mod args;
 mod client;
 mod commands;
 mod discovery;
 mod error;
 mod oauth;
+mod output;
 mod presets;
 mod state;
 
@@ -11,71 +13,30 @@ use std::{
     ffi::OsString,
     fs,
     io::Read,
-    path::PathBuf,
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use clap::{Args, Parser, Subcommand};
+use anyhow::{Context, Result as AnyhowResult};
+use clap::Parser;
 use reqwest::{Method, Url};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::args::{Cli, Commands, FinishCommand, LoginCommand};
 pub(crate) use crate::error::{Error, Result};
-#[cfg(test)]
-use crate::state::{MyChartState, StateStore};
 use crate::{
     client::{normalize_api_base_url, JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
         complete_or_wait_for_hosted_authorization, ensure_api_session, redirect_uri_uses_loopback, run_api,
         run_appointments, run_auth, run_authorize_url_command, run_claims, run_connect, run_exchange_url_command,
-        run_labs, run_login_command, run_meds, run_notes, run_pack, run_portal, run_timeline, ApiCommand,
-        ApiSessionBootstrap, ApiSubcommand, AppointmentsCommand, AuthAuthorizeOptions, AuthAuthorizeUrlArgs,
-        AuthCommand, AuthExchangeUrlArgs, AuthLoginArgs, ClaimsCommand, ConnectCommand, HostedAuthorizationOutcome,
-        LabsCommand, MedsCommand, NotesCommand, PackCommand, PortalCommand, TimelineCommand,
+        run_labs, run_login_command, run_meds, run_notes, run_pack, run_portal, run_timeline, ApiSessionBootstrap,
+        ApiSubcommand, AuthAuthorizeUrlArgs, AuthExchangeUrlArgs, AuthLoginArgs, HostedAuthorizationOutcome,
     },
-    state::{
-        ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
-        ENV_MYCHART_CLIENT_SECRET, ENV_MYCHART_CONFIG, ENV_MYCHART_DEBUG_AUTH, ENV_MYCHART_PORTAL_BASE_URL,
-        ENV_MYCHART_REDIRECT_URI, ENV_MYCHART_REFRESH_TOKEN, ENV_MYCHART_USERNAME,
-    },
+    state::ResolvedContext,
 };
 
-const AFTER_HELP: &str = concat!(
-    "Examples:\n",
-    "  mychart login ucla\n",
-    "  mychart finish '<auth-code>'\n",
-    "  mychart connect search ucla\n",
-    "  mychart connect ucla\n",
-    "  mychart connect epic-sandbox\n",
-    "  mychart connect ucla medical center\n",
-    "  mychart auth login --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
-    "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback --scope patient/*.read\n",
-    "  mychart auth login --dynamic-client --scope patient/*.read\n",
-    "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
-    "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
-    "  mychart auth exchange-url '<auth-code>'\n",
-    "  mychart timeline --limit 25\n",
-    "  mychart labs a1c ferritin tsh --spark\n",
-    "  mychart appointments upcoming --limit 5\n",
-    "  mychart appointments find derm --next 30d\n",
-    "  mychart meds reconcile --all-providers\n",
-    "  mychart notes search --query migraine\n",
-    "  mychart notes get note-123\n",
-    "  mychart claims audit --since 1y\n",
-    "  mychart pack doctor\n",
-    "  mychart auth exchange-code --code <oauth-code>\n",
-    "  mychart api resources --details\n",
-    "  mychart api appointment search --patient 123 --date ge2026-03-01 --status booked\n",
-    "  mychart api observation get obs-123\n",
-    "  mychart portal auth login-password --portal-base-url https://my.uclahealth.org/MyChart \\\n",
-    "    --username you@example.com --password 'super-secret'\n",
-    "\n",
-    "This CLI targets the patient-facing Epic SMART on FHIR surface first, with a resource-driven command grammar\n",
-    "that is pleasant for both humans and switchboard to synthesize. The legacy portal session commands stay under\n",
-    "`mychart portal ...` for the weird corners Epic still refuses to expose cleanly.\n",
-);
-
+/// Run the MyChart CLI and return a process exit code.
 pub fn main_entry<I, T>(args: I) -> ExitCode
 where
     I: IntoIterator<Item = T>,
@@ -85,26 +46,32 @@ where
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
+            let exit_code = match error.kind() {
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => ExitCode::SUCCESS,
+                _ => ExitCode::FAILURE,
+            };
             let _ = error.print();
-            return ExitCode::FAILURE;
+            return exit_code;
         }
     };
+    let compact = cli.global.compact;
 
     match run(cli) {
         Ok((output, compact)) => {
             println!("{}", render_json(&output, compact));
             ExitCode::SUCCESS
         }
-        Err((error, compact)) => {
-            eprintln!("{}", error.render(compact));
+        Err(error) => {
+            eprintln!("{}", output::render_cli_error(&error, compact));
             ExitCode::FAILURE
         }
     }
 }
 
-fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
+fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
     let compact = cli.global.compact;
-    let mut context = ResolvedContext::from_global(&cli.global).map_err(|error| (error, compact))?;
+    let mut context =
+        ResolvedContext::from_global(&cli.global).context("failed to resolve MyChart runtime context")?;
 
     let output = match cli.command {
         Commands::Login(command) => run_easy_login(command, &mut context),
@@ -141,110 +108,9 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
         }
         Commands::Portal(command) => run_portal(command.command, &mut context),
     }
-    .map_err(|error| (error, compact))?;
+    .context("MyChart command failed")?;
 
     Ok((output, compact))
-}
-
-#[derive(Debug, Parser)]
-#[command(
-    name = "mychart",
-    version,
-    about = "CLI for patient-facing Epic SMART on FHIR workflows, provider discovery, and MyChart portal fallbacks",
-    disable_help_subcommand = true,
-    after_help = AFTER_HELP
-)]
-struct Cli {
-    #[command(flatten)]
-    global: GlobalArgs,
-
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct GlobalArgs {
-    #[arg(long, global = true, env = ENV_MYCHART_CONFIG, value_name = "PATH")]
-    config: Option<PathBuf>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_ACCOUNT, value_name = "ACCOUNT")]
-    account: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_BASE_URL, value_name = "URL")]
-    base_url: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_PORTAL_BASE_URL, value_name = "URL")]
-    portal_base_url: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_CLIENT_ID, value_name = "CLIENT_ID")]
-    client_id: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_CLIENT_SECRET, value_name = "CLIENT_SECRET")]
-    client_secret: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_REDIRECT_URI, value_name = "URL")]
-    redirect_uri: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_ACCESS_TOKEN, value_name = "TOKEN")]
-    access_token: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_REFRESH_TOKEN, value_name = "TOKEN")]
-    refresh_token: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_USERNAME, value_name = "USERNAME")]
-    username: Option<String>,
-
-    #[arg(long, global = true, env = ENV_MYCHART_DEBUG_AUTH)]
-    debug_auth: bool,
-
-    #[arg(long, global = true)]
-    compact: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum Commands {
-    Login(LoginCommand),
-    Finish(FinishCommand),
-    Connect(ConnectCommand),
-    Auth(AuthCommand),
-    Api(ApiCommand),
-    Timeline(TimelineCommand),
-    Labs(LabsCommand),
-    Notes(NotesCommand),
-    Meds(MedsCommand),
-    Appointments(AppointmentsCommand),
-    Claims(ClaimsCommand),
-    Pack(PackCommand),
-    Portal(PortalCommand),
-}
-
-#[derive(Debug, Args)]
-struct LoginCommand {
-    #[arg(value_name = "ACCOUNT_OR_PROVIDER")]
-    target: Vec<String>,
-
-    #[command(flatten)]
-    options: AuthAuthorizeOptions,
-
-    #[arg(long, default_value_t = 300)]
-    timeout_seconds: u64,
-
-    #[arg(long)]
-    no_open: bool,
-
-    #[arg(long)]
-    dynamic_client: bool,
-
-    #[arg(long, value_name = "URL")]
-    callback_url: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct FinishCommand {
-    callback_input: String,
-
-    #[arg(long)]
-    no_store: bool,
 }
 
 fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Result<Value> {
@@ -1220,9 +1086,12 @@ mod tests {
     };
 
     use clap::Parser;
+    use serde::de::DeserializeOwned;
     use serde_json::{json, Value};
 
-    use super::{run, Cli, GlobalArgs, MyChartState, ResolvedContext, StateStore};
+    use super::{run, Cli};
+    use crate::args::GlobalArgs;
+    use crate::state::{MyChartState, ResolvedContext, StateStore};
 
     #[test]
     fn authorize_url_discovers_smart_endpoints_and_stores_pkce_state() {
@@ -3648,15 +3517,16 @@ mod tests {
     fn run_command(args: &[&str]) -> Value {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
-        let (value, _) = run(cli).unwrap_or_else(|(error, _)| panic!("{}", error.render(compact)));
+        let (value, _) = run(cli)
+            .unwrap_or_else(|error| panic!("{}", crate::output::render_cli_error(&error, compact)));
         value
     }
 
     fn run_command_error(args: &[&str]) -> String {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
-        let (error, _) = run(cli).expect_err("CLI should fail");
-        error.render(compact)
+        let error = run(cli).expect_err("CLI should fail");
+        crate::output::render_cli_error(&error, compact)
     }
 
     fn resolved_context(config_path: &std::path::Path) -> crate::state::ResolvedContext {
@@ -3699,7 +3569,7 @@ mod tests {
                     stream
                         .write_all(request.as_bytes())
                         .expect("callback request should write");
-                    return read_request(&mut stream);
+                    return read_response_text(&mut stream);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
                     if std::time::Instant::now() >= deadline {
@@ -3786,6 +3656,59 @@ mod tests {
         )
     }
 
+    #[derive(Clone, Debug)]
+    struct CapturedRequest {
+        method: String,
+        path: String,
+        query: BTreeMap<String, Vec<String>>,
+        headers: BTreeMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    impl CapturedRequest {
+        fn parse(buffer: &[u8]) -> Self {
+            let headers_end = find_headers_end(buffer).expect("request should include headers");
+            let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+            let mut lines = headers.lines();
+            let request_line = lines.next().expect("request line should exist");
+            let mut request_parts = request_line.split_whitespace();
+            let method = request_parts.next().expect("method should exist").to_owned();
+            let target = request_parts.next().expect("target should exist");
+            let (path, query) = split_target(target);
+            let headers = lines
+                .filter_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    Some((name.trim().to_ascii_lowercase(), value.trim().to_owned()))
+                })
+                .collect();
+
+            Self {
+                method,
+                path,
+                query,
+                headers,
+                body: buffer[headers_end + 4..].to_vec(),
+            }
+        }
+
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers.get(&name.to_ascii_lowercase()).map(String::as_str)
+        }
+
+        fn query_value(&self, name: &str) -> Option<&str> {
+            self.query.get(name)?.last().map(String::as_str)
+        }
+
+        fn form_value(&self, name: &str) -> Option<String> {
+            let form = parse_www_form(&String::from_utf8_lossy(&self.body));
+            form.get(name).and_then(|values| values.last()).cloned()
+        }
+
+        fn json_body<T: DeserializeOwned>(&self) -> T {
+            serde_json::from_slice(&self.body).expect("request body should deserialize")
+        }
+    }
+
     #[derive(Clone)]
     struct ResponseSpec {
         status_code: u16,
@@ -3825,7 +3748,7 @@ mod tests {
 
     struct TestServer {
         address: String,
-        requests: Arc<Mutex<Vec<String>>>,
+        requests: Arc<Mutex<Vec<CapturedRequest>>>,
         _handle: thread::JoinHandle<()>,
     }
 
@@ -3839,7 +3762,7 @@ mod tests {
             let handle = thread::spawn(move || {
                 for response in responses {
                     let (mut stream, _) = listener.accept().expect("server should accept request");
-                    let request = read_request(&mut stream);
+                    let request = read_captured_request(&mut stream);
                     if let Ok(mut captured) = requests_clone.lock() {
                         captured.push(request);
                     }
@@ -3878,12 +3801,12 @@ mod tests {
             self.address.clone()
         }
 
-        fn requests(&self) -> Vec<String> {
+        fn requests(&self) -> Vec<CapturedRequest> {
             self.requests.lock().expect("requests lock").clone()
         }
     }
 
-    fn read_request(stream: &mut std::net::TcpStream) -> String {
+    fn read_response_text(stream: &mut std::net::TcpStream) -> String {
         let mut buffer = Vec::new();
         let mut temp = [0u8; 1024];
         loop {
@@ -3897,6 +3820,96 @@ mod tests {
             }
         }
         String::from_utf8(buffer).expect("request should be utf-8")
+    }
+
+    fn read_captured_request(stream: &mut std::net::TcpStream) -> CapturedRequest {
+        let mut buffer = Vec::new();
+        let mut temp = [0_u8; 4096];
+        loop {
+            let bytes_read = stream.read(&mut temp).expect("request should read");
+            if bytes_read == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&temp[..bytes_read]);
+
+            if let Some(headers_end) = find_headers_end(&buffer) {
+                let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let mut parts = line.splitn(2, ':');
+                        let name = parts.next()?.trim();
+                        if !name.eq_ignore_ascii_case("content-length") {
+                            return None;
+                        }
+                        parts.next()?.trim().parse::<usize>().ok()
+                    })
+                    .unwrap_or(0);
+                let total_length = headers_end + 4 + content_length;
+                if buffer.len() >= total_length {
+                    break;
+                }
+            }
+        }
+
+        CapturedRequest::parse(&buffer)
+    }
+
+    fn find_headers_end(buffer: &[u8]) -> Option<usize> {
+        buffer.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    fn split_target(target: &str) -> (String, BTreeMap<String, Vec<String>>) {
+        let Some((path, query)) = target.split_once('?') else {
+            return (target.to_owned(), BTreeMap::new());
+        };
+
+        (path.to_owned(), parse_www_form(query))
+    }
+
+    fn parse_www_form(input: &str) -> BTreeMap<String, Vec<String>> {
+        let mut values = BTreeMap::new();
+        for pair in input.split('&').filter(|pair| !pair.is_empty()) {
+            let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
+            let key = url_decode_component(raw_key);
+            let value = url_decode_component(raw_value);
+            values.entry(key).or_insert_with(Vec::new).push(value);
+        }
+        values
+    }
+
+    fn url_decode_component(input: &str) -> String {
+        let mut decoded = Vec::with_capacity(input.len());
+        let bytes = input.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'+' => {
+                    decoded.push(b' ');
+                    index += 1;
+                }
+                b'%' if index + 2 < bytes.len() => {
+                    let high = decode_hex(bytes[index + 1]);
+                    let low = decode_hex(bytes[index + 2]);
+                    decoded.push((high << 4) | low);
+                    index += 3;
+                }
+                byte => {
+                    decoded.push(byte);
+                    index += 1;
+                }
+            }
+        }
+        String::from_utf8(decoded).expect("decoded form component should be utf-8")
+    }
+
+    fn decode_hex(byte: u8) -> u8 {
+        match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => panic!("invalid hex byte {byte:?}"),
+        }
     }
 
     fn status_text(code: u16) -> &'static str {
