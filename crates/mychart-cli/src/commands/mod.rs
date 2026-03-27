@@ -1,9 +1,20 @@
 mod api;
+mod appointments;
 mod auth;
 mod connect;
+mod labs;
+mod meds;
+mod notes;
 mod portal;
+mod shared;
+mod timeline;
 
 pub(crate) use api::{run_api, ApiCommand};
+pub(crate) use appointments::{run_appointments, AppointmentsCommand};
 pub(crate) use auth::{run_auth, AuthCommand};
 pub(crate) use connect::{run_connect, ConnectCommand};
+pub(crate) use labs::{run_labs, LabsCommand};
+pub(crate) use meds::{run_meds, MedsCommand};
+pub(crate) use notes::{run_notes, NotesCommand};
 pub(crate) use portal::{run_portal, PortalCommand};
+pub(crate) use timeline::{run_timeline, TimelineCommand};

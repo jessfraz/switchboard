@@ -24,7 +24,11 @@ pub(crate) use crate::error::{Error, Result};
 use crate::state::{MyChartState, StateStore};
 use crate::{
     client::{JsonResponse, MyChartClient, ResolvedResponse},
-    commands::{run_api, run_auth, run_connect, run_portal, ApiCommand, AuthCommand, ConnectCommand, PortalCommand},
+    commands::{
+        run_api, run_appointments, run_auth, run_connect, run_labs, run_meds, run_notes, run_portal, run_timeline,
+        ApiCommand, AppointmentsCommand, AuthCommand, ConnectCommand, LabsCommand, MedsCommand, NotesCommand,
+        PortalCommand, TimelineCommand,
+    },
     state::{
         ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
         ENV_MYCHART_CLIENT_SECRET, ENV_MYCHART_CONFIG, ENV_MYCHART_PORTAL_BASE_URL, ENV_MYCHART_REDIRECT_URI,
@@ -38,6 +42,11 @@ const AFTER_HELP: &str = concat!(
     "  mychart connect ucla medical center\n",
     "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
+    "  mychart timeline --limit 25\n",
+    "  mychart labs a1c ferritin tsh --spark\n",
+    "  mychart appointments upcoming --limit 5\n",
+    "  mychart meds reconcile\n",
+    "  mychart notes search --query migraine\n",
     "  mychart auth exchange-code --code <oauth-code>\n",
     "  mychart api resources --details\n",
     "  mychart api appointment search --patient 123 --date ge2026-03-01 --status booked\n",
@@ -84,6 +93,11 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
         Commands::Connect(command) => run_connect(command.command, &mut context),
         Commands::Auth(command) => run_auth(command.command, &mut context),
         Commands::Api(command) => run_api(command.command, &mut context),
+        Commands::Timeline(command) => run_timeline(command, &context),
+        Commands::Labs(command) => run_labs(command.command, &context),
+        Commands::Notes(command) => run_notes(command.command, &context),
+        Commands::Meds(command) => run_meds(command.command, &context),
+        Commands::Appointments(command) => run_appointments(command.command, &context),
         Commands::Portal(command) => run_portal(command.command, &mut context),
     }
     .map_err(|error| (error, compact))?;
@@ -148,6 +162,11 @@ enum Commands {
     Connect(ConnectCommand),
     Auth(AuthCommand),
     Api(ApiCommand),
+    Timeline(TimelineCommand),
+    Labs(LabsCommand),
+    Notes(NotesCommand),
+    Meds(MedsCommand),
+    Appointments(AppointmentsCommand),
     Portal(PortalCommand),
 }
 
@@ -1470,6 +1489,148 @@ mod tests {
 
         assert_eq!(output["status"], "ambiguous");
         assert_eq!(output["matches"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn labs_shorthand_returns_trend_series() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("Observation", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [
+                        {
+                            "resource": {
+                                "resourceType": "Observation",
+                                "id": "obs-1",
+                                "effectiveDateTime": "2026-03-01T00:00:00Z",
+                                "code": {"text": "Hemoglobin A1c"},
+                                "valueQuantity": {"value": 6.3, "unit": "%"}
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "Observation",
+                                "id": "obs-2",
+                                "effectiveDateTime": "2026-02-01T00:00:00Z",
+                                "code": {"text": "Hemoglobin A1c"},
+                                "valueQuantity": {"value": 6.1, "unit": "%"}
+                            }
+                        }
+                    ]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-labs-trend");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "labs",
+            "a1c",
+            "--spark",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["series"][0]["label"], "Hemoglobin A1c");
+        assert_eq!(output["series"][0]["point_count"], 2);
+        assert!(!output["series"][0]["spark"]
+            .as_str()
+            .expect("sparkline should be present")
+            .is_empty());
+    }
+
+    #[test]
+    fn appointments_upcoming_filters_past_and_cancelled_entries() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("Appointment", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [
+                        {
+                            "resource": {
+                                "resourceType": "Appointment",
+                                "id": "appt-future",
+                                "status": "booked",
+                                "start": "2100-01-01T10:00:00Z",
+                                "description": "Future visit"
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "Appointment",
+                                "id": "appt-past",
+                                "status": "booked",
+                                "start": "2000-01-01T10:00:00Z",
+                                "description": "Past visit"
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "Appointment",
+                                "id": "appt-cancelled",
+                                "status": "cancelled",
+                                "start": "2100-01-02T10:00:00Z",
+                                "description": "Cancelled visit"
+                            }
+                        }
+                    ]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-appointments-upcoming");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "appointments",
+            "upcoming",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["appointments"].as_array().map(Vec::len), Some(1));
+        assert_eq!(output["appointments"][0]["id"], "appt-future");
     }
 
     #[test]
