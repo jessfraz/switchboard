@@ -7,7 +7,7 @@ use std::{
     sync::MutexGuard,
 };
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::json;
 use switchboard_core::{
@@ -1118,6 +1118,21 @@ fn tools_describe_raw_google_tool_explains_passthrough_usage() {
     assert!(output.contains("policy, auth isolation, and audit still apply"));
     assert!(output.contains("put switchboard flags before --"));
     assert!(output.contains("switchboard google.cli.write --ns google."));
+}
+
+#[test]
+fn top_level_help_makes_raw_cli_coverage_explicit() {
+    let mut command = Cli::command();
+    let mut help = Vec::new();
+    command.write_help(&mut help).expect("help output should render");
+    let help = String::from_utf8(help).expect("help output should be utf-8");
+
+    assert!(help.contains("Raw CLI Coverage:"));
+    assert!(help.contains("any discovered provider CLI command"));
+    assert!(help.contains("<provider>.cli.read"));
+    assert!(help.contains("<provider>.cli.write"));
+    assert!(help.contains("Put switchboard flags before --"));
+    assert!(help.contains("switchboard github.cli.write --ns github.personal -- --repo owner/repo"));
 }
 
 #[test]

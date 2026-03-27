@@ -8,10 +8,19 @@ use switchboard_core::{
 };
 
 const AFTER_HELP: &str = concat!(
+    "Raw CLI Coverage:\n",
+    "  Curated tools are the nice typed layer, not the limit.\n",
+    "  By default, any discovered provider CLI command can run through these raw surfaces:\n",
+    "    <provider>.cli.read   for read-only commands\n",
+    "    <provider>.cli.write  for write commands\n",
+    "  Namespace auth, policy, approval, audit, and undo metadata still apply.\n",
+    "  Put switchboard flags before --, then pass native CLI argv after --.\n",
+    "\n",
     "Examples:\n",
     "  switchboard ns list\n",
     "  switchboard tools list\n",
     "  switchboard tools describe google.cli.write\n",
+    "  switchboard tools describe github.cli.read\n",
     "  switchboard audit list\n",
     "  switchboard op list\n",
     "  switchboard op list --pending\n",
@@ -19,6 +28,7 @@ const AFTER_HELP: &str = concat!(
     "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
     "  switchboard google.calendar.list --ns google.work --ns google.personal --json\n",
     "  switchboard google.cli.read --ns google.work --json -- calendar +agenda --format json --today\n",
+    "  switchboard github.cli.write --ns github.personal -- --repo owner/repo issue comment 123 --body 'needs tests'\n",
     "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n",
     "  switchboard op approve op_1234abcd --actor codex --note 'ship it'\n",
     "  switchboard op approve op_1234abcd --actor codex --apply --json\n",

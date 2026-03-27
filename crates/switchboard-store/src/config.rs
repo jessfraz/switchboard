@@ -348,7 +348,9 @@ struct RawNamespace {
 
 #[cfg(test)]
 mod tests {
-    use switchboard_core::{AuthKind, AuthRef, AuthStore, NamespaceId, NamespaceStore, SecretStore, WritePolicy};
+    use switchboard_core::{
+        AuthKind, AuthRef, AuthStore, Error, NamespaceId, NamespaceStore, SecretStore, WritePolicy,
+    };
 
     use super::SwitchboardConfig;
 
@@ -445,7 +447,10 @@ mod tests {
         let error =
             SwitchboardConfig::from_toml_str(UNKNOWN_PROVIDER_CONFIG).expect_err("unknown providers should fail");
 
-        assert!(error.to_string().contains("unknown provider"));
+        assert_eq!(
+            error,
+            Error::Config("auth.oracle_personal declares unknown provider \"oracle\"".into())
+        );
     }
 
     #[test]
@@ -453,16 +458,19 @@ mod tests {
         let error =
             SwitchboardConfig::from_toml_str(PROVIDER_MISMATCH_CONFIG).expect_err("provider mismatch should fail");
 
-        assert!(error
-            .to_string()
-            .contains("namespace.github.personal declares provider google"));
+        assert_eq!(
+            error,
+            Error::Config(
+                "namespace.github.personal declares provider google, but its namespace path uses github".into()
+            )
+        );
     }
 
     #[test]
     fn rejects_empty_auth_references() {
         let error = SwitchboardConfig::from_toml_str(EMPTY_AUTH_CONFIG).expect_err("empty auth refs should fail");
 
-        assert!(error.to_string().contains("auth reference cannot be empty"));
+        assert_eq!(error, Error::InvalidArguments("auth reference cannot be empty".into()));
     }
 
     #[test]
@@ -470,7 +478,10 @@ mod tests {
         let error =
             SwitchboardConfig::from_toml_str(MISSING_AUTH_REF_CONFIG).expect_err("missing auth refs should fail");
 
-        assert!(error.to_string().contains("references missing auth ref"));
+        assert_eq!(
+            error,
+            Error::Config("namespace.google.personal references missing auth ref google_work".into())
+        );
     }
 
     #[test]
@@ -478,14 +489,20 @@ mod tests {
         let error =
             SwitchboardConfig::from_toml_str(MISSING_SECRET_REF_CONFIG).expect_err("missing secret refs should fail");
 
-        assert!(error.to_string().contains("references missing secret ref"));
+        assert_eq!(
+            error,
+            Error::Config("auth.google_work references missing secret ref google_work_client_id".into())
+        );
     }
 
     #[test]
     fn rejects_empty_config() {
         let error = SwitchboardConfig::from_toml_str(EMPTY_CONFIG).expect_err("empty config should fail");
 
-        assert!(error.to_string().contains("at least one auth entry"));
+        assert_eq!(
+            error,
+            Error::Config("config must define at least one auth entry under [auth.<name>]".into())
+        );
     }
 
     fn render_basic_config(google_personal_oauth_path: &str) -> String {

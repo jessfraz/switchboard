@@ -256,10 +256,22 @@ fn args_template_builds_json_segments_with_computed_values() {
     );
 
     let args = template.build_args(&action).expect("args should build");
-    let json_arg: Value = serde_json::from_str(&args[5]).expect("json segment should parse");
+    #[derive(Debug, serde::Deserialize)]
+    struct DraftMessageEnvelope {
+        message: DraftMessage,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct DraftMessage {
+        #[serde(rename = "threadId")]
+        thread_id: Option<String>,
+        raw: String,
+    }
+
+    let json_arg: DraftMessageEnvelope = serde_json::from_str(&args[5]).expect("json segment should parse");
     assert_eq!(args[..5], ["gmail", "users", "drafts", "create", "--json"]);
-    assert_eq!(json_arg["message"]["threadId"], "thread-123");
-    assert!(json_arg["message"]["raw"].as_str().is_some());
+    assert_eq!(json_arg.message.thread_id.as_deref(), Some("thread-123"));
+    assert!(!json_arg.message.raw.is_empty());
 }
 
 #[test]

@@ -343,14 +343,32 @@ mod tests {
             }],
         };
 
-        let rendered = render_manifest_scaffold(&inventory, "gws").expect("scaffold should render");
-        let value: serde_json::Value = serde_json::from_str(&rendered).expect("manifest should parse");
+        #[derive(Debug, serde::Deserialize)]
+        struct ScaffoldManifest {
+            provider: String,
+            binaries: Vec<ScaffoldBinary>,
+            commands: Vec<ScaffoldCommand>,
+        }
 
-        assert_eq!(value["provider"], "google");
-        assert_eq!(value["binaries"][0]["id"], "gws");
-        assert_eq!(value["binaries"][0]["env_override"], "SWITCHBOARD_GWS_BIN");
-        assert_eq!(value["commands"][0]["name"], "google.cli.read");
-        assert_eq!(value["commands"][1]["name"], "google.cli.write");
+        #[derive(Debug, serde::Deserialize)]
+        struct ScaffoldBinary {
+            id: String,
+            env_override: String,
+        }
+
+        #[derive(Debug, serde::Deserialize)]
+        struct ScaffoldCommand {
+            name: String,
+        }
+
+        let rendered = render_manifest_scaffold(&inventory, "gws").expect("scaffold should render");
+        let manifest: ScaffoldManifest = serde_json::from_str(&rendered).expect("manifest should parse");
+
+        assert_eq!(manifest.provider, "google");
+        assert_eq!(manifest.binaries[0].id, "gws");
+        assert_eq!(manifest.binaries[0].env_override, "SWITCHBOARD_GWS_BIN");
+        assert_eq!(manifest.commands[0].name, "google.cli.read");
+        assert_eq!(manifest.commands[1].name, "google.cli.write");
     }
 
     #[test]
