@@ -332,12 +332,15 @@ mod tests {
             .expect("auth should build"),
         };
 
-        PlannedAction::new(
+        let mut plan = PlannedAction::new(
             &request,
             &target,
             ToolKind::Write,
             "Create personal calendar event",
             BackendKind::Cli,
-        )
+        );
+        plan.approval_required = true;
+        plan.approval_reason = Some("write approval required in tests".into());
+        plan
     }
 }

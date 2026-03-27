@@ -472,7 +472,10 @@ fn to_sqlite_error(error: impl std::fmt::Display) -> rusqlite::Error {
 }
 
 fn ensure_column(connection: &Connection, column_name: &str, _definition: &str, statement: &str) -> Result<()> {
-    if operation_columns(connection)?.iter().any(|column| column == column_name) {
+    if operation_columns(connection)?
+        .iter()
+        .any(|column| column == column_name)
+    {
         return Ok(());
     }
 

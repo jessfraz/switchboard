@@ -1,0 +1,70 @@
+[policy]
+write = "allow"
+
+[secret.github_personal_token]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "GitHub Personal Access Token"
+field = "token"
+
+[secret.google_workspace_cli_client_id]
+kind = "env"
+name = "GOOGLE_WORKSPACE_CLI_CLIENT_ID"
+
+[secret.google_workspace_cli_client_secret]
+kind = "env"
+name = "GOOGLE_WORKSPACE_CLI_CLIENT_SECRET"
+
+[secret.google_personal_oauth]
+kind = "file"
+path = "__GOOGLE_PERSONAL_OAUTH_PATH__"
+
+[auth.github_personal]
+provider = "github"
+kind = "gh_cli"
+account = "jessfraz"
+
+[auth.github_personal_token]
+provider = "github"
+kind = "github_token"
+account = "jessfraz"
+token = "github_personal_token"
+
+[auth.google_work]
+provider = "google"
+kind = "google_oauth"
+account = "jess@company.com"
+client_id = "google_workspace_cli_client_id"
+client_secret = "google_workspace_cli_client_secret"
+
+[auth.google_personal]
+provider = "google"
+kind = "google_oauth_file"
+account = "jess@example.com"
+credentials = "google_personal_oauth"
+
+[namespace.github.personal]
+provider = "github"
+account = "jessfraz"
+auth = "github_personal"
+default_read = true
+
+[namespace.github.personal_token]
+provider = "github"
+account = "jessfraz"
+auth = "github_personal_token"
+default_read = false
+
+[namespace.google.work]
+provider = "google"
+account = "jess@company.com"
+auth = "google_work"
+default_read = true
+state_dir = "/tmp/switchboard-google-work"
+
+[namespace.google.personal]
+provider = "google"
+account = "jess@example.com"
+auth = "google_personal"
+default_read = false
+state_dir = "/tmp/switchboard-google-personal"

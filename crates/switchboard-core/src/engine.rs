@@ -293,15 +293,12 @@ impl Switchboard {
             .ok_or_else(|| Error::UnsupportedTool(operation.tool.to_string()))?;
         if descriptor.kind != operation.kind {
             return Err(Error::Operation(format!(
-                "stored operation {} expected tool kind {}, but {} is registered as {}",
+                "stored operation {} expected tool kind {:?}, but {} is registered as {:?}",
                 operation.id, operation.kind, operation.tool, descriptor.kind
             )));
         }
 
-        let planning_target = PlanningTarget {
-            namespace,
-            auth,
-        };
+        let planning_target = PlanningTarget { namespace, auth };
         let plan = PlannedAction {
             tool: operation.tool.clone(),
             namespace: operation.namespace.clone(),

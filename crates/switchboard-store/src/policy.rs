@@ -28,7 +28,7 @@ impl PolicyEngine for ConfiguredPolicyEngine {
             ToolKind::Write => match self.write_policy {
                 WritePolicy::Allow => PolicyDecision::Allow,
                 WritePolicy::RequireApproval => PolicyDecision::RequireApproval {
-                    reason: format!("{} stays draft-first until approval UX is wired", plan.tool),
+                    reason: format!("{} requires approval by configured write policy", plan.tool),
                 },
                 WritePolicy::Deny => PolicyDecision::Deny {
                     reason: format!("writes are denied by policy for {}", plan.tool),

@@ -11,14 +11,14 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
-    AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
-    NamespaceStore, OperationEffect, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver,
-    SecretStore, Switchboard, SwitchboardServices, ToolArgument, ToolName, ToolOutput, ToolRef, ToolRequest,
+    AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuthStore, BackendKind, DispatchOutcome, ExecutionMode,
+    NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest, ResolvedNamespace,
+    Result, SecretResolver, SecretStore, StoredOperation, Switchboard, SwitchboardServices, ToolArgument, ToolName,
+    ToolOutput, ToolRef, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
-    resolve_operation_store_path, ConfiguredPolicyEngine, LocalSecretResolver, MemoryAuditSink, SqliteOperationStore,
-    SwitchboardConfig,
+    resolve_operation_store_path, LocalSecretResolver, MemoryAuditSink, SqliteOperationStore, SwitchboardConfig,
 };
 
 #[cfg(test)]
@@ -27,10 +27,13 @@ mod test_support;
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  switchboard ns list\n",
+    "  switchboard op list\n",
     "  switchboard github.notifications.list --ns github.personal --json\n",
     "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
     "  switchboard google.calendar.list --ns google.work --ns google.personal --json\n",
-    "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n"
+    "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n",
+    "  switchboard op approve op_1234abcd --actor codex --note 'ship it'\n",
+    "  switchboard op apply op_1234abcd --json\n"
 );
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
@@ -133,6 +136,95 @@ fn run(cli: Cli) -> std::result::Result<String, RunError> {
                 Ok(render_operation_human(&outcome))
             }
         }
+        CommandKind::StoredOperation(command) => run_stored_operation_command(&switchboard, command),
+    }
+}
+
+fn run_stored_operation_command(
+    switchboard: &Switchboard,
+    command: StoredOperationCommand,
+) -> std::result::Result<String, RunError> {
+    match command {
+        StoredOperationCommand::List { json } => {
+            let operations = switchboard.list_operations();
+            if json {
+                render_json(
+                    &StoredOperationListResponse {
+                        status: "ok",
+                        operations: &operations,
+                    },
+                    true,
+                )
+            } else {
+                Ok(render_operations_human(&operations))
+            }
+        }
+        StoredOperationCommand::Show { id, json } => {
+            let operation = switchboard.get_operation(&id).ok_or_else(|| RunError {
+                message: format!("unknown operation id: {id}"),
+                json,
+            })?;
+            if json {
+                render_json(
+                    &StoredOperationResponse {
+                        status: "ok",
+                        operation: &operation,
+                    },
+                    true,
+                )
+            } else {
+                Ok(render_stored_operation_human(&operation))
+            }
+        }
+        StoredOperationCommand::Approve { id, actor, note, json } => {
+            let operation = switchboard
+                .approve_operation(&id, &actor, note.as_deref())
+                .map_err(|error| RunError {
+                    message: error.to_string(),
+                    json,
+                })?;
+            if json {
+                render_json(
+                    &StoredOperationResponse {
+                        status: "approved",
+                        operation: &operation,
+                    },
+                    true,
+                )
+            } else {
+                Ok(render_stored_operation_human(&operation))
+            }
+        }
+        StoredOperationCommand::Reject { id, actor, note, json } => {
+            let operation = switchboard
+                .reject_operation(&id, &actor, note.as_deref())
+                .map_err(|error| RunError {
+                    message: error.to_string(),
+                    json,
+                })?;
+            if json {
+                render_json(
+                    &StoredOperationResponse {
+                        status: "rejected",
+                        operation: &operation,
+                    },
+                    true,
+                )
+            } else {
+                Ok(render_stored_operation_human(&operation))
+            }
+        }
+        StoredOperationCommand::Apply { id, json } => {
+            let output = switchboard.apply_operation(&id).map_err(|error| RunError {
+                message: error.to_string(),
+                json,
+            })?;
+            if json {
+                render_json_dispatch(&DispatchOutcome::Executed(output))
+            } else {
+                Ok(render_output_human(&output))
+            }
+        }
     }
 }
 
@@ -156,6 +248,7 @@ impl Cli {
     fn json_requested(&self) -> bool {
         match &self.command {
             Commands::Ns(namespace) => namespace.json_requested(),
+            Commands::Op(operation) => operation.json_requested(),
             Commands::Tool(tokens) => contains_json_os_tokens(tokens),
         }
     }
@@ -164,6 +257,7 @@ impl Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Ns(NamespaceCommand),
+    Op(OperationCommand),
     #[command(external_subcommand)]
     Tool(Vec<OsString>),
 }
@@ -172,6 +266,7 @@ impl Commands {
     fn into_runtime_command(self) -> std::result::Result<CommandKind, RunError> {
         match self {
             Self::Ns(namespace) => Ok(namespace.into_runtime_command()),
+            Self::Op(operation) => operation.into_runtime_command(),
             Self::Tool(tokens) => parse_external_tool_invocation(tokens).map(CommandKind::Operation),
         }
     }
@@ -197,6 +292,92 @@ impl NamespaceCommand {
     }
 }
 
+#[derive(Debug, Args)]
+struct OperationCommand {
+    #[command(subcommand)]
+    command: OperationSubcommand,
+}
+
+impl OperationCommand {
+    fn json_requested(&self) -> bool {
+        match &self.command {
+            OperationSubcommand::List(arguments) => arguments.json,
+            OperationSubcommand::Show(arguments) => arguments.json,
+            OperationSubcommand::Approve(arguments) => arguments.json,
+            OperationSubcommand::Reject(arguments) => arguments.json,
+            OperationSubcommand::Apply(arguments) => arguments.json,
+        }
+    }
+
+    fn into_runtime_command(self) -> std::result::Result<CommandKind, RunError> {
+        let command = match self.command {
+            OperationSubcommand::List(arguments) => StoredOperationCommand::List { json: arguments.json },
+            OperationSubcommand::Show(arguments) => StoredOperationCommand::Show {
+                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                json: arguments.json,
+            },
+            OperationSubcommand::Approve(arguments) => StoredOperationCommand::Approve {
+                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                actor: arguments.actor.unwrap_or_else(default_actor),
+                note: arguments.note,
+                json: arguments.json,
+            },
+            OperationSubcommand::Reject(arguments) => StoredOperationCommand::Reject {
+                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                actor: arguments.actor.unwrap_or_else(default_actor),
+                note: arguments.note,
+                json: arguments.json,
+            },
+            OperationSubcommand::Apply(arguments) => StoredOperationCommand::Apply {
+                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                json: arguments.json,
+            },
+        };
+
+        Ok(CommandKind::StoredOperation(command))
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum OperationSubcommand {
+    List(OperationListArgs),
+    Show(OperationShowArgs),
+    Approve(OperationDecisionArgs),
+    Reject(OperationDecisionArgs),
+    Apply(OperationApplyArgs),
+}
+
+#[derive(Debug, Args)]
+struct OperationListArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct OperationShowArgs {
+    id: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct OperationDecisionArgs {
+    id: String,
+    #[arg(long)]
+    actor: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct OperationApplyArgs {
+    id: String,
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum NamespaceSubcommand {
     List(ListNamespaceArgs),
@@ -212,12 +393,53 @@ struct ListNamespaceArgs {
 enum CommandKind {
     NamespaceList,
     Operation(OperationRequest),
+    StoredOperation(StoredOperationCommand),
+}
+
+#[derive(Debug)]
+enum StoredOperationCommand {
+    List {
+        json: bool,
+    },
+    Show {
+        id: OperationId,
+        json: bool,
+    },
+    Approve {
+        id: OperationId,
+        actor: String,
+        note: Option<String>,
+        json: bool,
+    },
+    Reject {
+        id: OperationId,
+        actor: String,
+        note: Option<String>,
+        json: bool,
+    },
+    Apply {
+        id: OperationId,
+        json: bool,
+    },
 }
 
 #[derive(Debug)]
 struct RunError {
     message: String,
     json: bool,
+}
+
+fn to_run_error(error: switchboard_core::Error) -> RunError {
+    RunError {
+        message: error.to_string(),
+        json: false,
+    }
+}
+
+fn default_actor() -> String {
+    env::var("USER")
+        .or_else(|_| env::var("USERNAME"))
+        .unwrap_or_else(|_| "switchboard-user".to_owned())
 }
 
 #[derive(Debug, Default)]
@@ -358,6 +580,53 @@ fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     output
 }
 
+fn render_operations_human(operations: &[StoredOperation]) -> String {
+    let mut output = String::from("Operations\n");
+    for operation in operations {
+        output.push_str(&format!(
+            "- {} {} {} approval={} status={}\n",
+            operation.id,
+            operation.tool,
+            operation.namespace,
+            render_approval_state(operation.approval.state),
+            render_operation_status(operation.status)
+        ));
+    }
+
+    output
+}
+
+fn render_stored_operation_human(operation: &StoredOperation) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("Operation: {}\n", operation.id));
+    output.push_str(&format!("Tool: {}\n", operation.tool));
+    output.push_str(&format!("Namespace: {}\n", operation.namespace));
+    output.push_str(&format!("Summary: {}\n", operation.summary));
+    output.push_str(&format!("Backend: {}\n", operation.backend));
+    output.push_str(&format!("Status: {}\n", render_operation_status(operation.status)));
+    output.push_str(&format!(
+        "Approval: {}\n",
+        render_approval_state(operation.approval.state)
+    ));
+    if let Some(reason) = &operation.approval_reason {
+        output.push_str(&format!("Approval reason: {reason}\n"));
+    }
+    if let Some(actor) = &operation.approval.actor {
+        output.push_str(&format!("Approval actor: {actor}\n"));
+    }
+    if let Some(note) = &operation.approval.note {
+        output.push_str(&format!("Approval note: {note}\n"));
+    }
+    if let Some(reason) = &operation.failure_reason {
+        output.push_str(&format!("Failure: {reason}\n"));
+    }
+    if let Some(effect) = &operation.effect {
+        output.push_str(&render_effect_human(effect));
+    }
+
+    output
+}
+
 fn render_operation_human(outcome: &OperationOutcome) -> String {
     match outcome {
         OperationOutcome::Single(outcome) => render_dispatch_human(outcome),
@@ -452,6 +721,24 @@ fn render_effect_human(effect: &OperationEffect) -> String {
     }
 
     rendered
+}
+
+fn render_approval_state(state: ApprovalState) -> &'static str {
+    match state {
+        ApprovalState::NotRequired => "not_required",
+        ApprovalState::Pending => "pending",
+        ApprovalState::Approved => "approved",
+        ApprovalState::Rejected => "rejected",
+    }
+}
+
+fn render_operation_status(status: switchboard_core::OperationStatus) -> &'static str {
+    match status {
+        switchboard_core::OperationStatus::Planned => "planned",
+        switchboard_core::OperationStatus::Applied => "applied",
+        switchboard_core::OperationStatus::Failed => "failed",
+        switchboard_core::OperationStatus::Compensated => "compensated",
+    }
 }
 
 fn render_aggregate_read_human(outcome: &AggregateReadOutcome) -> String {
@@ -612,6 +899,18 @@ struct NamespaceListResponse {
 }
 
 #[derive(Serialize)]
+struct StoredOperationListResponse<'a> {
+    status: &'static str,
+    operations: &'a [StoredOperation],
+}
+
+#[derive(Serialize)]
+struct StoredOperationResponse<'a> {
+    status: &'static str,
+    operation: &'a StoredOperation,
+}
+
+#[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum DispatchResponse<'a> {
     Planned {
@@ -717,6 +1016,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/basic.toml"
     ));
+    const ALLOW_WRITES_CONFIG_TEMPLATE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/config/allow-writes.toml"
+    ));
     const GOOGLE_CALENDAR_AGENDA_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-calendar-agenda.json"
@@ -810,6 +1113,113 @@ mod tests {
                 panic!("write requests should not execute yet");
             }
         }
+    }
+
+    #[test]
+    fn operation_approval_flow_can_approve_and_apply_planned_writes() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+
+        let draft = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.calendar.create",
+            "--ns",
+            "google.work",
+            "--title",
+            "Budget review",
+            "--start",
+            "2026-03-30T15:00:00-07:00",
+            "--end",
+            "2026-03-30T15:30:00-07:00",
+            "--draft",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let draft_output = run(draft).expect("draft should succeed");
+        let draft_value: serde_json::Value = serde_json::from_str(&draft_output).expect("output should be valid json");
+        let operation_id = draft_value["operation_id"]
+            .as_str()
+            .expect("draft operation id should exist")
+            .to_owned();
+
+        let approve = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "approve",
+            &operation_id,
+            "--actor",
+            "codex",
+            "--note",
+            "looks good",
+            "--json",
+        ])
+        .expect("approve cli should parse");
+
+        let approve_output = run(approve).expect("approve should succeed");
+        let approve_value: serde_json::Value =
+            serde_json::from_str(&approve_output).expect("approve output should be valid json");
+        assert_eq!(approve_value["status"], "approved");
+        assert_eq!(approve_value["operation"]["approval"]["state"], "approved");
+
+        let apply = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "apply",
+            &operation_id,
+            "--json",
+        ])
+        .expect("apply cli should parse");
+
+        let apply_output = run(apply).expect("apply should succeed");
+        let apply_value: serde_json::Value =
+            serde_json::from_str(&apply_output).expect("apply output should be valid json");
+        assert_eq!(apply_value["status"], "executed");
+        assert_eq!(apply_value["operation_id"], operation_id);
+        assert_eq!(apply_value["effect"]["undoable"], true);
+        assert_eq!(apply_value["refs"][0]["kind"], "event");
+        assert!(
+            environment
+                .gws_capture_contents()
+                .contains("ARGV=calendar +insert --format json --summary Budget review"),
+            "expected calendar insert command to run after approval"
+        );
+    }
+
+    #[test]
+    fn allow_policy_executes_writes_without_manual_approval() {
+        let environment = TestEnvironment::with_config_template(ALLOW_WRITES_CONFIG_TEMPLATE);
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.calendar.create",
+            "--ns",
+            "google.work",
+            "--title",
+            "Budget review",
+            "--start",
+            "2026-03-30T15:00:00-07:00",
+            "--end",
+            "2026-03-30T15:30:00-07:00",
+            "--apply",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("write should execute");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "executed");
+        assert_eq!(value["effect"]["undoable"], true);
+        assert_eq!(value["refs"][0]["kind"], "event");
     }
 
     #[test]
@@ -1167,6 +1577,10 @@ mod tests {
 
     impl TestEnvironment {
         fn new() -> Self {
+            Self::with_config_template(BASIC_CONFIG_TEMPLATE)
+        }
+
+        fn with_config_template(config_template: &str) -> Self {
             let env_guard = lock_env();
             let directory = test_fixture_directory();
             fs::create_dir_all(&directory).expect("temp dir should be created");
@@ -1180,7 +1594,7 @@ mod tests {
             let oauth_path = directory.join("google-personal-oauth.json");
             fs::write(&oauth_path, GOOGLE_PERSONAL_OAUTH_JSON).expect("oauth fixture should be written");
             let path = directory.join("switchboard.toml");
-            let contents = BASIC_CONFIG_TEMPLATE.replace(
+            let contents = config_template.replace(
                 "__GOOGLE_PERSONAL_OAUTH_PATH__",
                 oauth_path.to_str().expect("oauth fixture path should be valid utf-8"),
             );

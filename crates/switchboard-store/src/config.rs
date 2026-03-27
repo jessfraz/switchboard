@@ -348,7 +348,7 @@ struct RawNamespace {
 
 #[cfg(test)]
 mod tests {
-    use switchboard_core::{AuthKind, AuthRef, AuthStore, NamespaceId, NamespaceStore, SecretStore};
+    use switchboard_core::{AuthKind, AuthRef, AuthStore, NamespaceId, NamespaceStore, SecretStore, WritePolicy};
 
     use super::SwitchboardConfig;
 
@@ -359,6 +359,10 @@ mod tests {
     const UNKNOWN_PROVIDER_CONFIG: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/unknown-provider.toml"
+    ));
+    const ALLOW_WRITES_CONFIG_TEMPLATE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/config/allow-writes.toml"
     ));
     const PROVIDER_MISMATCH_CONFIG: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -429,6 +433,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_allow_write_policy() {
+        let config = SwitchboardConfig::from_toml_str(&render_allow_writes_config("/tmp/google-personal-oauth.json"))
+            .expect("config should parse");
+
+        assert_eq!(config.policy_engine().write_policy(), WritePolicy::Allow);
+    }
+
+    #[test]
     fn rejects_unknown_providers() {
         let error =
             SwitchboardConfig::from_toml_str(UNKNOWN_PROVIDER_CONFIG).expect_err("unknown providers should fail");
@@ -478,5 +490,9 @@ mod tests {
 
     fn render_basic_config(google_personal_oauth_path: &str) -> String {
         BASIC_CONFIG_TEMPLATE.replace("__GOOGLE_PERSONAL_OAUTH_PATH__", google_personal_oauth_path)
+    }
+
+    fn render_allow_writes_config(google_personal_oauth_path: &str) -> String {
+        ALLOW_WRITES_CONFIG_TEMPLATE.replace("__GOOGLE_PERSONAL_OAUTH_PATH__", google_personal_oauth_path)
     }
 }

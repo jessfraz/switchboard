@@ -386,8 +386,23 @@ request -> resolve ns -> plan -> preview -> approval -> execute -> audit -> resu
 The important bit is that planning and approval are first-class.
 The model does not get silent write authority just because it sounds confident.
 
-Today, the default CLI policy still keeps writes draft-first until approval UX is real.
-The write backends can be wired underneath that policy boundary without letting the public CLI start freestyling sends and creates before the safety model is finished.
+Writes always create an operation record first.
+What happens after that depends on policy, not vibes.
+
+Write policy should be configurable:
+
+- `allow` means `--apply` executes immediately
+- `require_approval` means `--apply` stays planned until the stored operation is approved
+- `deny` means writes fail closed
+
+Example:
+
+```toml
+[policy]
+write = "require_approval"
+```
+
+If you trust local agents and want them to write immediately on your own machine, `write = "allow"` should be a supported choice, not a moral failing.
 
 ## How a real request works
 
@@ -405,9 +420,10 @@ What should happen:
 1. the model maps "personal account" to `google.personal`
 1. the model extracts the event fields it already knows
 1. the model calls `switchboard` in draft mode first
-1. `switchboard` plans the write, checks policy, records audit metadata, and returns a preview
+1. `switchboard` plans the write, checks policy, stores an operation record, and returns a preview plus operation id
 1. the model shows the preview to the user
-1. after approval, the model calls `switchboard` to apply it
+1. after approval, the model approves the stored operation
+1. the model applies the stored operation by id
 1. `switchboard` executes the provider adapter and records the result
 
 ```text
@@ -427,7 +443,8 @@ switchboard
   +--> resolve namespace: google.personal
   +--> check provider: google
   +--> build draft plan
-  +--> require approval because write
+  +--> store operation record
+  +--> require approval because policy says so
   +--> audit planned action
   v
 draft preview returned to model
@@ -436,9 +453,11 @@ draft preview returned to model
 User approves
   |
   v
-Model calls switchboard again with apply
+Model approves and applies stored operation
   |
-  +--> execute google adapter
+  +--> switchboard op approve <operation-id>
+  +--> switchboard op apply <operation-id>
+  +--> execute stored plan through google adapter
   +--> create event
   +--> audit result
   v
@@ -468,24 +487,22 @@ Example draft result:
   "backend": "cli",
   "operation_id": "op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc",
   "approval_required": true,
-  "approval_reason": "google.calendar.create stays draft-first until approval UX is wired"
+  "approval_reason": "google.calendar.create requires approval by configured write policy"
 }
 ```
 
-Then, after the user approves, the model applies it:
+Then, after the user approves, the model approves and applies the stored operation:
 
 ```bash
-switchboard google.calendar.create \
-  --ns google.personal \
-  --title 'Dinner with Sam' \
-  --start '2026-03-30T19:00:00-07:00' \
-  --end '2026-03-30T21:00:00-07:00' \
-  --apply \
+switchboard op approve op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc \
+  --actor codex \
+  --note 'user approved dinner plan'
+
+switchboard op apply op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc \
   --json
 ```
 
-Today, that second call still remains planned until approval state exists in the product.
-The important part is that the operation already has a durable ID and the execution path can return an undoable receipt once the approval layer is real.
+If policy is set to `allow`, the first `google.calendar.create --apply` call can execute immediately and still emit the same kind of operation receipt.
 
 Fail-closed rule:
 
@@ -813,8 +830,10 @@ Principles:
 Approval defaults:
 
 - reads are usually allowed and still logged
-- writes are previewed first
-- outbound or destructive actions require approval by default
+- writes follow configured policy
+- `require_approval` is the safe default
+- `allow` is valid for users who explicitly trust local agents with writes
+- `deny` is valid for locked-down environments
 
 ## Audit model
 
