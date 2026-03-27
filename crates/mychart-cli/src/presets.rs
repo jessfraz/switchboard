@@ -4,9 +4,9 @@ pub(crate) const PAGES_REDIRECT_URI: &str = "https://jessfraz.github.io/switchbo
 pub(crate) const LOOPBACK_REDIRECT_URI: &str = "http://127.0.0.1:8910/callback";
 pub(crate) const UCLA_FHIR_BASE_URL: &str = "https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4";
 pub(crate) const UCLA_PORTAL_BASE_URL: &str = "https://my.uclahealth.org/MyChart";
-pub(crate) const UCLA_PRODUCTION_CLIENT_ID: &str = "6afd07db-4c59-4e7c-8462-08bd63f725cc";
+pub(crate) const UCLA_PRODUCTION_CLIENT_ID: &str = "4e4fec9e-c13b-4403-9461-a9b8d5643bde";
 pub(crate) const EPIC_SANDBOX_FHIR_BASE_URL: &str = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4";
-pub(crate) const EPIC_SANDBOX_CLIENT_ID: &str = "a7869c00-3088-4b23-8ce5-cdef423c438c";
+pub(crate) const EPIC_SANDBOX_CLIENT_ID: &str = "16b5e2a2-a315-48d5-a4d1-642f19bae940";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct BuiltinPreset {

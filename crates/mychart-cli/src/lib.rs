@@ -235,7 +235,6 @@ fn default_patient_scopes() -> Vec<String> {
         "fhirUser".into(),
         "offline_access".into(),
         "patient/*.read".into(),
-        "patient/*.write".into(),
     ]
 }
 
@@ -299,41 +298,6 @@ fn resolve_id_argument(args: &mut DynamicArgs) -> Result<String> {
     Err(Error::Arguments(
         "too many positional arguments, only the resource id is allowed here".into(),
     ))
-}
-
-fn prepare_resource_body(resource: &ApiResourceCapability, id: Option<String>, mut body: Value) -> Result<Value> {
-    let object = body.as_object_mut().ok_or_else(|| {
-        Error::Arguments("FHIR resource bodies must be JSON objects, not loose arrays or scalars".into())
-    })?;
-
-    match object.get("resourceType").and_then(Value::as_str) {
-        Some(resource_type) if resource_type != resource.resource_type => {
-            return Err(Error::Arguments(format!(
-                "body resourceType {:?} does not match requested resource {:?}",
-                resource_type, resource.resource_type
-            )))
-        }
-        None => {
-            object.insert("resourceType".into(), Value::String(resource.resource_type.clone()));
-        }
-        _ => {}
-    }
-
-    if let Some(id) = id {
-        match object.get("id").and_then(Value::as_str) {
-            Some(existing) if existing != id => {
-                return Err(Error::Arguments(format!(
-                    "body id {existing:?} does not match requested resource id {id:?}"
-                )))
-            }
-            None => {
-                object.insert("id".into(), Value::String(id));
-            }
-            _ => {}
-        }
-    }
-
-    Ok(body)
 }
 
 fn merge_bundle_pages(client: &MyChartClient, first_body: &Value, access_token: &str) -> Result<(Value, usize)> {
@@ -698,9 +662,6 @@ fn normalize_operation_name(input: &str) -> String {
     match normalize_token(input).as_str() {
         "get" | "read" => "read".into(),
         "search" | "list" => "search-type".into(),
-        "create" => "create".into(),
-        "update" | "put" => "update".into(),
-        "delete" | "remove" => "delete".into(),
         other => other.to_owned(),
     }
 }
@@ -761,7 +722,7 @@ fn parse_api_resource_command(tokens: Vec<OsString>) -> Result<ParsedApiResource
     }
     if tokens.len() == 1 {
         return Err(Error::Arguments(
-            "missing resource operation, expected get/read, search, create, update, or delete".into(),
+            "missing resource operation, expected get/read or search".into(),
         ));
     }
     Ok(ParsedApiResourceCommand {
@@ -829,37 +790,6 @@ impl DynamicArgs {
                 "--{name} may only be provided once for this operation"
             ))),
         }
-    }
-
-    fn require_json_body(&mut self) -> Result<Value> {
-        let inline_body = self.take_optional_single("body")?;
-        let body_file = self.take_optional_single("body-file")?;
-        match (inline_body, body_file) {
-            (Some(_), Some(_)) => Err(Error::Arguments("pass either --body or --body-file, not both".into())),
-            (Some(body), None) => serde_json::from_str(&body)
-                .map_err(|error| Error::Arguments(format!("failed to parse --body as JSON: {error}"))),
-            (None, Some(path)) => {
-                let contents = fs::read_to_string(&path)
-                    .map_err(|error| Error::Io(format!("failed to read body file {path}: {error}")))?;
-                serde_json::from_str(&contents)
-                    .map_err(|error| Error::Arguments(format!("failed to parse JSON in {path}: {error}")))
-            }
-            (None, None) => Err(Error::Arguments(
-                "missing JSON request body, pass --body '{...}' or --body-file path.json".into(),
-            )),
-        }
-    }
-
-    fn take_query_pairs(&mut self) -> Result<Vec<(String, String)>> {
-        let options = std::mem::take(&mut self.options);
-        let flags = std::mem::take(&mut self.flags);
-        self.positionals.clear();
-        DynamicArgs {
-            options,
-            flags,
-            positionals: Vec::new(),
-        }
-        .into_query_pairs()
     }
 
     fn into_query_pairs(mut self) -> Result<Vec<(String, String)>> {
@@ -1244,7 +1174,7 @@ mod tests {
                     "access_token": "access-token",
                     "refresh_token": "refresh-token",
                     "token_type": "Bearer",
-                    "scope": "patient/*.read patient/*.write",
+                    "scope": "patient/*.read",
                     "patient": "patient-123",
                     "expires_in": 3600
                 }),
@@ -1784,6 +1714,42 @@ mod tests {
     }
 
     #[test]
+    fn api_write_operations_are_rejected() {
+        let server = TestServer::spawn(vec![ResponseSpec::json(
+            200,
+            capability_statement_json(
+                "http://placeholder",
+                &[resource_capability("Observation", &["read", "search-type"])],
+            ),
+            Vec::new(),
+        )]);
+        let temp_dir = temp_dir("mychart-api-write-rejected");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let error = run_command_error(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "api",
+            "observation",
+            "create",
+            "--body",
+            "{\"valueString\":\"nope\"}",
+        ]);
+
+        assert!(error.contains("unsupported resource operation"));
+        assert!(error.contains("use get/read or search"));
+    }
+
+    #[test]
     fn portal_login_still_works_under_portal_namespace() {
         let server = TestServer::spawn(vec![
             ResponseSpec::html(
@@ -1828,6 +1794,24 @@ mod tests {
             .expect("default account should be persisted");
         assert_eq!(account.portal_base_url.as_deref(), Some(server.base_url().as_str()));
         assert_eq!(account.cookies.len(), 2);
+    }
+
+    #[test]
+    fn portal_request_post_subcommand_is_removed() {
+        let error = Cli::try_parse_from([
+            "mychart",
+            "portal",
+            "request",
+            "post",
+            "/inside.asp",
+            "--form",
+            "foo=bar",
+        ])
+        .expect_err("portal request post should fail to parse")
+        .to_string();
+
+        assert!(error.contains("unrecognized subcommand"));
+        assert!(error.contains("post"));
     }
 
     #[test]
@@ -2862,6 +2846,13 @@ mod tests {
         let compact = cli.global.compact;
         let (value, _) = run(cli).unwrap_or_else(|(error, _)| panic!("{}", error.render(compact)));
         value
+    }
+
+    fn run_command_error(args: &[&str]) -> String {
+        let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
+        let compact = cli.global.compact;
+        let (error, _) = run(cli).expect_err("CLI should fail");
+        error.render(compact)
     }
 
     fn resolved_context(config_path: &std::path::Path) -> crate::state::ResolvedContext {

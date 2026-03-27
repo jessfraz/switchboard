@@ -57,7 +57,6 @@ pub(crate) struct PortalRequestCommand {
 #[derive(Debug, Subcommand)]
 pub(crate) enum PortalRequestSubcommand {
     Get(PortalRequestGetArgs),
-    Post(PortalRequestPostArgs),
 }
 
 #[derive(Debug, Args)]
@@ -66,20 +65,6 @@ pub(crate) struct PortalRequestGetArgs {
 
     #[arg(long = "query", value_parser = crate::parse_key_value, value_name = "KEY=VALUE")]
     query: Vec<(String, String)>,
-
-    #[arg(long = "no-follow-redirects")]
-    no_follow_redirects: bool,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct PortalRequestPostArgs {
-    path: String,
-
-    #[arg(long = "query", value_parser = crate::parse_key_value, value_name = "KEY=VALUE")]
-    query: Vec<(String, String)>,
-
-    #[arg(long = "form", value_parser = crate::parse_key_value, value_name = "KEY=VALUE")]
-    form: Vec<(String, String)>,
 
     #[arg(long = "no-follow-redirects")]
     no_follow_redirects: bool,
@@ -273,20 +258,6 @@ fn run_portal_request(command: PortalRequestSubcommand, context: &mut ResolvedCo
             RequestBody::None,
             !args.no_follow_redirects,
         ),
-        PortalRequestSubcommand::Post(args) => {
-            if args.form.is_empty() {
-                return Err(Error::Arguments(
-                    "missing request form data, provide at least one --form KEY=VALUE pair".into(),
-                ));
-            }
-            (
-                Method::POST,
-                args.path,
-                args.query,
-                RequestBody::Form(args.form),
-                !args.no_follow_redirects,
-            )
-        }
     };
 
     let mut cookies = context.cookies.clone();

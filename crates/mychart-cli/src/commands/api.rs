@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 
 use crate::{
     api_client, ensure_json_success, fetch_capability_summary, merge_bundle_pages, normalize_operation_name,
-    parse_api_resource_command, prepare_resource_body, render_api_result, require_capability, resolve_id_argument,
-    state::ResolvedContext, ApiResourceCapability, DynamicArgs, Error, Result,
+    parse_api_resource_command, render_api_result, require_capability, resolve_id_argument, state::ResolvedContext,
+    ApiResourceCapability, DynamicArgs, Error, Result,
 };
 
 #[derive(Debug, Args)]
@@ -105,11 +105,8 @@ fn run_api_resource(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Res
     match normalize_operation_name(&parsed.operation).as_str() {
         "read" => run_api_resource_get(&client, &resource, &access_token, parsed.args),
         "search-type" => run_api_resource_search(&client, &resource, &access_token, parsed.args),
-        "create" => run_api_resource_create(&client, &resource, &access_token, parsed.args),
-        "update" => run_api_resource_update(&client, &resource, &access_token, parsed.args),
-        "delete" => run_api_resource_delete(&client, &resource, &access_token, parsed.args),
         other => Err(Error::Arguments(format!(
-            "unsupported resource operation {other:?}, use get/read, search, create, update, or delete"
+            "unsupported resource operation {other:?}, use get/read or search"
         ))),
     }
 }
@@ -146,68 +143,4 @@ fn run_api_resource_search(
         (response.body.clone(), 1)
     };
     Ok(render_api_result(resource, "search", &response, body, pages_fetched))
-}
-
-fn run_api_resource_create(
-    client: &crate::client::MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "create", "create")?;
-    let query = args.take_query_pairs()?;
-    let body = prepare_resource_body(resource, None, args.require_json_body()?)?;
-    let response =
-        client.execute_bearer_json(Method::POST, &resource.resource_type, &query, access_token, Some(&body))?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(
-        resource,
-        "create",
-        &response,
-        response.body.clone(),
-        1,
-    ))
-}
-
-fn run_api_resource_update(
-    client: &crate::client::MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "update", "update")?;
-    let id = resolve_id_argument(&mut args)?;
-    let query = args.take_query_pairs()?;
-    let body = prepare_resource_body(resource, Some(id.clone()), args.require_json_body()?)?;
-    let path = format!("{}/{}", resource.resource_type, id);
-    let response = client.execute_bearer_json(Method::PUT, &path, &query, access_token, Some(&body))?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(
-        resource,
-        "update",
-        &response,
-        response.body.clone(),
-        1,
-    ))
-}
-
-fn run_api_resource_delete(
-    client: &crate::client::MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "delete", "delete")?;
-    let id = resolve_id_argument(&mut args)?;
-    let query = args.into_query_pairs()?;
-    let path = format!("{}/{}", resource.resource_type, id);
-    let response = client.execute_bearer_json(Method::DELETE, &path, &query, access_token, None)?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(
-        resource,
-        "delete",
-        &response,
-        response.body.clone(),
-        1,
-    ))
 }

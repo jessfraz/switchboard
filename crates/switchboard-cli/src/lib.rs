@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     env,
     ffi::OsString,
     path::{Path, PathBuf},
@@ -8,42 +7,34 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{Args, Parser, Subcommand};
-use serde::Serialize;
-use serde_json::Value as JsonValue;
 use switchboard_core::{
-    AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuditEventId, AuthStore, BackendKind, DispatchOutcome,
-    ExecutionMode, NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest,
-    ProviderKind, RegisteredTool, ResolvedNamespace, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
-    Switchboard, SwitchboardServices, ToolArgument, ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolKind,
-    ToolName, ToolOutput, ToolRef, ToolRequest, ToolSurface, ToolUndoSupport,
+    AuthStore, NamespaceStore, OperationId, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
+    Switchboard, SwitchboardServices,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
     resolve_operation_store_path, LocalSecretResolver, SqliteAuditStore, SqliteOperationStore, SwitchboardConfig,
 };
 
+mod args;
+mod output;
+
 #[cfg(test)]
 mod test_support;
 
-const AFTER_HELP: &str = concat!(
-    "Examples:\n",
-    "  switchboard ns list\n",
-    "  switchboard tools list\n",
-    "  switchboard tools describe google.cli.write\n",
-    "  switchboard audit list\n",
-    "  switchboard op list\n",
-    "  switchboard op list --pending\n",
-    "  switchboard github.notifications.list --ns github.personal --json\n",
-    "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
-    "  switchboard google.calendar.list --ns google.work --ns google.personal --json\n",
-    "  switchboard google.cli.read --ns google.work --json -- calendar +agenda --format json --today\n",
-    "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n",
-    "  switchboard op approve op_1234abcd --actor codex --note 'ship it'\n",
-    "  switchboard op approve op_1234abcd --actor codex --apply --json\n",
-    "  switchboard op undo op_1234abcd --apply --json\n",
-    "  switchboard op apply op_1234abcd --json\n"
-);
+use crate::{
+    args::{AuditRuntimeCommand, AuditSelector, Cli, CommandKind, StoredOperationCommand, ToolCatalogRuntimeCommand},
+    output::{
+        operation_needs_attention, render_audit_events_human, render_audit_selection_human, render_clap_error,
+        render_dispatch_human, render_json, render_json_dispatch, render_json_error, render_json_operation,
+        render_namespaces_human, render_operation_human, render_operations_human, render_output_human,
+        render_stored_operation_human, render_tool_detail_human, render_tools_human, AuditEventResponse,
+        AuditListResponse, AuditOperationResponse, AuditSelection, NamespaceListResponse, StoredOperationListResponse,
+        StoredOperationResponse, ToolCatalogDetail, ToolCatalogDetailResponse, ToolCatalogEntry,
+        ToolCatalogListResponse,
+    },
+};
+
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
@@ -90,6 +81,7 @@ fn build_switchboard(
     )
 }
 
+/// Run the Switchboard CLI and return a process exit code.
 pub fn main_entry<I, T>(args: I) -> ExitCode
 where
     I: IntoIterator<Item = T>,
@@ -354,7 +346,7 @@ fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperat
     after_help = AFTER_HELP
 )]
 struct Cli {
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(long, global = true, env = "SWITCHBOARD_CONFIG", value_name = "PATH")]
     config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -745,7 +737,6 @@ fn parse_audit_selector(value: &str) -> Result<AuditSelector> {
 #[derive(Debug, Default)]
 struct ConfigPathCandidates {
     explicit: Option<PathBuf>,
-    env: Option<PathBuf>,
     cwd: Option<PathBuf>,
     appdata: Option<PathBuf>,
     xdg: Option<PathBuf>,
@@ -1493,7 +1484,6 @@ fn render_clap_error(error: clap::Error, json_requested: bool) -> ExitCode {
 fn resolve_config_path(config_path: Option<&Path>) -> Result<PathBuf> {
     let candidates = ConfigPathCandidates {
         explicit: config_path.map(Path::to_path_buf),
-        env: env::var_os("SWITCHBOARD_CONFIG").map(PathBuf::from),
         cwd: existing_file(PathBuf::from("switchboard.toml")),
         appdata: env::var_os("APPDATA")
             .map(PathBuf::from)
@@ -1515,7 +1505,6 @@ fn resolve_config_path(config_path: Option<&Path>) -> Result<PathBuf> {
 fn select_config_path(candidates: ConfigPathCandidates) -> Result<PathBuf> {
     candidates
         .explicit
-        .or(candidates.env)
         .or(candidates.cwd)
         .or(candidates.appdata)
         .or(candidates.xdg)
@@ -2029,6 +2018,18 @@ mod tests {
     }
 
     #[derive(Debug, Deserialize)]
+    struct GoogleCalendarCreateFields {
+        event: GoogleCalendarCreateEvent,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoogleCalendarCreateEvent {
+        event_id: String,
+        calendar: String,
+        status: String,
+    }
+
+    #[derive(Debug, Deserialize)]
     struct GoogleCalendarDeleteEvent {
         event_id: String,
         calendar: String,
@@ -2261,7 +2262,7 @@ mod tests {
         .expect("apply cli should parse");
 
         let apply_output = run(apply).expect("apply should succeed");
-        let apply_value: JsonExecutedResponse<BTreeMap<String, serde_json::Value>> = parse_json(&apply_output);
+        let apply_value: JsonExecutedResponse<GoogleCalendarCreateFields> = parse_json(&apply_output);
         assert_eq!(apply_value.status, "executed");
         assert_eq!(
             apply_value.tool,
@@ -2274,6 +2275,9 @@ mod tests {
         assert!(apply_value.summary.contains("calendar"));
         assert_eq!(apply_value.operation_id.as_ref(), Some(&operation_id));
         assert_eq!(apply_value.effect.as_ref().map(|effect| effect.undoable), Some(true));
+        assert_eq!(apply_value.fields.event.event_id, "event-1960budgetwork");
+        assert_eq!(apply_value.fields.event.calendar, "primary");
+        assert_eq!(apply_value.fields.event.status, "confirmed");
         assert_eq!(apply_value.refs[0].kind, switchboard_core::ToolRefKind::Event);
         assert!(
             environment
@@ -2306,7 +2310,7 @@ mod tests {
         .expect("cli should parse");
 
         let output = run(cli).expect("write should execute");
-        let value: JsonExecutedResponse<BTreeMap<String, serde_json::Value>> = parse_json(&output);
+        let value: JsonExecutedResponse<GoogleCalendarCreateFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
         assert_eq!(
@@ -2319,6 +2323,9 @@ mod tests {
         );
         assert!(value.summary.contains("calendar"));
         assert_eq!(value.effect.as_ref().map(|effect| effect.undoable), Some(true));
+        assert_eq!(value.fields.event.event_id, "event-1960budgetwork");
+        assert_eq!(value.fields.event.calendar, "primary");
+        assert_eq!(value.fields.event.status, "confirmed");
         assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Event);
     }
 
@@ -2685,11 +2692,12 @@ mod tests {
         .expect("create cli should parse");
 
         let create_output = run(create).expect("create should execute");
-        let create_value: JsonExecutedResponse<BTreeMap<String, serde_json::Value>> = parse_json(&create_output);
+        let create_value: JsonExecutedResponse<GoogleCalendarCreateFields> = parse_json(&create_output);
         let original_operation_id = create_value
             .operation_id
             .clone()
             .expect("created event should have an operation id");
+        assert_eq!(create_value.fields.event.event_id, "event-1960budgetwork");
         let original_operation_id_string = original_operation_id.to_string();
 
         let undo = Cli::try_parse_from([

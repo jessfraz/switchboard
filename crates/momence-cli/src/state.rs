@@ -104,32 +104,12 @@ impl ResolvedContext {
         let state = store.load()?;
 
         Ok(Self {
-            base_url: pick(
-                global.base_url.clone(),
-                env_value(ENV_MOMENCE_BASE_URL),
-                state.base_url.clone(),
-            )
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned()),
-            client_id: pick(
-                global.client_id.clone(),
-                env_value(ENV_MOMENCE_CLIENT_ID),
-                state.client_id.clone(),
-            ),
-            client_secret: pick(
-                global.client_secret.clone(),
-                env_value(ENV_MOMENCE_CLIENT_SECRET),
-                state.client_secret.clone(),
-            ),
-            access_token: pick(
-                global.access_token.clone(),
-                env_value(ENV_MOMENCE_ACCESS_TOKEN),
-                state.access_token.clone(),
-            ),
-            refresh_token: pick(
-                global.refresh_token.clone(),
-                env_value(ENV_MOMENCE_REFRESH_TOKEN),
-                state.refresh_token.clone(),
-            ),
+            base_url: pick(global.base_url.clone(), state.base_url.clone())
+                .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned()),
+            client_id: pick(global.client_id.clone(), state.client_id.clone()),
+            client_secret: pick(global.client_secret.clone(), state.client_secret.clone()),
+            access_token: pick(global.access_token.clone(), state.access_token.clone()),
+            refresh_token: pick(global.refresh_token.clone(), state.refresh_token.clone()),
             store,
             state,
         })
@@ -186,8 +166,8 @@ impl ResolvedContext {
     }
 }
 
-fn pick(explicit: Option<String>, env_value: Option<String>, persisted: Option<String>) -> Option<String> {
-    explicit.or(env_value).or(persisted)
+fn pick(explicit: Option<String>, persisted: Option<String>) -> Option<String> {
+    explicit.or(persisted)
 }
 
 fn env_value(key: &str) -> Option<String> {
@@ -197,9 +177,6 @@ fn env_value(key: &str) -> Option<String> {
 fn resolve_state_path(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit {
         return Ok(path.to_path_buf());
-    }
-    if let Some(path) = env_value(ENV_MOMENCE_CONFIG) {
-        return Ok(PathBuf::from(path));
     }
     if let Some(xdg) = env_value("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(xdg).join("momence").join("config.json"));

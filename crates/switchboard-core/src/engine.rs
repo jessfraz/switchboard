@@ -17,6 +17,7 @@ use crate::{
 };
 
 #[derive(Default)]
+/// In-memory registry of provider adapters keyed by provider kind.
 pub struct AdapterRegistry {
     adapters: HashMap<ProviderKind, Arc<dyn Adapter>>,
 }
@@ -50,11 +51,13 @@ impl AdapterRegistry {
     }
 }
 
+/// Top-level orchestrator for namespaces, policy, audit, and provider dispatch.
 pub struct Switchboard {
     services: SwitchboardServices,
     adapters: AdapterRegistry,
 }
 
+/// Dependency bundle required to construct one Switchboard instance.
 pub struct SwitchboardServices {
     pub namespaces: Arc<dyn NamespaceStore>,
     pub auth: Arc<dyn AuthStore>,

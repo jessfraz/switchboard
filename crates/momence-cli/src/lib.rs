@@ -7,7 +7,8 @@ use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{Args, Parser, Subcommand};
 use reqwest::Method;
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 
 pub(crate) use crate::{client::MomenceClient, state::ResolvedContext};
 use crate::{
@@ -32,6 +33,7 @@ const AFTER_HELP: &str = concat!(
     "Use --body or --body-file for endpoints that accept JSON request payloads.\n",
 );
 
+/// Run the Momence CLI and return a process exit code.
 pub fn main_entry<I, T>(args: I) -> ExitCode
 where
     I: IntoIterator<Item = T>,
@@ -139,36 +141,49 @@ pub(crate) enum Error {
 
 impl Error {
     fn render(&self, compact: bool) -> String {
-        let value = match self {
-            Self::Arguments(message) => json!({
-                "status": "error",
-                "kind": "arguments",
-                "message": message,
-            }),
-            Self::Api { status_code, body } => json!({
-                "status": "error",
-                "kind": "api",
-                "status_code": status_code,
-                "body": body,
-            }),
-            Self::Config(message) => json!({
-                "status": "error",
-                "kind": "config",
-                "message": message,
-            }),
-            Self::Http(message) => json!({
-                "status": "error",
-                "kind": "http",
-                "message": message,
-            }),
-            Self::Io(message) => json!({
-                "status": "error",
-                "kind": "io",
-                "message": message,
-            }),
-        };
-
-        render_json(&value, compact)
+        match self {
+            Self::Arguments(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "arguments",
+                    message,
+                },
+                compact,
+            ),
+            Self::Api { status_code, body } => render_json(
+                &ApiErrorResponse {
+                    status: "error",
+                    kind: "api",
+                    status_code: *status_code,
+                    body,
+                },
+                compact,
+            ),
+            Self::Config(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "config",
+                    message,
+                },
+                compact,
+            ),
+            Self::Http(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "http",
+                    message,
+                },
+                compact,
+            ),
+            Self::Io(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "io",
+                    message,
+                },
+                compact,
+            ),
+        }
     }
 }
 
@@ -180,11 +195,11 @@ fn render_cli_error(error: &anyhow::Error, compact: bool) -> String {
     }
 
     render_json(
-        &json!({
-            "status": "error",
-            "kind": "internal",
-            "message": format!("{error:#}"),
-        }),
+        &OwnedMessageErrorResponse {
+            status: "error",
+            kind: "internal",
+            message: format!("{error:#}"),
+        },
         compact,
     )
 }
@@ -220,7 +235,7 @@ pub(crate) fn execute_bearer_json(
     execute_bearer(client, token, method, path, query, Some(body))
 }
 
-fn render_json(value: &Value, compact: bool) -> String {
+fn render_json<T: Serialize>(value: &T, compact: bool) -> String {
     let serialized = if compact {
         serde_json::to_string(value)
     } else {
@@ -229,11 +244,41 @@ fn render_json(value: &Value, compact: bool) -> String {
 
     match serialized {
         Ok(serialized) => serialized,
-        Err(error) => format!(
-            "{{\"status\":\"error\",\"kind\":\"serialization\",\"message\":{}}}",
-            serde_json::Value::String(error.to_string())
-        ),
+        Err(error) => render_serialization_error(error),
     }
+}
+
+#[derive(Serialize)]
+struct MessageErrorResponse<'a> {
+    status: &'static str,
+    kind: &'static str,
+    message: &'a str,
+}
+
+#[derive(Serialize)]
+struct OwnedMessageErrorResponse {
+    status: &'static str,
+    kind: &'static str,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ApiErrorResponse<'a> {
+    status: &'static str,
+    kind: &'static str,
+    status_code: u16,
+    body: &'a Value,
+}
+
+fn render_serialization_error(error: serde_json::Error) -> String {
+    serde_json::to_string(&OwnedMessageErrorResponse {
+        status: "error",
+        kind: "serialization",
+        message: error.to_string(),
+    })
+    .unwrap_or_else(|_| {
+        "{\"status\":\"error\",\"kind\":\"serialization\",\"message\":\"failed to serialize error payload\"}".to_owned()
+    })
 }
 
 #[cfg(test)]
@@ -251,6 +296,7 @@ mod tests {
     };
 
     use clap::Parser;
+    use serde::{de::DeserializeOwned, Deserialize};
     use serde_json::json;
 
     use super::{
@@ -283,7 +329,7 @@ mod tests {
         let temp_dir = temp_dir("momence-login");
         let config_path = temp_dir.join("config.json");
 
-        let output = run_command(&[
+        let output: LoginPasswordResponse = run_command(&[
             "momence",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -312,7 +358,7 @@ mod tests {
         let state = StateStore::new(config_path).load().expect("stored state should load");
         assert_eq!(state.access_token.as_deref(), Some("access-token"));
         assert_eq!(state.refresh_token.as_deref(), Some("refresh-token"));
-        assert_eq!(output["access_token"], "access-token");
+        assert_eq!(output.access_token, "access-token");
     }
 
     #[test]
@@ -365,7 +411,7 @@ mod tests {
             })
             .expect("state should save");
 
-        let output = run_command(&[
+        let output: MemberSessionsResponse = run_command(&[
             "momence",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -382,7 +428,8 @@ mod tests {
             request.starts_with("GET /api/v2/member/sessions?page=0&pageSize=100&startAfter=2026-03-01T00%3A00%3A00Z")
         );
         assert!(request.contains("authorization: Bearer stored-access-token"));
-        assert!(output.get("payload").is_some());
+        assert_eq!(output.payload.len(), 1);
+        assert_eq!(output.payload[0].id, 1);
     }
 
     #[test]
@@ -400,7 +447,7 @@ mod tests {
             })
             .expect("state should save");
 
-        let output = run_command(&[
+        let output: EmptySuccessResponse = run_command(&[
             "momence",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -413,14 +460,36 @@ mod tests {
 
         let request = capture.lock().expect("capture lock should work").clone();
         assert!(request.starts_with("DELETE /api/v2/member/sessions/77"));
-        assert_eq!(output, json!({ "status": "ok", "status_code": 200 }));
+        assert_eq!(output.status, "ok");
+        assert_eq!(output.status_code, 200);
     }
 
-    fn run_command(args: &[&str]) -> serde_json::Value {
+    #[derive(Debug, Deserialize)]
+    struct LoginPasswordResponse {
+        access_token: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MemberSessionsResponse {
+        payload: Vec<MemberSessionPayload>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MemberSessionPayload {
+        id: u64,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct EmptySuccessResponse {
+        status: String,
+        status_code: u16,
+    }
+
+    fn run_command<T: DeserializeOwned>(args: &[&str]) -> T {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
         let (value, _) = run(cli).unwrap_or_else(|error| panic!("{}", render_cli_error(&error, compact)));
-        value
+        serde_json::from_value(value).expect("command output should match expected type")
     }
 
     struct TestServer {

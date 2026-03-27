@@ -46,30 +46,13 @@ impl ResolvedContext {
         let config = load_config(global.config.as_deref())?;
 
         Ok(Self {
-            base_url: pick(
-                global.base_url.clone(),
-                env_value(ENV_MINDBODY_BASE_URL),
-                config.base_url,
-            )
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned()),
-            api_key: pick(global.api_key.clone(), env_value(ENV_MINDBODY_API_KEY), config.api_key),
-            client_key: pick(
-                global.client_key.clone(),
-                env_value(ENV_MINDBODY_CLIENT_KEY),
-                config.client_key,
-            ),
-            client_secret: pick(
-                global.client_secret.clone(),
-                env_value(ENV_MINDBODY_CLIENT_SECRET),
-                config.client_secret,
-            ),
-            user_id: pick(global.user_id.clone(), env_value(ENV_MINDBODY_USER_ID), config.user_id),
-            app_name: pick(
-                global.app_name.clone(),
-                env_value(ENV_MINDBODY_APP_NAME),
-                config.app_name,
-            )
-            .unwrap_or_else(|| format!("mindbody-cli/{}", env!("CARGO_PKG_VERSION"))),
+            base_url: pick(global.base_url.clone(), config.base_url).unwrap_or_else(|| DEFAULT_BASE_URL.to_owned()),
+            api_key: pick(global.api_key.clone(), config.api_key),
+            client_key: pick(global.client_key.clone(), config.client_key),
+            client_secret: pick(global.client_secret.clone(), config.client_secret),
+            user_id: pick(global.user_id.clone(), config.user_id),
+            app_name: pick(global.app_name.clone(), config.app_name)
+                .unwrap_or_else(|| format!("mindbody-cli/{}", env!("CARGO_PKG_VERSION"))),
         })
     }
 
@@ -99,8 +82,8 @@ impl ResolvedContext {
     }
 }
 
-fn pick(explicit: Option<String>, env_value: Option<String>, configured: Option<String>) -> Option<String> {
-    explicit.or(env_value).or(configured)
+fn pick(explicit: Option<String>, configured: Option<String>) -> Option<String> {
+    explicit.or(configured)
 }
 
 fn env_value(key: &str) -> Option<String> {
@@ -110,10 +93,6 @@ fn env_value(key: &str) -> Option<String> {
 fn load_config(explicit: Option<&Path>) -> Result<MindbodyConfig> {
     if let Some(path) = explicit {
         return read_config(path);
-    }
-
-    if let Some(path) = env_value(ENV_MINDBODY_CONFIG) {
-        return read_config(Path::new(&path));
     }
 
     for candidate in default_config_candidates() {

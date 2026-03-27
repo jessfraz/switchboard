@@ -7,7 +7,8 @@ use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{Args, Parser, Subcommand};
 use reqwest::Method;
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::Value;
 
 pub(crate) use crate::{client::MindbodyClient, state::ResolvedContext};
 use crate::{
@@ -38,6 +39,7 @@ const AFTER_HELP: &str = concat!(
     "with a switchboard-friendly command grammar instead of raw endpoint confetti.\n",
 );
 
+/// Run the Mindbody CLI and return a process exit code.
 pub fn main_entry<I, T>(args: I) -> ExitCode
 where
     I: IntoIterator<Item = T>,
@@ -161,36 +163,49 @@ pub(crate) enum Error {
 
 impl Error {
     fn render(&self, compact: bool) -> String {
-        let value = match self {
-            Self::Arguments(message) => json!({
-                "status": "error",
-                "kind": "arguments",
-                "message": message,
-            }),
-            Self::Api { status_code, body } => json!({
-                "status": "error",
-                "kind": "api",
-                "status_code": status_code,
-                "body": body,
-            }),
-            Self::Config(message) => json!({
-                "status": "error",
-                "kind": "config",
-                "message": message,
-            }),
-            Self::Http(message) => json!({
-                "status": "error",
-                "kind": "http",
-                "message": message,
-            }),
-            Self::Io(message) => json!({
-                "status": "error",
-                "kind": "io",
-                "message": message,
-            }),
-        };
-
-        render_json(&value, compact)
+        match self {
+            Self::Arguments(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "arguments",
+                    message,
+                },
+                compact,
+            ),
+            Self::Api { status_code, body } => render_json(
+                &ApiErrorResponse {
+                    status: "error",
+                    kind: "api",
+                    status_code: *status_code,
+                    body,
+                },
+                compact,
+            ),
+            Self::Config(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "config",
+                    message,
+                },
+                compact,
+            ),
+            Self::Http(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "http",
+                    message,
+                },
+                compact,
+            ),
+            Self::Io(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "io",
+                    message,
+                },
+                compact,
+            ),
+        }
     }
 }
 
@@ -202,11 +217,11 @@ fn render_cli_error(error: &anyhow::Error, compact: bool) -> String {
     }
 
     render_json(
-        &json!({
-            "status": "error",
-            "kind": "internal",
-            "message": format!("{error:#}"),
-        }),
+        &OwnedMessageErrorResponse {
+            status: "error",
+            kind: "internal",
+            message: format!("{error:#}"),
+        },
         compact,
     )
 }
@@ -261,7 +276,7 @@ pub(crate) fn execute_json(
     )
 }
 
-fn render_json(value: &Value, compact: bool) -> String {
+fn render_json<T: Serialize>(value: &T, compact: bool) -> String {
     let serialized = if compact {
         serde_json::to_string(value)
     } else {
@@ -270,11 +285,41 @@ fn render_json(value: &Value, compact: bool) -> String {
 
     match serialized {
         Ok(serialized) => serialized,
-        Err(error) => format!(
-            "{{\"status\":\"error\",\"kind\":\"serialization\",\"message\":{}}}",
-            serde_json::Value::String(error.to_string())
-        ),
+        Err(error) => render_serialization_error(error),
     }
+}
+
+#[derive(Serialize)]
+struct MessageErrorResponse<'a> {
+    status: &'static str,
+    kind: &'static str,
+    message: &'a str,
+}
+
+#[derive(Serialize)]
+struct OwnedMessageErrorResponse {
+    status: &'static str,
+    kind: &'static str,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ApiErrorResponse<'a> {
+    status: &'static str,
+    kind: &'static str,
+    status_code: u16,
+    body: &'a Value,
+}
+
+fn render_serialization_error(error: serde_json::Error) -> String {
+    serde_json::to_string(&OwnedMessageErrorResponse {
+        status: "error",
+        kind: "serialization",
+        message: error.to_string(),
+    })
+    .unwrap_or_else(|_| {
+        "{\"status\":\"error\",\"kind\":\"serialization\",\"message\":\"failed to serialize error payload\"}".to_owned()
+    })
 }
 
 #[cfg(test)]
@@ -292,6 +337,7 @@ mod tests {
     };
 
     use clap::Parser;
+    use serde::{de::DeserializeOwned, Deserialize};
     use serde_json::{json, Value};
 
     use super::{main_entry, render_cli_error, run, Cli};
@@ -316,7 +362,7 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
+        let output: AccountStatusResponse = run_command(&[
             "mindbody",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -325,12 +371,12 @@ mod tests {
             "status",
         ]);
 
-        assert_eq!(output["status"], "ok");
-        assert_eq!(output["provider"], "mindbody");
-        assert_eq!(output["user_id"], "pilates.user");
-        assert_eq!(output["has_api_key"], true);
-        assert_eq!(output["has_client_key"], true);
-        assert_eq!(output["has_client_secret"], false);
+        assert_eq!(output.status, "ok");
+        assert_eq!(output.provider, "mindbody");
+        assert_eq!(output.user_id, "pilates.user");
+        assert!(output.has_api_key);
+        assert!(output.has_client_key);
+        assert!(!output.has_client_secret);
     }
 
     #[test]
@@ -364,7 +410,7 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
+        let output: LocationsSearchResponse = run_command(&[
             "mindbody",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -386,7 +432,7 @@ mod tests {
         assert!(request.contains("maxresults=5"));
         assert!(request.contains("api-key: api-key"));
         assert!(request.contains("authorization: basic"));
-        assert_eq!(output["items"][0]["id"], 86784);
+        assert_eq!(output.items[0].id, 86784);
     }
 
     #[test]
@@ -415,7 +461,7 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
+        let output: BookingCreateResponse = run_command(&[
             "mindbody",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -442,12 +488,12 @@ mod tests {
         assert!(request.contains("\"uniqueUserId\":\"pilates.user\""));
         assert!(request.contains("\"type\":\"Pass\""));
         assert!(request.contains("\"paymentDetails\":null"));
-        assert_eq!(output["booking"]["id"], "booking-1");
+        assert_eq!(output.booking.id, "booking-1");
     }
 
     #[test]
     fn pricing_option_booking_requires_purchase_fields() {
-        let error = run_command_error(&[
+        let error: JsonErrorResponse = run_command_error(&[
             "mindbody",
             "--api-key",
             "api-key",
@@ -469,11 +515,8 @@ mod tests {
             "153458",
         ]);
 
-        assert_eq!(error["kind"], "arguments");
-        assert!(error["message"]
-            .as_str()
-            .expect("message should be present")
-            .contains("--pricing-option-total"));
+        assert_eq!(error.kind, "arguments");
+        assert!(error.message.contains("--pricing-option-total"));
     }
 
     #[test]
@@ -503,7 +546,7 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
+        let output: CancelBookingResponse = run_command(&[
             "mindbody",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -517,7 +560,7 @@ mod tests {
         let request = capture.lock().expect("capture lock should work").clone();
         assert!(request
             .starts_with("DELETE /users/pilates.user/bookings/booking-123?suppressCancellationConfirmationEmail=true"));
-        assert_eq!(output["message"], "Cancellation successful.");
+        assert_eq!(output.message, "Cancellation successful.");
     }
 
     #[test]
@@ -551,7 +594,7 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
+        let output: PurchasesListResponse = run_command(&[
             "mindbody",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -586,7 +629,7 @@ mod tests {
         assert!(request.contains("offset=5"));
         assert!(request.contains("orderBy=purchaseDateTime"));
         assert!(request.contains("order=desc"));
-        assert_eq!(output["items"][0]["id"], "purchase-1");
+        assert_eq!(output.items[0].id, "purchase-1");
     }
 
     #[test]
@@ -614,7 +657,7 @@ mod tests {
             }),
         );
 
-        let output = run_command(&[
+        let output: OkStatusResponse = run_command(&[
             "mindbody",
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
@@ -636,17 +679,68 @@ mod tests {
             "\"liabilityWaiverHashedText\":\"21A951F270098C71D8C127EC57B31FDA811B37E64ABF28DD1906F84159C73D64\""
         ));
         assert!(request.contains("\"pngBase64UserSignaturePicture\":\"iVBORw0KGgoAAAAA\""));
-        assert_eq!(output["status"], "ok");
+        assert_eq!(output.status, "ok");
     }
 
-    fn run_command(args: &[&str]) -> Value {
+    #[derive(Debug, Deserialize)]
+    struct AccountStatusResponse {
+        status: String,
+        provider: String,
+        user_id: String,
+        has_api_key: bool,
+        has_client_key: bool,
+        has_client_secret: bool,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct JsonErrorResponse {
+        kind: String,
+        message: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct LocationsSearchResponse {
+        items: Vec<NumericIdItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct NumericIdItem {
+        id: u64,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct BookingCreateResponse {
+        booking: StringIdItem,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct StringIdItem {
+        id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CancelBookingResponse {
+        message: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PurchasesListResponse {
+        items: Vec<StringIdItem>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct OkStatusResponse {
+        status: String,
+    }
+
+    fn run_command<T: DeserializeOwned>(args: &[&str]) -> T {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
         let (value, _) = run(cli).unwrap_or_else(|error| panic!("{}", render_cli_error(&error, compact)));
-        value
+        serde_json::from_value(value).expect("command output should match expected type")
     }
 
-    fn run_command_error(args: &[&str]) -> Value {
+    fn run_command_error<T: DeserializeOwned>(args: &[&str]) -> T {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
         let error = run(cli).expect_err("command should fail");
