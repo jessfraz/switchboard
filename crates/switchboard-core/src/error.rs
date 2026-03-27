@@ -10,6 +10,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     Audit(String),
+    Config(String),
     InvalidArguments(String),
     InvalidToolName(String),
     MissingAdapter(ProviderKind),
@@ -29,6 +30,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Audit(message) => write!(f, "audit failure: {message}"),
+            Self::Config(message) => write!(f, "config error: {message}"),
             Self::InvalidArguments(message) => write!(f, "invalid arguments: {message}"),
             Self::InvalidToolName(tool) => write!(f, "invalid tool name: {tool}"),
             Self::MissingAdapter(provider) => write!(f, "missing adapter for provider: {provider}"),

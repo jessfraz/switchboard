@@ -13,7 +13,8 @@ pub use crate::{
     },
     traits::{Adapter, AuditSink, NamespaceStore, PolicyEngine},
     types::{
-        AuditEvent, AuditOutcome, BackendKind, ExecutionMode, NamespaceId, PlannedAction, PolicyDecision, ProviderKind,
+        AuditEvent, AuditOutcome, AuthRef, BackendKind, ExecutionMode, NamespaceId, PlannedAction, PolicyDecision,
+        ProviderKind,
         ResolvedNamespace, ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRequest,
     },
 };

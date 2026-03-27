@@ -24,9 +24,8 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    pub fn from_tool_name(tool_name: &str) -> Option<Self> {
-        let prefix = tool_name.split('.').next()?;
-        match prefix {
+    pub fn from_identifier(value: &str) -> Option<Self> {
+        match value {
             "github" => Some(Self::GitHub),
             "google" => Some(Self::GoogleWorkspace),
             "slack" => Some(Self::Slack),
@@ -35,6 +34,11 @@ impl ProviderKind {
             "whatsapp" => Some(Self::WhatsApp),
             _ => None,
         }
+    }
+
+    pub fn from_tool_name(tool_name: &str) -> Option<Self> {
+        let prefix = tool_name.split('.').next()?;
+        Self::from_identifier(prefix)
     }
 }
 
@@ -73,6 +77,31 @@ impl NamespaceId {
 }
 
 impl Display for NamespaceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct AuthRef(String);
+
+impl AuthRef {
+    pub fn new(value: impl Into<String>) -> Result<Self> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(Error::InvalidArguments("auth reference cannot be empty".into()));
+        }
+
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for AuthRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -150,6 +179,7 @@ pub struct ResolvedNamespace {
     pub id: NamespaceId,
     pub provider: ProviderKind,
     pub account_label: String,
+    pub auth_ref: AuthRef,
     pub default_read: bool,
 }
 
@@ -158,12 +188,19 @@ impl ResolvedNamespace {
         id: impl Into<String>,
         provider: ProviderKind,
         account_label: impl Into<String>,
+        auth_ref: impl Into<String>,
         default_read: bool,
     ) -> Result<Self> {
+        let account_label = account_label.into();
+        if account_label.trim().is_empty() {
+            return Err(Error::InvalidArguments("account label cannot be empty".into()));
+        }
+
         Ok(Self {
             id: NamespaceId::new(id)?,
             provider,
-            account_label: account_label.into(),
+            account_label,
+            auth_ref: AuthRef::new(auth_ref)?,
             default_read,
         })
     }
