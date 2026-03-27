@@ -545,6 +545,28 @@ mod tests {
     }
 
     #[test]
+    fn planning_only_drive_search_uses_manifest_summary_template() {
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.drive.search",
+            "google.work",
+            ExecutionMode::Plan,
+            vec![ToolArgument::option("query", "budget spreadsheet").expect("query should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+
+        assert_eq!(
+            action.summary,
+            "Search Google Drive in google.work for budget spreadsheet"
+        );
+    }
+
+    #[test]
     fn compensation_request_for_calendar_create_targets_calendar_delete() {
         let adapter = GoogleWorkspaceAdapter::default();
         let request = adapter

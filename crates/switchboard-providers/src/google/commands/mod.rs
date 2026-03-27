@@ -1,7 +1,5 @@
 mod calendar;
 mod gmail;
-mod planned;
-mod raw;
 
 use switchboard_core::{Error, Result, ToolArguments};
 
@@ -9,8 +7,6 @@ use crate::cli::CliCommandHandler;
 pub(crate) use crate::google::commands::{
     calendar::{CALENDAR_CREATE_HANDLER, CALENDAR_DELETE_HANDLER, CALENDAR_LIST_HANDLER},
     gmail::{MAIL_DRAFT_HANDLER, MAIL_READ_HANDLER, MAIL_SEARCH_HANDLER},
-    planned::{DRIVE_SEARCH_HANDLER, MAIL_SEND_HANDLER},
-    raw::{RAW_READ_HANDLER, RAW_WRITE_HANDLER},
 };
 
 pub(crate) const HANDLERS: &[CliCommandHandler] = &[
@@ -20,10 +16,6 @@ pub(crate) const HANDLERS: &[CliCommandHandler] = &[
     MAIL_SEARCH_HANDLER,
     MAIL_READ_HANDLER,
     MAIL_DRAFT_HANDLER,
-    MAIL_SEND_HANDLER,
-    DRIVE_SEARCH_HANDLER,
-    RAW_READ_HANDLER,
-    RAW_WRITE_HANDLER,
 ];
 
 pub(super) fn append_optional_flag(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) -> Result<()> {

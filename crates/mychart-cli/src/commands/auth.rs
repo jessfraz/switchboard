@@ -129,19 +129,21 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             let redirect_uri = context.require_redirect_uri(None)?;
             let refresh_token = context.require_refresh_token(args.refresh_token)?;
             let client_secret = context.client_secret.clone();
+            let authorization_header = client_secret
+                .as_deref()
+                .map(|client_secret| basic_auth_header(&client_id, client_secret));
             let client = api_client(&base_url)?;
             let capability = fetch_capability_summary(&client)?;
             let token_endpoint = capability.require_token_url()?;
             let mut form = vec![
                 ("grant_type".into(), "refresh_token".into()),
                 ("refresh_token".into(), refresh_token.clone()),
-                ("client_id".into(), client_id.clone()),
             ];
-            if let Some(client_secret) = client_secret.clone() {
-                form.push(("client_secret".into(), client_secret));
+            if authorization_header.is_none() {
+                form.push(("client_id".into(), client_id.clone()));
             }
 
-            let response = client.exchange_oauth_token(&token_endpoint, &form)?;
+            let response = client.exchange_oauth_token(&token_endpoint, &form, authorization_header.as_deref())?;
             ensure_json_success(&response)?;
             let token = parse_oauth_token_response(&response.body)?;
             let next_refresh_token = token.refresh_token.clone().or(Some(refresh_token));
@@ -358,6 +360,9 @@ fn exchange_code(
     let redirect_uri = context.require_redirect_uri(redirect_uri_override)?;
     let code_verifier = context.require_code_verifier(code_verifier_override)?;
     let client_secret = context.client_secret.clone();
+    let authorization_header = client_secret
+        .as_deref()
+        .map(|client_secret| basic_auth_header(&client_id, client_secret));
     let client = api_client(&base_url)?;
     let capability = fetch_capability_summary(&client)?;
     let token_endpoint = capability.require_token_url()?;
@@ -365,14 +370,13 @@ fn exchange_code(
         ("grant_type".into(), "authorization_code".into()),
         ("code".into(), code),
         ("redirect_uri".into(), redirect_uri.clone()),
-        ("client_id".into(), client_id.clone()),
         ("code_verifier".into(), code_verifier),
     ];
-    if let Some(client_secret) = client_secret.clone() {
-        form.push(("client_secret".into(), client_secret));
+    if authorization_header.is_none() {
+        form.push(("client_id".into(), client_id.clone()));
     }
 
-    let response = client.exchange_oauth_token(&token_endpoint, &form)?;
+    let response = client.exchange_oauth_token(&token_endpoint, &form, authorization_header.as_deref())?;
     ensure_json_success(&response)?;
     let token = parse_oauth_token_response(&response.body)?;
     let refresh_token = token.refresh_token.clone().or_else(|| context.refresh_token.clone());
@@ -637,4 +641,34 @@ fn open_browser(url: &str) -> Result<()> {
         .map_err(|error| Error::Io(format!("failed to launch browser with {command}: {error}")))?;
 
     Ok(())
+}
+
+fn basic_auth_header(client_id: &str, client_secret: &str) -> String {
+    let encoded_client_id = oauth_form_component(client_id);
+    let encoded_client_secret = oauth_form_component(client_secret);
+    let credentials = format!("{encoded_client_id}:{encoded_client_secret}");
+    format!("Basic {}", crate::base64_encode(credentials.as_bytes()))
+}
+
+fn oauth_form_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => encoded.push(byte as char),
+            _ => {
+                encoded.push('%');
+                encoded.push(hex_digit(byte >> 4));
+                encoded.push(hex_digit(byte & 0x0f));
+            }
+        }
+    }
+    encoded
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'A' + value - 10) as char,
+        _ => unreachable!("nibble should fit in hex"),
+    }
 }

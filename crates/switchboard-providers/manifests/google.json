@@ -43,7 +43,7 @@
       "name": "google.mail.search",
       "kind": "read",
       "summary": "Search Gmail",
-      "handler": "mail_search",
+      "strategy": { "kind": "handler", "id": "mail_search" },
       "execution": {
         "kind": "executable",
         "binary": "gws",
@@ -54,7 +54,7 @@
       "name": "google.mail.read",
       "kind": "read",
       "summary": "Read a Gmail message",
-      "handler": "mail_read",
+      "strategy": { "kind": "handler", "id": "mail_read" },
       "execution": {
         "kind": "executable",
         "binary": "gws",
@@ -65,7 +65,7 @@
       "name": "google.mail.draft",
       "kind": "write",
       "summary": "Draft a Gmail message",
-      "handler": "mail_draft",
+      "strategy": { "kind": "handler", "id": "mail_draft" },
       "execution": {
         "kind": "executable",
         "binary": "gws",
@@ -76,7 +76,10 @@
       "name": "google.mail.send",
       "kind": "write",
       "summary": "Send a Gmail message",
-      "handler": "mail_send",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Draft email to {args:to} from {namespace}"
+      },
       "execution": {
         "kind": "planning_only"
       }
@@ -85,7 +88,7 @@
       "name": "google.calendar.list",
       "kind": "read",
       "summary": "List calendar events",
-      "handler": "calendar_list",
+      "strategy": { "kind": "handler", "id": "calendar_list" },
       "execution": {
         "kind": "executable",
         "binary": "gws",
@@ -96,7 +99,7 @@
       "name": "google.calendar.create",
       "kind": "write",
       "summary": "Create a calendar event",
-      "handler": "calendar_create",
+      "strategy": { "kind": "handler", "id": "calendar_create" },
       "undo_support": "compensating_action",
       "execution": {
         "kind": "executable",
@@ -108,7 +111,7 @@
       "name": "google.calendar.delete",
       "kind": "write",
       "summary": "Delete a calendar event",
-      "handler": "calendar_delete",
+      "strategy": { "kind": "handler", "id": "calendar_delete" },
       "execution": {
         "kind": "executable",
         "binary": "gws",
@@ -119,7 +122,10 @@
       "name": "google.drive.search",
       "kind": "read",
       "summary": "Search Drive files",
-      "handler": "drive_search",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Search Google Drive in {namespace} for {arg:query}"
+      },
       "execution": {
         "kind": "planning_only"
       }
@@ -129,7 +135,7 @@
       "kind": "read",
       "summary": "Run a raw Google Workspace CLI read command",
       "surface": "raw",
-      "handler": "raw_read",
+      "strategy": { "kind": "raw_passthrough" },
       "execution": {
         "kind": "executable",
         "binary": "gws",
@@ -141,7 +147,7 @@
       "kind": "write",
       "summary": "Run a raw Google Workspace CLI write command",
       "surface": "raw",
-      "handler": "raw_write",
+      "strategy": { "kind": "raw_passthrough" },
       "execution": {
         "kind": "executable",
         "binary": "gws",

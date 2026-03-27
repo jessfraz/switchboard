@@ -98,10 +98,19 @@ impl MyChartClient {
         )
     }
 
-    pub(crate) fn exchange_oauth_token(&self, token_url: &str, form: &[(String, String)]) -> Result<JsonResponse> {
+    pub(crate) fn exchange_oauth_token(
+        &self,
+        token_url: &str,
+        form: &[(String, String)],
+        authorization_header: Option<&str>,
+    ) -> Result<JsonResponse> {
         let url = Url::parse(token_url)
             .map_err(|error| Error::Config(format!("invalid OAuth token endpoint {token_url:?}: {error}")))?;
-        self.execute_json_request(self.http.request(Method::POST, url).form(form))
+        let mut request = self.http.request(Method::POST, url).form(form);
+        if let Some(authorization_header) = authorization_header {
+            request = request.header("Authorization", authorization_header);
+        }
+        self.execute_json_request(request)
     }
 
     pub(crate) fn execute_bearer_json(

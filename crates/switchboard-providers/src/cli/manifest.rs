@@ -8,7 +8,7 @@ use switchboard_core::{
 use crate::{
     cli::command::{
         CliArgsStrategy, CliBinarySpec, CliBuildArgsFn, CliCapabilityProbe, CliCommandSpec, CliDecodeFn,
-        CliDecodeStrategy, CliExecutableSpec, CliSummarizeFn, CliSummarizeStrategy,
+        CliDecodeStrategy, CliExecutableSpec, CliSummarizeFn, CliSummarizeStrategy, CliSummaryTemplate,
     },
     inventory::{CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind},
 };
@@ -132,12 +132,6 @@ fn build_manifest_command(
         )));
     }
 
-    let handler = handlers.get(command.handler.as_str()).ok_or_else(|| {
-        Error::Config(format!(
-            "manifest command {} references unknown handler {}",
-            command.name, command.handler
-        ))
-    })?;
     let aggregate_read_supported = command
         .aggregate_read_supported
         .unwrap_or(command.kind == ToolKind::Read);
@@ -164,44 +158,98 @@ fn build_manifest_command(
     .with_execution_support(execution_support)
     .with_undo_support(command.undo_support);
 
-    let executable = match command.execution {
-        CliManifestExecution::Executable { binary, capability } => {
-            let binary = binaries
+    let execution = match command.execution {
+        CliManifestExecution::Executable { binary, capability } => Some((
+            binaries
                 .get(&binary)
                 .cloned()
-                .ok_or_else(|| Error::Config(format!("tool {} references unknown binary {binary}", descriptor.name)))?;
-            let capability = capabilities.get(&capability).cloned().ok_or_else(|| {
+                .ok_or_else(|| Error::Config(format!("tool {} references unknown binary {binary}", descriptor.name)))?,
+            capabilities.get(&capability).cloned().ok_or_else(|| {
                 Error::Config(format!(
                     "tool {} references unknown capability {capability}",
                     descriptor.name
                 ))
-            })?;
-            let build_args = handler.build_args.ok_or_else(|| {
+            })?,
+        )),
+        CliManifestExecution::PlanningOnly => None,
+    };
+
+    let (summarize, executable) = match command.strategy {
+        CliManifestStrategy::Handler { id } => {
+            let handler = handlers.get(id.as_str()).ok_or_else(|| {
                 Error::Config(format!(
-                    "handler {} for tool {} is missing build_args",
-                    handler.id, descriptor.name
-                ))
-            })?;
-            let decode = handler.decode.ok_or_else(|| {
-                Error::Config(format!(
-                    "handler {} for tool {} is missing decode",
-                    handler.id, descriptor.name
+                    "manifest command {} references unknown handler {}",
+                    descriptor.name, id
                 ))
             })?;
 
-            Some(CliExecutableSpec {
-                binary,
-                capability,
-                args: CliArgsStrategy::Handler(build_args),
-                decode: CliDecodeStrategy::Handler(decode),
-            })
+            let executable = match execution {
+                Some((binary, capability)) => {
+                    let build_args = handler.build_args.ok_or_else(|| {
+                        Error::Config(format!(
+                            "handler {} for tool {} is missing build_args",
+                            handler.id, descriptor.name
+                        ))
+                    })?;
+                    let decode = handler.decode.ok_or_else(|| {
+                        Error::Config(format!(
+                            "handler {} for tool {} is missing decode",
+                            handler.id, descriptor.name
+                        ))
+                    })?;
+
+                    Some(CliExecutableSpec {
+                        binary,
+                        capability,
+                        args: CliArgsStrategy::Handler(build_args),
+                        decode: CliDecodeStrategy::Handler(decode),
+                    })
+                }
+                None => None,
+            };
+
+            (CliSummarizeStrategy::Handler(handler.summarize), executable)
         }
-        CliManifestExecution::PlanningOnly => None,
+        CliManifestStrategy::SummaryTemplate { template } => {
+            if execution.is_some() {
+                return Err(Error::Config(format!(
+                    "tool {} uses summary_template but executable commands still need a handler or raw_passthrough strategy",
+                    descriptor.name
+                )));
+            }
+
+            (
+                CliSummarizeStrategy::Template(CliSummaryTemplate::parse(template)?),
+                None,
+            )
+        }
+        CliManifestStrategy::RawPassthrough { prefix } => {
+            let (binary, capability) = execution.ok_or_else(|| {
+                Error::Config(format!(
+                    "tool {} uses raw_passthrough but is not executable",
+                    descriptor.name
+                ))
+            })?;
+            let program = binary.program.clone();
+
+            (
+                CliSummarizeStrategy::RawInventory {
+                    program: program.clone(),
+                    prefix: prefix.clone(),
+                },
+                Some(CliExecutableSpec {
+                    binary,
+                    capability,
+                    args: CliArgsStrategy::RawInventory { prefix: prefix.clone() },
+                    decode: CliDecodeStrategy::RawInventory { program, prefix },
+                }),
+            )
+        }
     };
 
     Ok(CliCommandSpec {
         descriptor,
-        summarize: CliSummarizeStrategy::Handler(handler.summarize),
+        summarize,
         executable,
     })
 }
@@ -287,7 +335,7 @@ struct CliManifestCommand {
     name: String,
     kind: ToolKind,
     summary: String,
-    handler: String,
+    strategy: CliManifestStrategy,
     execution: CliManifestExecution,
     #[serde(default = "default_surface")]
     surface: ToolSurface,
@@ -295,6 +343,21 @@ struct CliManifestCommand {
     aggregate_read_supported: Option<bool>,
     #[serde(default = "default_undo_support")]
     undo_support: ToolUndoSupport,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CliManifestStrategy {
+    Handler {
+        id: String,
+    },
+    SummaryTemplate {
+        template: String,
+    },
+    RawPassthrough {
+        #[serde(default)]
+        prefix: Vec<String>,
+    },
 }
 
 #[derive(Deserialize)]

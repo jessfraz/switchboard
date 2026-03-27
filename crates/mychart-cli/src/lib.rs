@@ -533,7 +533,7 @@ fn login_error_message(code: &str) -> String {
     }
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     base64_encode_with_alphabet(
         bytes,
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
@@ -1263,6 +1263,106 @@ mod tests {
             .expect("default account should be persisted");
         assert_eq!(account.access_token.as_deref(), Some("access-token"));
         assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
+    }
+
+    #[test]
+    fn exchange_code_uses_basic_auth_for_confidential_clients() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read offline_access",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-exchange-confidential");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("d45049c3-3441-40ef-ab4d-b9cd86a17225".into()),
+                client_secret: Some("this-is-the-secret-2/7".into()),
+                redirect_uri: Some("http://127.0.0.1:8910/callback".into()),
+                pending_code_verifier: Some("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "auth",
+            "exchange-code",
+            "--code",
+            "oauth-code",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+        let requests = server.requests();
+        let token_request = requests.get(1).expect("token request should be captured");
+        assert!(token_request.contains(
+            "authorization: Basic ZDQ1MDQ5YzMtMzQ0MS00MGVmLWFiNGQtYjljZDg2YTE3MjI1OnRoaXMtaXMtdGhlLXNlY3JldC0yJTJGNw=="
+        ));
+        assert!(!token_request.contains("client_secret="));
+        assert!(!token_request.contains("client_id="));
+    }
+
+    #[test]
+    fn refresh_uses_basic_auth_for_confidential_clients() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "new-access-token",
+                    "refresh_token": "next-refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read offline_access",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-refresh-confidential");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("d45049c3-3441-40ef-ab4d-b9cd86a17225".into()),
+                client_secret: Some("this-is-the-secret-2/7".into()),
+                redirect_uri: Some("http://127.0.0.1:8910/callback".into()),
+                refresh_token: Some("refresh-token".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "auth",
+            "refresh",
+        ]);
+
+        assert_eq!(output["status"], "refreshed");
+        let requests = server.requests();
+        let token_request = requests.get(1).expect("token request should be captured");
+        assert!(token_request.contains(
+            "authorization: Basic ZDQ1MDQ5YzMtMzQ0MS00MGVmLWFiNGQtYjljZDg2YTE3MjI1OnRoaXMtaXMtdGhlLXNlY3JldC0yJTJGNw=="
+        ));
+        assert!(!token_request.contains("client_secret="));
+        assert!(!token_request.contains("client_id="));
     }
 
     #[test]

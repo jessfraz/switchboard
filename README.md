@@ -383,6 +383,7 @@ The handwritten manifest should only describe the stuff that actually needs judg
 - raw vs curated
 - executable today vs planning-only
 - whether undo is supported honestly through a compensating action
+- whether a command can use a built-in strategy like `raw_passthrough` or `summary_template`
 
 Rust still owns the smart parts, auth materialization, codecs, effect extraction, and compensation logic.
 The generated inventory is the broad map, the handwritten manifest is the semantic overlay, and neither is a replacement for typed code where it actually matters.
@@ -391,7 +392,7 @@ Adding a new provider should mostly be:
 1. implement the runtime/materializer trait
 1. generate and commit the full CLI inventory
 1. write the small curated manifest
-1. optionally add a few custom codecs if the CLI output is especially cursed
+1. optionally add a few custom codecs only if the CLI output is especially cursed
 
 You should be able to discover that surface without reading the source:
 

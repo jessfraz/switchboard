@@ -421,6 +421,31 @@ mod tests {
     }
 
     #[test]
+    fn planning_only_comment_tool_uses_manifest_summary_template() {
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.pull_request.comment",
+            "github.personal",
+            ExecutionMode::Draft,
+            vec![
+                ToolArgument::option("repo", "openai/codex").expect("repo should build"),
+                ToolArgument::option("number", "1382").expect("number should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+
+        assert_eq!(
+            action.summary,
+            "Draft comment for pull request openai/codex#1382 in github.personal"
+        );
+    }
+
+    #[test]
     fn manifest_catalog_marks_raw_and_planning_only_metadata() {
         let adapter = GitHubAdapter::default();
         let notifications = adapter

@@ -1,8 +1,6 @@
 mod issues;
 mod notifications;
-mod planned;
 mod pull_requests;
-mod raw;
 
 use switchboard_core::{Error, Result, ToolArguments};
 
@@ -10,21 +8,14 @@ use crate::cli::CliCommandHandler;
 pub(crate) use crate::github::commands::{
     issues::ISSUE_READ_HANDLER,
     notifications::NOTIFICATIONS_HANDLER,
-    planned::{ISSUE_COMMENT_HANDLER, PULL_REQUEST_COMMENT_HANDLER, REPOSITORY_SEARCH_HANDLER},
     pull_requests::{PULL_REQUEST_READ_HANDLER, PULL_REQUEST_SEARCH_HANDLER},
-    raw::{RAW_READ_HANDLER, RAW_WRITE_HANDLER},
 };
 
 pub(crate) const HANDLERS: &[CliCommandHandler] = &[
     NOTIFICATIONS_HANDLER,
     PULL_REQUEST_SEARCH_HANDLER,
     PULL_REQUEST_READ_HANDLER,
-    PULL_REQUEST_COMMENT_HANDLER,
     ISSUE_READ_HANDLER,
-    ISSUE_COMMENT_HANDLER,
-    REPOSITORY_SEARCH_HANDLER,
-    RAW_READ_HANDLER,
-    RAW_WRITE_HANDLER,
 ];
 
 pub(super) fn append_query_bool(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) -> Result<()> {

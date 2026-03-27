@@ -5,14 +5,6 @@ use switchboard_core::{
 
 use crate::cli::command::CliResponse;
 
-pub(crate) fn summarize_passthrough(
-    namespace: &ResolvedNamespace,
-    request: &ToolRequest,
-    program: &str,
-) -> Result<String> {
-    summarize_prefixed_passthrough(namespace, request, program, &[])
-}
-
 pub(crate) fn summarize_prefixed_passthrough(
     namespace: &ResolvedNamespace,
     request: &ToolRequest,
@@ -27,21 +19,8 @@ pub(crate) fn summarize_prefixed_passthrough(
     ))
 }
 
-pub(crate) fn build_passthrough_args(action: &PlannedAction) -> Result<Vec<String>> {
-    build_prefixed_passthrough_args(action, &[])
-}
-
 pub(crate) fn build_prefixed_passthrough_args(action: &PlannedAction, prefix: &[String]) -> Result<Vec<String>> {
     Ok(merge_prefixed_argv(prefix, parse_passthrough_argv(&action.args)?))
-}
-
-pub(crate) fn decode_passthrough(
-    target: &ExecutionTarget,
-    action: &PlannedAction,
-    response: CliResponse,
-    program: &str,
-) -> Result<ToolOutput> {
-    decode_prefixed_passthrough(target, action, response, program, &[])
 }
 
 pub(crate) fn decode_prefixed_passthrough(
