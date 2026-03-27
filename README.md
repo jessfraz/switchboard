@@ -1077,6 +1077,45 @@ later:
   everything else, if deserved
 ```
 
+## MyChart Pages Callback
+
+`mychart-cli` can use a tiny GitHub Pages callback site so Epic production has a real `https` redirect URI without
+turning this repo into some sad little auth server.
+
+The static callback page lives at:
+
+- `/pages/index.html`
+- `/pages/mychart-callback/index.html`
+
+After GitHub Pages is enabled for this repo, a project site under `jessfraz/switchboard` will serve the callback at:
+
+```text
+https://jessfraz.github.io/switchboard/mychart-callback/
+```
+
+That page only does three things:
+
+1. reads the OAuth callback URL
+1. scrubs the code from the browser address bar
+1. gives you a copyable `mychart auth exchange-url 'https://...'` command
+
+Typical MyChart production flow:
+
+```text
+mychart connect add --name ucla \
+  --base-url https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4 \
+  --client-id <production-client-id> \
+  --redirect-uri https://jessfraz.github.io/switchboard/mychart-callback/
+
+mychart --account ucla auth authorize-url --scope openid --scope fhirUser --scope patient/*.read
+```
+
+Finish the browser login, let Epic redirect to the GitHub Pages callback, then run the command the page gives you:
+
+```text
+mychart --account ucla auth exchange-url 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'
+```
+
 ## Summary
 
 Build a Rust-first local automation layer for GitHub and Google Workspace.

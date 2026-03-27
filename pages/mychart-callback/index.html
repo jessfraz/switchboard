@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MyChart OAuth callback</title>
+    <style>
+      :root {
+        --bg: #121514;
+        --panel: rgba(21, 27, 25, 0.9);
+        --panel-strong: rgba(15, 20, 18, 0.95);
+        --ink: #f3eee3;
+        --muted: #b8b09f;
+        --line: rgba(243, 238, 227, 0.12);
+        --accent: #ec7a4d;
+        --accent-strong: #f59a73;
+        --ok: #7fd7a4;
+        --warn: #ffd07a;
+        --bad: #ff8f8f;
+        --shadow: 0 28px 80px rgba(0, 0, 0, 0.34);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(236, 122, 77, 0.18), transparent 26%),
+          radial-gradient(circle at top right, rgba(127, 215, 164, 0.12), transparent 22%),
+          linear-gradient(180deg, #171c1b, var(--bg));
+        padding: 2rem;
+      }
+
+      main {
+        width: min(980px, 100%);
+        margin: 0 auto;
+      }
+
+      .hero {
+        display: grid;
+        gap: 1.3rem;
+        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        padding: 1.6rem;
+        backdrop-filter: blur(10px);
+      }
+
+      .panel.strong {
+        background: var(--panel-strong);
+      }
+
+      h1 {
+        margin: 0 0 1rem;
+        font-size: clamp(2.4rem, 5vw, 4.4rem);
+        line-height: 0.92;
+        letter-spacing: -0.04em;
+      }
+
+      h2 {
+        margin: 0 0 0.7rem;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+
+      p {
+        margin: 0 0 0.9rem;
+        color: var(--muted);
+        line-height: 1.6;
+        font-size: 1.02rem;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 0.6rem 0.8rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--warn);
+      }
+
+      .status.good {
+        color: var(--ok);
+      }
+
+      .status.bad {
+        color: var(--bad);
+      }
+
+      .stack {
+        display: grid;
+        gap: 1rem;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 0.45rem;
+        font-size: 0.9rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(0, 0, 0, 0.18);
+        color: var(--ink);
+        padding: 0.95rem 1rem;
+        font: inherit;
+      }
+
+      textarea,
+      code {
+        font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+        font-size: 0.95rem;
+      }
+
+      textarea {
+        min-height: 8rem;
+        resize: vertical;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.8rem;
+      }
+
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #21140f;
+        font: inherit;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        padding: 0.8rem 1rem;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+
+      .meta {
+        display: grid;
+        gap: 0.85rem;
+      }
+
+      .meta-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid rgba(243, 238, 227, 0.08);
+        padding-bottom: 0.7rem;
+      }
+
+      .meta-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .meta-key {
+        color: var(--muted);
+      }
+
+      .meta-value {
+        text-align: right;
+        word-break: break-word;
+      }
+
+      .footnote {
+        margin-top: 1rem;
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 820px) {
+        body {
+          padding: 1rem;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .meta-row {
+          flex-direction: column;
+        }
+
+        .meta-value {
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="hero">
+      <section class="panel strong stack">
+        <div>
+          <div id="status-pill" class="status">Waiting for callback</div>
+          <h1>MyChart callback, without the clown car.</h1>
+          <p id="lead">
+            This page reads the OAuth redirect, scrubs the browser URL, and gives you the exact CLI command to finish
+            auth locally.
+          </p>
+        </div>
+
+        <div class="stack">
+          <div>
+            <label for="account-name">Optional account name</label>
+            <input id="account-name" name="account-name" placeholder="ucla" autocomplete="off">
+          </div>
+
+          <div>
+            <label for="exchange-command">CLI command</label>
+            <textarea id="exchange-command" readonly></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="copy-command" type="button">Copy command</button>
+            <button id="copy-url" class="secondary" type="button">Copy callback URL</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel stack">
+        <div>
+          <h2>What this page sees</h2>
+          <div class="meta">
+            <div class="meta-row">
+              <span class="meta-key">Redirect URI</span>
+              <span id="redirect-uri" class="meta-value">Not loaded yet</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-key">Authorization code</span>
+              <span id="code-status" class="meta-value">Missing</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-key">State</span>
+              <span id="state-status" class="meta-value">Missing</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-key">OAuth error</span>
+              <span id="error-status" class="meta-value">None</span>
+            </div>
+          </div>
+        </div>
+
+        <p class="footnote">
+          The callback query is scrubbed from the address bar after load, because leaving authorization codes lying
+          around in browser history is sloppy as hell.
+        </p>
+      </aside>
+    </main>
+
+    <script>
+      (() => {
+        const storageKey = "mychart_callback_url";
+        const statusPill = document.getElementById("status-pill");
+        const lead = document.getElementById("lead");
+        const accountInput = document.getElementById("account-name");
+        const exchangeCommand = document.getElementById("exchange-command");
+        const redirectUri = document.getElementById("redirect-uri");
+        const codeStatus = document.getElementById("code-status");
+        const stateStatus = document.getElementById("state-status");
+        const errorStatus = document.getElementById("error-status");
+        const copyCommand = document.getElementById("copy-command");
+        const copyUrl = document.getElementById("copy-url");
+
+        const currentUrl = new URL(window.location.href);
+        const hasQuery = currentUrl.search.length > 1;
+        const callbackUrl = hasQuery ? currentUrl.toString() : window.sessionStorage.getItem(storageKey);
+
+        if (hasQuery) {
+          window.sessionStorage.setItem(storageKey, callbackUrl);
+          window.history.replaceState({}, document.title, currentUrl.origin + currentUrl.pathname);
+        }
+
+        function shellQuote(value) {
+          return "'" + value.replace(/'/g, "'\"'\"'") + "'";
+        }
+
+        function render() {
+          if (!callbackUrl) {
+            statusPill.textContent = "No callback data";
+            statusPill.className = "status";
+            lead.textContent =
+              "Open this page only through the OAuth redirect, otherwise there is nothing useful to extract.";
+            exchangeCommand.value =
+              "Run `mychart auth authorize-url`, finish the browser login, then come back here from the redirect.";
+            redirectUri.textContent = window.location.origin + window.location.pathname;
+            codeStatus.textContent = "Missing";
+            stateStatus.textContent = "Missing";
+            errorStatus.textContent = "None";
+            return;
+          }
+
+          const parsed = new URL(callbackUrl);
+          const code = parsed.searchParams.get("code");
+          const state = parsed.searchParams.get("state");
+          const error = parsed.searchParams.get("error");
+          const errorDescription = parsed.searchParams.get("error_description");
+          const account = accountInput.value.trim();
+          const accountPrefix = account ? "--account " + shellQuote(account) + " " : "";
+
+          redirectUri.textContent = parsed.origin + parsed.pathname;
+          codeStatus.textContent = code ? "Present (" + code.length + " chars)" : "Missing";
+          stateStatus.textContent = state ? "Present (" + state.length + " chars)" : "Missing";
+          errorStatus.textContent = error ? error + (errorDescription ? ": " + errorDescription : "") : "None";
+
+          if (error) {
+            statusPill.textContent = "OAuth error";
+            statusPill.className = "status bad";
+            lead.textContent =
+              "Epic sent an OAuth error back instead of an authorization code. Copy the callback URL if you want the terminal to print the exact failure details.";
+          } else if (code && state) {
+            statusPill.textContent = "Ready to exchange";
+            statusPill.className = "status good";
+            lead.textContent =
+              "The callback URL was captured and scrubbed from the address bar. Copy the command below, run it in the same repo, and the CLI will finish the token exchange.";
+          } else {
+            statusPill.textContent = "Incomplete callback";
+            statusPill.className = "status";
+            lead.textContent =
+              "The redirect landed here, but it did not contain the usual code and state parameters. That usually means OAuth died upstream.";
+          }
+
+          exchangeCommand.value = "mychart " + accountPrefix + "auth exchange-url " + shellQuote(callbackUrl);
+        }
+
+        async function copyText(text, button, successLabel) {
+          const originalLabel = button.textContent;
+          try {
+            await navigator.clipboard.writeText(text);
+            button.textContent = successLabel;
+          } catch (error) {
+            button.textContent = "Copy failed";
+          }
+          window.setTimeout(() => {
+            button.textContent = originalLabel;
+          }, 1500);
+        }
+
+        accountInput.addEventListener("input", render);
+        copyCommand.addEventListener("click", () => copyText(exchangeCommand.value, copyCommand, "Copied"));
+        copyUrl.addEventListener("click", () => {
+          const value = callbackUrl || "";
+          copyText(value, copyUrl, "Copied");
+        });
+
+        render();
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>switchboard OAuth helpers</title>
+    <style>
+      :root {
+        --bg: #f6f1e8;
+        --panel: rgba(255, 252, 247, 0.92);
+        --ink: #1e1f1b;
+        --muted: #5e6055;
+        --accent: #b4492f;
+        --accent-strong: #8f3520;
+        --line: rgba(30, 31, 27, 0.12);
+        --shadow: 0 18px 50px rgba(56, 37, 18, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(180, 73, 47, 0.15), transparent 28%),
+          radial-gradient(circle at bottom right, rgba(71, 102, 79, 0.18), transparent 32%),
+          linear-gradient(180deg, #fbf7f1, var(--bg));
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+      }
+
+      main {
+        width: min(760px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        padding: 2rem;
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: clamp(2.2rem, 5vw, 3.6rem);
+        line-height: 0.95;
+      }
+
+      p {
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.6;
+        margin: 0 0 1rem;
+      }
+
+      a {
+        color: var(--accent-strong);
+        text-decoration-thickness: 2px;
+        text-underline-offset: 0.18em;
+      }
+
+      .callout {
+        margin-top: 1.5rem;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 1rem 1.1rem;
+        background: rgba(255, 255, 255, 0.75);
+      }
+
+      code {
+        font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+        font-size: 0.95em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>switchboard OAuth helpers</h1>
+      <p>
+        This Pages site exists for one boring reason, Epic production wants an HTTPS redirect URI even when the real
+        brains live in the CLI.
+      </p>
+      <p>
+        The MyChart callback page is at
+        <a href="./mychart-callback/">./mychart-callback/</a>.
+      </p>
+      <div class="callout">
+        <p>
+          For a repo named <code>switchboard</code> under <code>jessfraz</code>, the production redirect URI is:
+        </p>
+        <p><code>https://jessfraz.github.io/switchboard/mychart-callback/</code></p>
+      </div>
+    </main>
+  </body>
+</html>

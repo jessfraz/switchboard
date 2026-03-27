@@ -451,9 +451,8 @@ fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: b
         ))
     })?;
     let redirect_uri = context.require_redirect_uri(None)?;
-    let expected_redirect_uri = Url::parse(&redirect_uri).map_err(|error| {
-        Error::Config(format!("invalid stored redirect URI {:?}: {error}", redirect_uri))
-    })?;
+    let expected_redirect_uri = Url::parse(&redirect_uri)
+        .map_err(|error| Error::Config(format!("invalid stored redirect URI {:?}: {error}", redirect_uri)))?;
     let mut normalized_callback = parsed_url.clone();
     normalized_callback.set_query(None);
     normalized_callback.set_fragment(None);
@@ -500,9 +499,10 @@ fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: b
                 "callback_url": parsed_url.as_str(),
             }),
         })?;
-    let expected_state = context.pending_oauth_state.clone().ok_or_else(|| {
-        Error::Config("missing pending OAuth state, run mychart auth authorize-url first".into())
-    })?;
+    let expected_state = context
+        .pending_oauth_state
+        .clone()
+        .ok_or_else(|| Error::Config("missing pending OAuth state, run mychart auth authorize-url first".into()))?;
     if returned_state != expected_state {
         return Err(Error::Auth {
             message: "OAuth callback state mismatch".into(),
@@ -524,13 +524,7 @@ fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: b
             }),
         })?;
 
-    exchange_code(
-        context,
-        code,
-        Some(normalized_expected.to_string()),
-        None,
-        no_store,
-    )
+    exchange_code(context, code, Some(normalized_expected.to_string()), None, no_store)
 }
 
 fn login_with_dynamic_client(

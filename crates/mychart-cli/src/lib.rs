@@ -1335,9 +1335,9 @@ mod tests {
 
         let requests = server.requests();
         let token_request = requests.get(1).expect("token request should be captured");
-        assert!(token_request.contains(
-            "redirect_uri=https%3A%2F%2Fjessfraz.github.io%2Fswitchboard%2Fmychart-callback%2F"
-        ));
+        assert!(
+            token_request.contains("redirect_uri=https%3A%2F%2Fjessfraz.github.io%2Fswitchboard%2Fmychart-callback%2F")
+        );
     }
 
     #[test]
