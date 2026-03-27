@@ -6,8 +6,8 @@ use crate::{
         AggregateReadOutcome, AggregateReadRequest, AggregateReadResult, DispatchOutcome, OperationOutcome,
         OperationRequest,
     },
-    traits::{Adapter, AuditSink, NamespaceStore, PolicyEngine},
-    types::{AuditEvent, AuditOutcome, PlannedAction, ProviderKind, ResolvedNamespace, ToolKind},
+    traits::{Adapter, AuditSink, AuthStore, NamespaceStore, PolicyEngine},
+    types::{AuditEvent, AuditOutcome, ExecutionTarget, PlannedAction, ProviderKind, ResolvedNamespace, ToolKind},
 };
 
 #[derive(Default)]
@@ -27,6 +27,7 @@ impl AdapterRegistry {
 
 pub struct Switchboard {
     namespaces: Arc<dyn NamespaceStore>,
+    auth: Arc<dyn AuthStore>,
     policy: Arc<dyn PolicyEngine>,
     audit: Arc<dyn AuditSink>,
     adapters: AdapterRegistry,
@@ -35,12 +36,14 @@ pub struct Switchboard {
 impl Switchboard {
     pub fn new(
         namespaces: Arc<dyn NamespaceStore>,
+        auth: Arc<dyn AuthStore>,
         policy: Arc<dyn PolicyEngine>,
         audit: Arc<dyn AuditSink>,
         adapters: AdapterRegistry,
     ) -> Self {
         Self {
             namespaces,
+            auth,
             policy,
             audit,
             adapters,
@@ -79,10 +82,25 @@ impl Switchboard {
             .adapters
             .get(&namespace.provider)
             .ok_or_else(|| Error::MissingAdapter(namespace.provider.clone()))?;
+        let auth = self
+            .auth
+            .get(&namespace.auth_ref)
+            .ok_or_else(|| Error::MissingAuth(namespace.auth_ref.to_string()))?;
+        if auth.provider != namespace.provider {
+            return Err(Error::AuthProviderMismatch {
+                auth_ref: namespace.auth_ref.to_string(),
+                auth_provider: auth.provider,
+                namespace_provider: namespace.provider,
+            });
+        }
+        let target = ExecutionTarget {
+            namespace: namespace.clone(),
+            auth,
+        };
         let descriptor = adapter
             .find_tool(&request.tool)
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
-        let mut plan = adapter.plan(&namespace, &request, descriptor)?;
+        let mut plan = adapter.plan(&target, &request, descriptor)?;
 
         match self.policy.evaluate(&namespace, &plan) {
             crate::PolicyDecision::Allow => {}
@@ -97,8 +115,8 @@ impl Switchboard {
         }
 
         match descriptor.kind {
-            ToolKind::Read => self.finish_read(adapter.as_ref(), plan),
-            ToolKind::Write => self.finish_write(adapter.as_ref(), plan),
+            ToolKind::Read => self.finish_read(adapter.as_ref(), &target, plan),
+            ToolKind::Write => self.finish_write(adapter.as_ref(), &target, plan),
         }
     }
 
@@ -136,7 +154,12 @@ impl Switchboard {
         })
     }
 
-    fn finish_read(&self, adapter: &dyn Adapter, plan: PlannedAction) -> Result<DispatchOutcome> {
+    fn finish_read(
+        &self,
+        adapter: &dyn Adapter,
+        target: &ExecutionTarget,
+        plan: PlannedAction,
+    ) -> Result<DispatchOutcome> {
         match plan.mode {
             crate::ExecutionMode::Plan | crate::ExecutionMode::Draft => {
                 self.audit
@@ -144,7 +167,7 @@ impl Switchboard {
                 Ok(DispatchOutcome::Planned(plan))
             }
             crate::ExecutionMode::Auto | crate::ExecutionMode::Apply => {
-                let output = adapter.execute(&plan)?;
+                let output = adapter.execute(target, &plan)?;
                 self.audit
                     .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
                 Ok(DispatchOutcome::Executed(output))
@@ -152,11 +175,16 @@ impl Switchboard {
         }
     }
 
-    fn finish_write(&self, adapter: &dyn Adapter, plan: PlannedAction) -> Result<DispatchOutcome> {
+    fn finish_write(
+        &self,
+        adapter: &dyn Adapter,
+        target: &ExecutionTarget,
+        plan: PlannedAction,
+    ) -> Result<DispatchOutcome> {
         let should_apply = matches!(plan.mode, crate::ExecutionMode::Apply) && !plan.approval_required;
 
         if should_apply {
-            let output = adapter.execute(&plan)?;
+            let output = adapter.execute(target, &plan)?;
             self.audit
                 .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
             return Ok(DispatchOutcome::Executed(output));

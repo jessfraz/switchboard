@@ -10,12 +10,12 @@ use std::{
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use switchboard_core::{
-    AggregateReadOutcome, AggregateReadRequest, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
+    AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
     NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, Switchboard, ToolName, ToolOutput,
     ToolRequest,
 };
 use switchboard_providers::default_registry;
-use switchboard_store::{DefaultPolicyEngine, MemoryAuditSink, StaticNamespaceStore};
+use switchboard_store::{DefaultPolicyEngine, MemoryAuditSink, SwitchboardConfig};
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
@@ -28,23 +28,25 @@ const AFTER_HELP: &str = concat!(
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
-    let namespaces = Arc::new(StaticNamespaceStore::from_file(&config_path)?);
+    let config = SwitchboardConfig::from_file(&config_path)?;
+    let (namespaces, auth) = config.into_stores();
 
-    Ok(build_switchboard(namespaces))
+    Ok(build_switchboard(Arc::new(namespaces), Arc::new(auth)))
 }
 
-fn build_switchboard(namespaces: Arc<dyn NamespaceStore>) -> Switchboard {
+fn build_switchboard(namespaces: Arc<dyn NamespaceStore>, auth: Arc<dyn AuthStore>) -> Switchboard {
     let policy = Arc::new(DefaultPolicyEngine);
     let audit = Arc::new(MemoryAuditSink::default());
     let adapters = default_registry();
 
-    Switchboard::new(namespaces, policy, audit, adapters)
+    Switchboard::new(namespaces, auth, policy, audit, adapters)
 }
 
 #[cfg(test)]
 fn test_switchboard() -> Result<Switchboard> {
-    let namespaces = Arc::new(StaticNamespaceStore::bootstrap()?);
-    Ok(build_switchboard(namespaces))
+    let config = SwitchboardConfig::bootstrap()?;
+    let (namespaces, auth) = config.into_stores();
+    Ok(build_switchboard(Arc::new(namespaces), Arc::new(auth)))
 }
 
 pub fn main_entry<I, T>(args: I) -> ExitCode

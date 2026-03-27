@@ -11,6 +11,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     Audit(String),
     Config(String),
+    MissingAuth(String),
+    AuthProviderMismatch {
+        auth_ref: String,
+        auth_provider: ProviderKind,
+        namespace_provider: ProviderKind,
+    },
     InvalidArguments(String),
     InvalidToolName(String),
     MissingAdapter(ProviderKind),
@@ -31,6 +37,15 @@ impl Display for Error {
         match self {
             Self::Audit(message) => write!(f, "audit failure: {message}"),
             Self::Config(message) => write!(f, "config error: {message}"),
+            Self::MissingAuth(auth_ref) => write!(f, "missing auth configuration: {auth_ref}"),
+            Self::AuthProviderMismatch {
+                auth_ref,
+                auth_provider,
+                namespace_provider,
+            } => write!(
+                f,
+                "auth ref {auth_ref} belongs to provider {auth_provider}, but the namespace expects {namespace_provider}"
+            ),
             Self::InvalidArguments(message) => write!(f, "invalid arguments: {message}"),
             Self::InvalidToolName(tool) => write!(f, "invalid tool name: {tool}"),
             Self::MissingAdapter(provider) => write!(f, "missing adapter for provider: {provider}"),

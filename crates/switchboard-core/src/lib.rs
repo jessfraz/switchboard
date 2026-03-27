@@ -11,9 +11,10 @@ pub use crate::{
         AggregateReadOutcome, AggregateReadRequest, AggregateReadResult, DispatchOutcome, OperationOutcome,
         OperationRequest,
     },
-    traits::{Adapter, AuditSink, NamespaceStore, PolicyEngine},
+    traits::{Adapter, AuditSink, AuthStore, NamespaceStore, PolicyEngine},
     types::{
-        AuditEvent, AuditOutcome, AuthRef, BackendKind, ExecutionMode, NamespaceId, PlannedAction, PolicyDecision,
-        ProviderKind, ResolvedNamespace, ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRequest,
+        AuditEvent, AuditOutcome, AuthKind, AuthRef, BackendKind, ExecutionMode, ExecutionTarget, NamespaceId,
+        PlannedAction, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedNamespace, ToolDescriptor, ToolKind,
+        ToolName, ToolOutput, ToolRequest,
     },
 };

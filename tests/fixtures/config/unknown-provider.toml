@@ -1,4 +1,9 @@
+[auth.oracle_personal]
+provider = "oracle"
+kind = "google_oauth"
+account = "jess@example.com"
+
 [namespace.oracle.personal]
 provider = "oracle"
 account = "jess@example.com"
-auth = "oauth"
+auth = "oracle_personal"

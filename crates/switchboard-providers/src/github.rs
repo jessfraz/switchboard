@@ -1,6 +1,6 @@
 use switchboard_core::{
-    Adapter, BackendKind, Error, PlannedAction, ProviderKind, ResolvedNamespace, Result, ToolDescriptor, ToolKind,
-    ToolOutput, ToolRequest,
+    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, ProviderKind, ResolvedNamespace, Result,
+    ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
 };
 
 const TOOLS: &[ToolDescriptor] = &[
@@ -112,20 +112,21 @@ impl Adapter for GitHubAdapter {
 
     fn plan(
         &self,
-        namespace: &ResolvedNamespace,
+        target: &ExecutionTarget,
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let summary = Self::summary(namespace, request)?;
+        let summary = Self::summary(&target.namespace, request)?;
         Ok(PlannedAction::new(
             request,
+            target,
             descriptor.kind,
             summary,
             descriptor.backend,
         ))
     }
 
-    fn execute(&self, action: &PlannedAction) -> Result<ToolOutput> {
+    fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
         if matches!(action.kind, ToolKind::Write) {
             return Err(Error::NotImplemented(format!(
                 "{} apply path is not wired to GitHub yet",
@@ -140,6 +141,7 @@ impl Adapter for GitHubAdapter {
         )
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
+        .with_field("auth", target.auth.id.to_string())
         .with_field("note", "remote GitHub execution is not wired yet"))
     }
 }

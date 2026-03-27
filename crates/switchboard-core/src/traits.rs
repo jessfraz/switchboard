@@ -1,8 +1,8 @@
 use crate::{
     error::Result,
     types::{
-        AuditEvent, PlannedAction, PolicyDecision, ProviderKind, ResolvedNamespace, ToolDescriptor, ToolName,
-        ToolOutput, ToolRequest,
+        AuditEvent, AuthRef, ExecutionTarget, PlannedAction, PolicyDecision, ProviderKind, ResolvedAuth,
+        ResolvedNamespace, ToolDescriptor, ToolName, ToolOutput, ToolRequest,
     },
     NamespaceId,
 };
@@ -10,6 +10,11 @@ use crate::{
 pub trait NamespaceStore: Send + Sync {
     fn get(&self, id: &NamespaceId) -> Option<ResolvedNamespace>;
     fn list(&self) -> Vec<ResolvedNamespace>;
+}
+
+pub trait AuthStore: Send + Sync {
+    fn get(&self, id: &AuthRef) -> Option<ResolvedAuth>;
+    fn list(&self) -> Vec<ResolvedAuth>;
 }
 
 pub trait PolicyEngine: Send + Sync {
@@ -25,11 +30,11 @@ pub trait Adapter: Send + Sync {
     fn tools(&self) -> &'static [ToolDescriptor];
     fn plan(
         &self,
-        namespace: &ResolvedNamespace,
+        target: &ExecutionTarget,
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction>;
-    fn execute(&self, action: &PlannedAction) -> Result<ToolOutput>;
+    fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput>;
 
     fn find_tool(&self, name: &ToolName) -> Option<&'static ToolDescriptor> {
         self.tools().iter().find(|descriptor| descriptor.name == name.as_str())

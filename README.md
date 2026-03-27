@@ -199,22 +199,37 @@ Examples:
 Example config:
 
 ```toml
+[auth.github_personal]
+provider = "github"
+kind = "gh_cli"
+account = "jessfraz"
+
+[auth.google_work]
+provider = "google"
+kind = "google_oauth"
+account = "jess@company.com"
+
+[auth.google_personal]
+provider = "google"
+kind = "google_oauth"
+account = "jess@example.com"
+
 [namespace.github.personal]
 provider = "github"
 account = "jessfraz"
-auth = "gh"
+auth = "github_personal"
 default_read = true
 
 [namespace.google.work]
 provider = "google"
 account = "jess@company.com"
-auth = "oauth"
+auth = "google_work"
 default_read = true
 
 [namespace.google.personal]
 provider = "google"
 account = "jess@example.com"
-auth = "oauth"
+auth = "google_personal"
 default_read = false
 ```
 
@@ -225,6 +240,9 @@ default_read = false
 1. `./switchboard.toml`
 1. `$XDG_CONFIG_HOME/switchboard/config.toml`
 1. `$HOME/.config/switchboard/config.toml`
+
+Namespace `auth` values are references to concrete credential entries.
+That means `google.work` and `google.personal` can both use Google OAuth without pretending they are the same identity.
 
 The model should never infer hidden authority.
 If it wants to write, it should say where.

@@ -3,7 +3,7 @@ provider = "google"
 kind = "google_oauth"
 account = "jess@example.com"
 
-[namespace.github.personal]
+[namespace.google.personal]
 provider = "google"
 account = "jess@example.com"
-auth = "google_personal"
+auth = "google_work"

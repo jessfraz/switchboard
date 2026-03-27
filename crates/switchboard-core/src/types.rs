@@ -107,6 +107,41 @@ impl Display for AuthRef {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthKind {
+    GitHubCli,
+    GoogleOAuth,
+}
+
+impl AuthKind {
+    pub fn from_identifier(value: &str) -> Option<Self> {
+        match value {
+            "gh_cli" | "github_cli" => Some(Self::GitHubCli),
+            "google_oauth" => Some(Self::GoogleOAuth),
+            _ => None,
+        }
+    }
+
+    pub fn provider(&self) -> ProviderKind {
+        match self {
+            Self::GitHubCli => ProviderKind::GitHub,
+            Self::GoogleOAuth => ProviderKind::GoogleWorkspace,
+        }
+    }
+}
+
+impl Display for AuthKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            Self::GitHubCli => "gh_cli",
+            Self::GoogleOAuth => "google_oauth",
+        };
+
+        write!(f, "{value}")
+    }
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct ToolName(String);
@@ -207,6 +242,41 @@ impl ResolvedNamespace {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ResolvedAuth {
+    pub id: AuthRef,
+    pub provider: ProviderKind,
+    pub kind: AuthKind,
+    pub account_label: String,
+}
+
+impl ResolvedAuth {
+    pub fn new(
+        id: impl Into<String>,
+        provider: ProviderKind,
+        kind: AuthKind,
+        account_label: impl Into<String>,
+    ) -> Result<Self> {
+        let account_label = account_label.into();
+        if account_label.trim().is_empty() {
+            return Err(Error::InvalidArguments("auth account label cannot be empty".into()));
+        }
+
+        Ok(Self {
+            id: AuthRef::new(id)?,
+            provider,
+            kind,
+            account_label,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ExecutionTarget {
+    pub namespace: ResolvedNamespace,
+    pub auth: ResolvedAuth,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolRequest {
     pub tool: ToolName,
     pub namespace: NamespaceId,
@@ -234,6 +304,7 @@ impl ToolRequest {
 pub struct PlannedAction {
     pub tool: ToolName,
     pub namespace: NamespaceId,
+    pub auth_ref: AuthRef,
     pub kind: ToolKind,
     pub mode: ExecutionMode,
     pub summary: String,
@@ -244,10 +315,17 @@ pub struct PlannedAction {
 }
 
 impl PlannedAction {
-    pub fn new(request: &ToolRequest, kind: ToolKind, summary: impl Into<String>, backend: BackendKind) -> Self {
+    pub fn new(
+        request: &ToolRequest,
+        target: &ExecutionTarget,
+        kind: ToolKind,
+        summary: impl Into<String>,
+        backend: BackendKind,
+    ) -> Self {
         Self {
             tool: request.tool.clone(),
-            namespace: request.namespace.clone(),
+            namespace: target.namespace.id.clone(),
+            auth_ref: target.auth.id.clone(),
             kind,
             mode: request.mode,
             summary: summary.into(),
@@ -303,6 +381,7 @@ pub enum AuditOutcome {
 pub struct AuditEvent {
     pub tool: ToolName,
     pub namespace: NamespaceId,
+    pub auth_ref: AuthRef,
     pub summary: String,
     pub backend: BackendKind,
     pub approval_required: bool,
@@ -314,6 +393,7 @@ impl AuditEvent {
         Self {
             tool: plan.tool.clone(),
             namespace: plan.namespace.clone(),
+            auth_ref: plan.auth_ref.clone(),
             summary: plan.summary.clone(),
             backend: plan.backend,
             approval_required: plan.approval_required,

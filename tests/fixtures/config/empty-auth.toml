@@ -1,3 +1,8 @@
+[auth.google_personal]
+provider = "google"
+kind = "google_oauth"
+account = "jess@example.com"
+
 [namespace.google.personal]
 provider = "google"
 account = "jess@example.com"
