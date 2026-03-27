@@ -71,15 +71,30 @@ fn run_search(args: NotesSearchArgs, context: &crate::state::ResolvedContext) ->
     let mut matches = notes
         .into_iter()
         .filter_map(|resource| {
-            let note = render_note_summary(&resource)?;
+            let mut note = render_note_summary(&resource)?;
             let date = note.get("date").and_then(Value::as_str)?.to_owned();
             if floor.as_deref().is_some_and(|floor| !iso_on_or_after(&date, floor)) {
                 return None;
             }
-            if !normalize_match_text(&note_search_text(&note)).contains(&normalized_query) {
+
+            let metadata_match = normalize_match_text(&note_search_text(&note)).contains(&normalized_query);
+            if metadata_match {
+                if let Some(note_object) = note.as_object_mut() {
+                    note_object.insert("match_source".into(), Value::String("metadata".into()));
+                }
+                return Some(note);
+            }
+
+            let hydrated_content = hydrate_note_content(&session, &resource);
+            let aggregated_body = aggregate_note_body_text(&hydrated_content);
+            if !normalize_match_text(&aggregated_body).contains(&normalized_query) {
                 return None;
             }
 
+            if let Some(note_object) = note.as_object_mut() {
+                note_object.insert("match_source".into(), Value::String("body".into()));
+                note_object.insert("body_excerpt".into(), Value::String(body_excerpt(&aggregated_body)));
+            }
             Some(note)
         })
         .collect::<Vec<_>>();
@@ -207,6 +222,15 @@ fn note_search_text(note: &Value) -> String {
         content_titles,
     ]
     .join(" ")
+}
+
+fn aggregate_note_body_text(content: &[Value]) -> String {
+    content
+        .iter()
+        .filter_map(|entry| entry.get("body_text").and_then(Value::as_str))
+        .filter(|body| !body.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn hydrate_note_content(session: &crate::commands::shared::PatientSession, resource: &Value) -> Vec<Value> {

@@ -103,6 +103,29 @@ impl PatientSession {
             .filter(|resource| self.scope_allows_resource(&resource.resource_type))
     }
 
+    pub(crate) fn resource_unavailable_reason(&self, resource_token: &str) -> Option<String> {
+        let Some(resource) = self.capability.resolve_resource(resource_token) else {
+            return Some(format!(
+                "{} is not exposed by the FHIR capability statement for account {}",
+                resource_token, self.account_name
+            ));
+        };
+        if self.scope_allows_resource(&resource.resource_type) {
+            if resource.supports("read") || resource.supports("search-type") {
+                return None;
+            }
+            return Some(format!(
+                "{} is exposed by this endpoint but did not advertise read or search support",
+                resource.resource_type
+            ));
+        }
+
+        Some(format!(
+            "OAuth token for account {} does not grant patient/{}.read",
+            self.account_name, resource.resource_type
+        ))
+    }
+
     pub(crate) fn fetch_url(&self, url: &str) -> Result<JsonResponse> {
         if url.starts_with("http://") || url.starts_with("https://") {
             self.client

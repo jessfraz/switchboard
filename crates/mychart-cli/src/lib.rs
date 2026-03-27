@@ -2766,6 +2766,47 @@ mod tests {
     }
 
     #[test]
+    fn appointments_upcoming_reports_missing_scope_warning() {
+        let server = TestServer::spawn(vec![ResponseSpec::json(
+            200,
+            capability_statement_json(
+                "http://placeholder",
+                &[resource_capability("Appointment", &["read", "search-type"])],
+            ),
+            Vec::new(),
+        )]);
+        let temp_dir = temp_dir("mychart-appointments-scope-warning");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                scope: Some("openid patient/Observation.read patient/DocumentReference.read".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let context = resolved_context(&config_path);
+        let output = crate::commands::appointments::run_upcoming_output(
+            crate::commands::appointments::AppointmentsUpcomingArgs {
+                patient: None,
+                all_accounts: false,
+                since: None,
+                limit: 10,
+                all_pages: false,
+            },
+            &context,
+        )
+        .expect("upcoming appointments should still render");
+
+        assert_eq!(output.status, "ok");
+        assert!(output.appointments.is_empty());
+        assert_eq!(output.warnings.len(), 1);
+        assert!(output.warnings[0].contains("patient/Appointment.read"));
+    }
+
+    #[test]
     fn appointments_find_filters_by_text_and_future_window() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(
@@ -2927,6 +2968,97 @@ mod tests {
         let requests = server.requests();
         assert!(requests[1].contains("GET /DocumentReference/note-1"));
         assert!(requests[2].contains("GET /Binary/note-1-body"));
+    }
+
+    #[test]
+    fn notes_search_matches_note_body_text() {
+        #[derive(Debug, serde::Deserialize)]
+        struct NotesSearchOutput {
+            status: String,
+            notes: Vec<NotesSearchMatch>,
+        }
+
+        #[derive(Debug, serde::Deserialize)]
+        struct NotesSearchMatch {
+            id: Option<String>,
+            match_source: Option<String>,
+            body_excerpt: Option<String>,
+        }
+
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("DocumentReference", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "DocumentReference",
+                            "id": "note-1",
+                            "date": "2100-01-01T00:00:00Z",
+                            "type": {"text": "Progress Note"},
+                            "description": "Routine follow-up",
+                            "content": [{
+                                "attachment": {
+                                    "contentType": "text/plain",
+                                    "title": "Visit note",
+                                    "url": "/Binary/note-1-body"
+                                }
+                            }]
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Binary",
+                    "contentType": "text/plain",
+                    "data": crate::base64_encode(b"Patient reports migraine improvement after medication change.")
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-notes-search-body");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                scope: Some("openid patient/DocumentReference.read patient/Binary.read".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output: NotesSearchOutput = serde_json::from_value(run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "notes",
+            "search",
+            "--query",
+            "migraine",
+        ]))
+        .expect("notes search output should deserialize");
+
+        assert_eq!(output.status, "ok");
+        assert_eq!(output.notes.len(), 1);
+        assert_eq!(output.notes[0].id.as_deref(), Some("note-1"));
+        assert_eq!(output.notes[0].match_source.as_deref(), Some("body"));
+        assert!(output.notes[0]
+            .body_excerpt
+            .as_deref()
+            .is_some_and(|excerpt| excerpt.contains("migraine")));
     }
 
     #[test]

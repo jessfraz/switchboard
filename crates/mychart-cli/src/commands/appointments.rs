@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -97,6 +99,8 @@ pub(crate) struct AppointmentsOutput {
     pub(crate) patient_id: Option<String>,
     pub(crate) accounts_used: Vec<AccountUsage>,
     pub(crate) accounts_skipped: Vec<SkippedAccount>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) since: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,8 +127,12 @@ pub(crate) fn run_upcoming_output(
     let selection = open_patient_sessions(context, args.patient, args.all_accounts)?;
     let floor = resolve_since_floor(args.since.as_deref())?.unwrap_or_else(current_utc_date_string);
     let mut upcoming = Vec::new();
+    let mut warnings = BTreeSet::new();
 
     for session in &selection.sessions {
+        if let Some(reason) = session.resource_unavailable_reason("Appointment") {
+            warnings.insert(reason);
+        }
         upcoming.extend(
             load_upcoming_appointments(session, args.limit.max(25), args.all_pages, &floor)?
                 .into_iter()
@@ -146,6 +154,7 @@ pub(crate) fn run_upcoming_output(
         patient_id: single_patient_id(&selection),
         accounts_used: deserialize_account_usage(accounts_used_json(&selection))?,
         accounts_skipped: deserialize_skipped_accounts(selection.skipped_accounts)?,
+        warnings: warnings.into_iter().collect(),
         since: Some(floor),
         query: None,
         through: None,
@@ -163,7 +172,11 @@ pub(crate) fn run_find_output(
     let normalized_query = normalize_match_text(&args.query.join(" "));
 
     let mut appointments = Vec::new();
+    let mut warnings = BTreeSet::new();
     for session in &selection.sessions {
+        if let Some(reason) = session.resource_unavailable_reason("Appointment") {
+            warnings.insert(reason);
+        }
         appointments.extend(
             load_upcoming_appointments(session, args.limit.max(50), args.all_pages, &floor)?
                 .into_iter()
@@ -190,6 +203,7 @@ pub(crate) fn run_find_output(
         patient_id: single_patient_id(&selection),
         accounts_used: deserialize_account_usage(accounts_used_json(&selection))?,
         accounts_skipped: deserialize_skipped_accounts(selection.skipped_accounts)?,
+        warnings: warnings.into_iter().collect(),
         since: None,
         query: (!args.query.is_empty()).then(|| args.query.join(" ")),
         through: Some(through),
