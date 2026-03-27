@@ -5,6 +5,7 @@ use std::{
 };
 
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::error::{Error, Result};
 
@@ -551,12 +552,12 @@ impl PlannedAction {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ToolOutput {
     pub tool: ToolName,
     pub namespace: NamespaceId,
     pub summary: String,
-    pub fields: BTreeMap<String, String>,
+    pub fields: BTreeMap<String, Value>,
 }
 
 impl ToolOutput {
@@ -570,7 +571,12 @@ impl ToolOutput {
     }
 
     pub fn with_field(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.fields.insert(key.into(), value.into());
+        self.fields.insert(key.into(), Value::String(value.into()));
+        self
+    }
+
+    pub fn with_value_field(mut self, key: impl Into<String>, value: Value) -> Self {
+        self.fields.insert(key.into(), value);
         self
     }
 }

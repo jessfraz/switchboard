@@ -1,9 +1,6 @@
 use switchboard_core::{Error, ExecutionTarget, PlannedAction, Result, ToolKind, ToolOutput};
 
-use crate::{
-    google::materializer::{DefaultGoogleWorkspaceCliMaterializer, GoogleWorkspaceCliMaterializer},
-    process_runtime::ProcessContext,
-};
+use crate::google::materializer::{DefaultGoogleWorkspaceCliMaterializer, GoogleWorkspaceCliMaterializer};
 
 pub(crate) trait GoogleWorkspaceBackend: Send + Sync {
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput>;
@@ -24,8 +21,8 @@ impl GoogleWorkspaceCliBackend {
         Self { materializer }
     }
 
-    fn stub_output(target: &ExecutionTarget, action: &PlannedAction, process: &ProcessContext) -> ToolOutput {
-        let mut output = ToolOutput::new(
+    fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
+        ToolOutput::new(
             action.tool.clone(),
             action.namespace.clone(),
             format!("{} via {} (stub)", action.summary, action.backend),
@@ -33,27 +30,10 @@ impl GoogleWorkspaceCliBackend {
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
         .with_field("auth", target.auth.id.to_string())
-        .with_field("credential_mode", credential_mode(target))
         .with_field(
             "note",
             "google workspace cli runtime is prepared, but command execution is not wired yet",
-        );
-
-        if let Some(config_dir) = target.namespace.state_dir.as_ref() {
-            output = output.with_field("config_dir", config_dir.display().to_string());
-        }
-
-        let prepared_env = process.env().keys().cloned().collect::<Vec<_>>().join(",");
-        if !prepared_env.is_empty() {
-            output = output.with_field("prepared_env", prepared_env);
-        }
-
-        let cleared_env = process.cleared_env().iter().cloned().collect::<Vec<_>>().join(",");
-        if !cleared_env.is_empty() {
-            output = output.with_field("cleared_env", cleared_env);
-        }
-
-        output
+        )
     }
 }
 
@@ -66,18 +46,9 @@ impl GoogleWorkspaceBackend for GoogleWorkspaceCliBackend {
             )));
         }
 
-        let process = self.materializer.prepare(target)?;
+        self.materializer.prepare(target)?;
 
-        Ok(Self::stub_output(target, action, &process))
-    }
-}
-
-fn credential_mode(target: &ExecutionTarget) -> &'static str {
-    match target.credentials {
-        switchboard_core::ResolvedCredentials::GoogleOAuth { .. } => "client_credentials",
-        switchboard_core::ResolvedCredentials::GoogleOAuthFile { .. } => "credentials_file",
-        switchboard_core::ResolvedCredentials::GitHubCli
-        | switchboard_core::ResolvedCredentials::GitHubToken { .. } => "unsupported",
+        Ok(Self::stub_output(target, action))
     }
 }
 
@@ -90,10 +61,7 @@ mod tests {
         ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolKind, ToolRequest,
     };
 
-    use crate::google::{
-        backend::{GoogleWorkspaceBackend, GoogleWorkspaceCliBackend},
-        materializer::{CONFIG_DIR_ENV, CREDENTIALS_FILE_ENV},
-    };
+    use crate::google::backend::{GoogleWorkspaceBackend, GoogleWorkspaceCliBackend};
 
     const GOOGLE_PERSONAL_OAUTH_JSON: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -118,20 +86,16 @@ mod tests {
             .expect("google read execution should succeed");
 
         assert_eq!(
-            output.fields.get("credential_mode").map(String::as_str),
-            Some("client_credentials")
+            output.fields.get("status").and_then(|value| value.as_str()),
+            Some("stub")
         );
         assert_eq!(
-            output.fields.get("prepared_env").map(String::as_str),
-            Some("GOOGLE_WORKSPACE_CLI_CLIENT_ID,GOOGLE_WORKSPACE_CLI_CLIENT_SECRET,GOOGLE_WORKSPACE_CLI_CONFIG_DIR")
+            output.fields.get("backend").and_then(|value| value.as_str()),
+            Some("cli")
         );
         assert_eq!(
-            output.fields.get("cleared_env").map(String::as_str),
-            Some("GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE,GOOGLE_WORKSPACE_CLI_TOKEN")
-        );
-        assert_eq!(
-            output.fields.get("config_dir").map(String::as_str),
-            Some("/tmp/gws-work")
+            output.fields.get("auth").and_then(|value| value.as_str()),
+            Some("google.work_auth")
         );
     }
 
@@ -151,24 +115,17 @@ mod tests {
             .expect("google read execution should succeed");
 
         assert_eq!(
-            output.fields.get("credential_mode").map(String::as_str),
-            Some("credentials_file")
+            output.fields.get("status").and_then(|value| value.as_str()),
+            Some("stub")
         );
         assert_eq!(
-            output.fields.get("prepared_env").map(String::as_str),
-            Some("GOOGLE_WORKSPACE_CLI_CONFIG_DIR,GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE")
+            output.fields.get("backend").and_then(|value| value.as_str()),
+            Some("cli")
         );
         assert_eq!(
-            output.fields.get("cleared_env").map(String::as_str),
-            Some("GOOGLE_WORKSPACE_CLI_CLIENT_ID,GOOGLE_WORKSPACE_CLI_CLIENT_SECRET,GOOGLE_WORKSPACE_CLI_TOKEN")
+            output.fields.get("auth").and_then(|value| value.as_str()),
+            Some("google.work_auth")
         );
-
-        let path = output
-            .fields
-            .get("prepared_env")
-            .expect("prepared env should be included");
-        assert!(path.contains(CONFIG_DIR_ENV));
-        assert!(path.contains(CREDENTIALS_FILE_ENV));
     }
 
     fn planned_read_action(tool: &str) -> PlannedAction {

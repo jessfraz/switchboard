@@ -14,6 +14,35 @@ pub(crate) trait GoogleWorkspaceCliMaterializer: Send + Sync {
 
 pub(crate) struct DefaultGoogleWorkspaceCliMaterializer;
 
+pub(crate) enum GoogleWorkspaceCliCredentials<'a> {
+    ClientSecrets { client_id: &'a str, client_secret: &'a str },
+    CredentialsFile { credentials: &'a str },
+}
+
+impl<'a> GoogleWorkspaceCliCredentials<'a> {
+    fn from_target(target: &'a ExecutionTarget) -> Result<Self> {
+        match &target.credentials {
+            ResolvedCredentials::GoogleOAuth {
+                client_id,
+                client_secret,
+                ..
+            } => Ok(Self::ClientSecrets {
+                client_id: client_id.expose(),
+                client_secret: client_secret.expose(),
+            }),
+            ResolvedCredentials::GoogleOAuthFile { credentials } => Ok(Self::CredentialsFile {
+                credentials: credentials.expose(),
+            }),
+            ResolvedCredentials::GitHubCli | ResolvedCredentials::GitHubToken { .. } => {
+                Err(Error::UnsupportedOperation(format!(
+                    "google workspace cli materializer does not support {} credentials",
+                    target.auth.kind
+                )))
+            }
+        }
+    }
+}
+
 impl GoogleWorkspaceCliMaterializer for DefaultGoogleWorkspaceCliMaterializer {
     fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext> {
         let mut context = ProcessContext::new();
@@ -22,31 +51,24 @@ impl GoogleWorkspaceCliMaterializer for DefaultGoogleWorkspaceCliMaterializer {
             context.set_env(CONFIG_DIR_ENV, state_dir.display().to_string());
         }
 
-        match &target.credentials {
-            ResolvedCredentials::GoogleOAuth {
+        match GoogleWorkspaceCliCredentials::from_target(target)? {
+            GoogleWorkspaceCliCredentials::ClientSecrets {
                 client_id,
                 client_secret,
-                ..
             } => {
-                context.set_env(CLIENT_ID_ENV, client_id.expose());
-                context.set_env(CLIENT_SECRET_ENV, client_secret.expose());
+                context.set_env(CLIENT_ID_ENV, client_id);
+                context.set_env(CLIENT_SECRET_ENV, client_secret);
                 context.clear_env(TOKEN_ENV);
                 context.clear_env(CREDENTIALS_FILE_ENV);
                 Ok(context)
             }
-            ResolvedCredentials::GoogleOAuthFile { credentials } => {
-                let path = context.write_temp_file("switchboard-google-oauth", "json", credentials.expose())?;
+            GoogleWorkspaceCliCredentials::CredentialsFile { credentials } => {
+                let path = context.write_temp_file("switchboard-google-oauth", "json", credentials)?;
                 context.set_env(CREDENTIALS_FILE_ENV, path.display().to_string());
                 context.clear_env(TOKEN_ENV);
                 context.clear_env(CLIENT_ID_ENV);
                 context.clear_env(CLIENT_SECRET_ENV);
                 Ok(context)
-            }
-            ResolvedCredentials::GitHubCli | ResolvedCredentials::GitHubToken { .. } => {
-                Err(Error::UnsupportedOperation(format!(
-                    "google workspace cli materializer does not support {} credentials",
-                    target.auth.kind
-                )))
             }
         }
     }
@@ -121,6 +143,17 @@ mod tests {
             fs::read_to_string(&credentials_path).expect("credentials file should be readable"),
             GOOGLE_PERSONAL_OAUTH_JSON
         );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = fs::metadata(&credentials_path)
+                .expect("credentials file metadata should be readable")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
         assert_eq!(
             process.env().get(CONFIG_DIR_ENV).map(String::as_str),
             Some("/tmp/gws-personal")

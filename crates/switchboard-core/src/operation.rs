@@ -72,14 +72,14 @@ impl AggregateReadRequest {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum OperationOutcome {
     Single(DispatchOutcome),
     AggregateRead(AggregateReadOutcome),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "status", content = "value", rename_all = "snake_case")]
 pub enum DispatchOutcome {
     Planned(PlannedAction),
@@ -95,14 +95,14 @@ impl DispatchOutcome {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AggregateReadOutcome {
     pub tool: ToolName,
     pub namespaces: Vec<NamespaceId>,
     pub results: Vec<AggregateReadResult>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AggregateReadResult {
     pub namespace: NamespaceId,
     pub outcome: DispatchOutcome,

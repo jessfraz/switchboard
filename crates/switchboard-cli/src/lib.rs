@@ -9,6 +9,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
     NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver, SecretStore,
@@ -341,7 +342,17 @@ fn render_output_human(output: &ToolOutput) -> String {
     if !output.fields.is_empty() {
         rendered.push_str("Fields:\n");
         for (key, value) in &output.fields {
-            rendered.push_str(&format!("- {key}: {value}\n"));
+            match value {
+                JsonValue::String(value) => rendered.push_str(&format!("- {key}: {value}\n")),
+                _ => {
+                    rendered.push_str(&format!("- {key}:\n"));
+                    let formatted =
+                        serde_json::to_string_pretty(value).unwrap_or_else(|_| "<failed to render field>".to_owned());
+                    for line in formatted.lines() {
+                        rendered.push_str(&format!("  {line}\n"));
+                    }
+                }
+            }
         }
     }
 
@@ -521,7 +532,7 @@ enum DispatchResponse<'a> {
         tool: &'a ToolName,
         namespace: &'a NamespaceId,
         summary: &'a str,
-        fields: &'a BTreeMap<String, String>,
+        fields: &'a BTreeMap<String, JsonValue>,
     },
 }
 
@@ -586,8 +597,10 @@ mod tests {
     };
 
     use clap::Parser;
+    use serde_json::json;
     use switchboard_core::{
-        AggregateReadRequest, DispatchOutcome, ExecutionMode, OperationOutcome, OperationRequest, ToolRequest,
+        AggregateReadRequest, DispatchOutcome, ExecutionMode, NamespaceId, OperationOutcome, OperationRequest,
+        ToolName, ToolOutput, ToolRequest,
     };
 
     use crate::{run, select_config_path, Cli, ConfigPathCandidates};
@@ -666,7 +679,10 @@ mod tests {
         let outcome = switchboard.dispatch(request).expect("dispatch should succeed");
         match outcome {
             DispatchOutcome::Executed(output) => {
-                assert_eq!(output.fields.get("status").map(String::as_str), Some("stub"));
+                assert_eq!(
+                    output.fields.get("status").and_then(serde_json::Value::as_str),
+                    Some("stub")
+                );
             }
             DispatchOutcome::Planned(_) => {
                 panic!("read requests should execute by default");
@@ -795,6 +811,31 @@ mod tests {
             .expect_err("aggregate write should fail");
 
         assert!(error.to_string().contains("aggregate reads require a read tool"));
+    }
+
+    #[test]
+    fn human_output_renders_structured_fields_without_flattening_them_into_nonsense() {
+        let output = ToolOutput::new(
+            ToolName::new("google.calendar.list").expect("tool should build"),
+            NamespaceId::new("google.work").expect("namespace should build"),
+            "agenda summary",
+        )
+        .with_field("status", "ok")
+        .with_value_field(
+            "events",
+            json!([
+                {
+                    "id": "event-123",
+                    "title": "Vet visit",
+                }
+            ]),
+        );
+
+        let rendered = super::render_output_human(&output);
+
+        assert!(rendered.contains("- status: ok"));
+        assert!(rendered.contains("- events:"));
+        assert!(rendered.contains("\"title\": \"Vet visit\""));
     }
 
     #[test]
