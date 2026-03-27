@@ -1,7 +1,8 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde_json::{json, Map, Value};
 use switchboard_core::{
-    Error, ExecutionTarget, OperationEffect, PlannedAction, Result, ToolOutput, ToolRef, ToolRefKind, ToolRequest,
+    Error, ExecutionTarget, OperationEffect, PlannedAction, Result, ToolArgumentSpec, ToolArgumentTransport,
+    ToolArgumentValueKind, ToolOutput, ToolRef, ToolRefKind, ToolRequest,
 };
 
 use crate::cli::command::CliResponse;
@@ -293,6 +294,15 @@ impl CliArgsTemplate {
 
         Ok(args)
     }
+
+    pub(crate) fn argument_specs(&self) -> Result<Vec<ToolArgumentSpec>> {
+        let mut collector = ToolArgumentSpecCollector::default();
+        for segment in &self.segments {
+            segment.collect_argument_specs(&mut collector)?;
+        }
+
+        collector.finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -393,6 +403,74 @@ impl CliArgsSegment {
             aliases: validate_aliases("flag argument", aliases)?,
         })
     }
+
+    fn collect_argument_specs(&self, collector: &mut ToolArgumentSpecCollector) -> Result<()> {
+        match self {
+            Self::Literal(_) => Ok(()),
+            Self::RequiredPositional { aliases } => collector.add_alias_argument(
+                aliases,
+                ToolArgumentTransport::Positional,
+                ToolArgumentValueKind::String,
+                true,
+                false,
+                None,
+                None,
+            ),
+            Self::OptionalPositional { aliases } => collector.add_alias_argument(
+                aliases,
+                ToolArgumentTransport::Positional,
+                ToolArgumentValueKind::String,
+                false,
+                false,
+                None,
+                None,
+            ),
+            Self::Json { template } => template.collect_argument_specs(collector),
+            Self::Option {
+                flag,
+                aliases,
+                repeated,
+                required,
+            } => collector.add_alias_argument(
+                aliases,
+                ToolArgumentTransport::Option,
+                ToolArgumentValueKind::String,
+                *required,
+                *repeated,
+                Some(flag.clone()),
+                None,
+            ),
+            Self::KeyValueOption {
+                flag,
+                key,
+                aliases,
+                repeated,
+                required,
+                boolish,
+            } => collector.add_alias_argument(
+                aliases,
+                ToolArgumentTransport::KeyValueOption,
+                if *boolish {
+                    ToolArgumentValueKind::Boolean
+                } else {
+                    ToolArgumentValueKind::String
+                },
+                *required,
+                *repeated,
+                Some(flag.clone()),
+                Some(key.clone()),
+            ),
+            Self::Flag { flag, aliases } => collector.add_alias_argument(
+                aliases,
+                ToolArgumentTransport::Flag,
+                ToolArgumentValueKind::Boolean,
+                false,
+                false,
+                Some(flag.clone()),
+                None,
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -408,6 +486,10 @@ impl CliJsonArgumentTemplate {
     fn render(&self, action: &PlannedAction) -> Result<String> {
         serde_json::to_string(&self.value.render(action)?)
             .map_err(|error| Error::Execution(format!("failed to render CLI JSON argument: {error}")))
+    }
+
+    fn collect_argument_specs(&self, collector: &mut ToolArgumentSpecCollector) -> Result<()> {
+        self.value.collect_argument_specs(collector)
     }
 }
 
@@ -458,6 +540,39 @@ impl CliJsonArgumentValue {
             Self::Computed(value) => value.render(action),
         }
     }
+
+    fn collect_argument_specs(&self, collector: &mut ToolArgumentSpecCollector) -> Result<()> {
+        match self {
+            Self::Literal(_) => Ok(()),
+            Self::Argument {
+                aliases,
+                required,
+                repeated,
+                ..
+            } => collector.add_alias_argument(
+                aliases,
+                ToolArgumentTransport::JsonField,
+                ToolArgumentValueKind::String,
+                *required,
+                *repeated,
+                None,
+                None,
+            ),
+            Self::Object { fields } => {
+                for field in fields {
+                    field.value.collect_argument_specs(collector)?;
+                }
+                Ok(())
+            }
+            Self::Array { items } => {
+                for item in items {
+                    item.collect_argument_specs(collector)?;
+                }
+                Ok(())
+            }
+            Self::Computed(value) => value.collect_argument_specs(collector),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -489,6 +604,108 @@ impl CliComputedJsonValue {
         match self {
             Self::GmailRawMessage => build_gmail_raw_message(action).map(Value::String),
         }
+    }
+
+    fn collect_argument_specs(&self, collector: &mut ToolArgumentSpecCollector) -> Result<()> {
+        match self {
+            Self::GmailRawMessage => {
+                collector.add_spec(
+                    ToolArgumentSpec::new("to", ToolArgumentTransport::JsonField, ToolArgumentValueKind::String)?
+                        .with_required(true)
+                        .with_repeated(true),
+                )?;
+                collector.add_spec(
+                    ToolArgumentSpec::new("cc", ToolArgumentTransport::JsonField, ToolArgumentValueKind::String)?
+                        .with_repeated(true),
+                )?;
+                collector.add_spec(
+                    ToolArgumentSpec::new("bcc", ToolArgumentTransport::JsonField, ToolArgumentValueKind::String)?
+                        .with_repeated(true),
+                )?;
+                collector.add_spec(ToolArgumentSpec::new(
+                    "from",
+                    ToolArgumentTransport::JsonField,
+                    ToolArgumentValueKind::String,
+                )?)?;
+                collector.add_spec(ToolArgumentSpec::new(
+                    "reply-to",
+                    ToolArgumentTransport::JsonField,
+                    ToolArgumentValueKind::String,
+                )?)?;
+                collector.add_spec(ToolArgumentSpec::new(
+                    "subject",
+                    ToolArgumentTransport::JsonField,
+                    ToolArgumentValueKind::String,
+                )?)?;
+                collector.add_spec(ToolArgumentSpec::new(
+                    "in-reply-to",
+                    ToolArgumentTransport::JsonField,
+                    ToolArgumentValueKind::String,
+                )?)?;
+                collector.add_spec(
+                    ToolArgumentSpec::new(
+                        "reference",
+                        ToolArgumentTransport::JsonField,
+                        ToolArgumentValueKind::String,
+                    )?
+                    .with_repeated(true),
+                )?;
+                collector.add_spec(ToolArgumentSpec::new(
+                    "body-text",
+                    ToolArgumentTransport::JsonField,
+                    ToolArgumentValueKind::String,
+                )?)?;
+                collector.add_spec(ToolArgumentSpec::new(
+                    "body-html",
+                    ToolArgumentTransport::JsonField,
+                    ToolArgumentValueKind::String,
+                )?)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct ToolArgumentSpecCollector {
+    specs: Vec<ToolArgumentSpec>,
+}
+
+impl ToolArgumentSpecCollector {
+    fn add_alias_argument(
+        &mut self,
+        aliases: &[String],
+        transport: ToolArgumentTransport,
+        value_kind: ToolArgumentValueKind,
+        required: bool,
+        repeated: bool,
+        forwarded_flag: Option<String>,
+        forwarded_key: Option<String>,
+    ) -> Result<()> {
+        let primary = aliases
+            .first()
+            .cloned()
+            .ok_or_else(|| Error::Config("tool argument metadata requires at least one alias".into()))?;
+        let spec = ToolArgumentSpec::new(primary, transport, value_kind)?
+            .with_aliases(aliases.iter().skip(1).cloned().collect())?
+            .with_required(required)
+            .with_repeated(repeated)
+            .with_forwarding(forwarded_flag, forwarded_key)?;
+        self.add_spec(spec)
+    }
+
+    fn add_spec(&mut self, spec: ToolArgumentSpec) -> Result<()> {
+        if let Some(existing) = self.specs.iter_mut().find(|existing| existing.name == spec.name) {
+            existing.merge_with(&spec)?;
+        } else {
+            self.specs.push(spec);
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<Vec<ToolArgumentSpec>> {
+        self.specs.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(self.specs)
     }
 }
 

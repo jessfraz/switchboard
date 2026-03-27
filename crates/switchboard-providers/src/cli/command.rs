@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use switchboard_core::{
-    ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolDescriptor, ToolOutput, ToolRequest,
+    ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolArgumentSpec, ToolArgumentTransport,
+    ToolArgumentValueKind, ToolDescriptor, ToolOutput, ToolRequest,
 };
 
 use crate::cli::{
@@ -48,6 +49,18 @@ impl CliArgsStrategy {
         match self {
             Self::Template(template) => template.build_args(action),
             Self::RawInventory { prefix } => passthrough::build_prefixed_passthrough_args(action, prefix),
+        }
+    }
+
+    pub(crate) fn argument_specs(&self) -> Result<Vec<ToolArgumentSpec>> {
+        match self {
+            Self::Template(template) => template.argument_specs(),
+            Self::RawInventory { .. } => Ok(vec![ToolArgumentSpec::new(
+                "argv",
+                ToolArgumentTransport::PassthroughArgv,
+                ToolArgumentValueKind::String,
+            )?
+            .with_repeated(true)]),
         }
     }
 }

@@ -828,6 +828,19 @@ fn validate_argument_name(name: String) -> Result<String> {
     Ok(name)
 }
 
+fn normalize_argument_aliases(name: &str, aliases: Vec<String>) -> Result<Vec<String>> {
+    let mut normalized = Vec::new();
+    for alias in aliases {
+        let alias = validate_argument_name(alias)?;
+        if alias == name || normalized.contains(&alias) {
+            continue;
+        }
+        normalized.push(alias);
+    }
+
+    Ok(normalized)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolSurface {
@@ -849,6 +862,117 @@ pub enum ToolUndoSupport {
     CompensatingAction,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolArgumentTransport {
+    Positional,
+    Option,
+    KeyValueOption,
+    Flag,
+    JsonField,
+    PassthroughArgv,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolArgumentValueKind {
+    String,
+    Boolean,
+    Json,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolArgumentSpec {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    pub transport: ToolArgumentTransport,
+    pub value_kind: ToolArgumentValueKind,
+    pub required: bool,
+    pub repeated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forwarded_flag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forwarded_key: Option<String>,
+}
+
+impl ToolArgumentSpec {
+    pub fn new(
+        name: impl Into<String>,
+        transport: ToolArgumentTransport,
+        value_kind: ToolArgumentValueKind,
+    ) -> Result<Self> {
+        let name = validate_argument_name(name.into())?;
+        Ok(Self {
+            name,
+            aliases: Vec::new(),
+            transport,
+            value_kind,
+            required: false,
+            repeated: false,
+            forwarded_flag: None,
+            forwarded_key: None,
+        })
+    }
+
+    pub fn with_aliases(mut self, aliases: Vec<String>) -> Result<Self> {
+        self.aliases = normalize_argument_aliases(&self.name, aliases)?;
+        Ok(self)
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.required = required;
+        self
+    }
+
+    pub fn with_repeated(mut self, repeated: bool) -> Self {
+        self.repeated = repeated;
+        self
+    }
+
+    pub fn with_forwarding(
+        mut self,
+        forwarded_flag: Option<String>,
+        forwarded_key: Option<String>,
+    ) -> Result<Self> {
+        if let Some(flag) = forwarded_flag.as_ref() {
+            validate_non_empty("tool argument forwarded_flag", flag)?;
+        }
+        if let Some(key) = forwarded_key.as_ref() {
+            validate_non_empty("tool argument forwarded_key", key)?;
+        }
+
+        self.forwarded_flag = forwarded_flag;
+        self.forwarded_key = forwarded_key;
+        Ok(self)
+    }
+
+    pub fn merge_with(&mut self, other: &Self) -> Result<()> {
+        if self.transport != other.transport
+            || self.value_kind != other.value_kind
+            || self.forwarded_flag != other.forwarded_flag
+            || self.forwarded_key != other.forwarded_key
+        {
+            return Err(Error::Config(format!(
+                "conflicting argument metadata for {}",
+                self.name
+            )));
+        }
+
+        self.required |= other.required;
+        self.repeated |= other.repeated;
+        self.aliases = normalize_argument_aliases(
+            &self.name,
+            self.aliases
+                .iter()
+                .chain(other.aliases.iter())
+                .cloned()
+                .collect(),
+        )?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolDescriptor {
     pub name: String,
@@ -859,6 +983,8 @@ pub struct ToolDescriptor {
     pub aggregate_read_supported: bool,
     pub execution_support: ToolExecutionSupport,
     pub undo_support: ToolUndoSupport,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<ToolArgumentSpec>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -872,6 +998,8 @@ pub struct RegisteredTool {
     pub aggregate_read_supported: bool,
     pub execution_support: ToolExecutionSupport,
     pub undo_support: ToolUndoSupport,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<ToolArgumentSpec>,
 }
 
 impl ToolDescriptor {
@@ -895,6 +1023,7 @@ impl ToolDescriptor {
             aggregate_read_supported: kind == ToolKind::Read,
             execution_support: ToolExecutionSupport::Executable,
             undo_support: ToolUndoSupport::None,
+            arguments: Vec::new(),
         })
     }
 
@@ -917,6 +1046,11 @@ impl ToolDescriptor {
         self.undo_support = undo_support;
         self
     }
+
+    pub fn with_arguments(mut self, arguments: Vec<ToolArgumentSpec>) -> Self {
+        self.arguments = arguments;
+        self
+    }
 }
 
 impl RegisteredTool {
@@ -934,6 +1068,7 @@ impl RegisteredTool {
             aggregate_read_supported: descriptor.aggregate_read_supported,
             execution_support: descriptor.execution_support,
             undo_support: descriptor.undo_support,
+            arguments: descriptor.arguments.clone(),
         })
     }
 }

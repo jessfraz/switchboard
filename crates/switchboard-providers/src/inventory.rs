@@ -5,6 +5,7 @@ const GITHUB_INVENTORY_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DI
 const GOOGLE_INVENTORY_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/inventories/google.json"));
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CliInventory {
     pub provider: ProviderKind,
     pub program: String,
@@ -25,6 +26,7 @@ impl CliInventory {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CliInventoryCommand {
     pub path: Vec<String>,
     pub command: String,

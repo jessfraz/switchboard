@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use crate::{
     client::normalize_api_base_url,
     discovery::{load_catalog, slugify, DiscoveryBrand, DiscoveryMatch},
+    presets::{resolve_builtin_preset, BuiltinPreset},
     state::{AccountDiscoveryState, MyChartAccountState, ResolvedContext},
     Error, Result,
 };
@@ -237,6 +238,10 @@ pub(crate) fn run_resolve_output(tokens: Vec<OsString>, context: &mut ResolvedCo
         ));
     }
 
+    if let Some(preset) = resolve_builtin_preset(&query) {
+        return connect_builtin_preset(context, query, preset);
+    }
+
     if let Some((name, account)) = context.describe_account(Some(&query)) {
         context.set_current_account(name.clone())?;
         return Ok(ConnectResolveOutput {
@@ -302,6 +307,46 @@ pub(crate) fn run_resolve_output(tokens: Vec<OsString>, context: &mut ResolvedCo
     })
 }
 
+fn connect_builtin_preset(
+    context: &mut ResolvedContext,
+    query: String,
+    preset: &BuiltinPreset,
+) -> Result<ConnectResolveOutput> {
+    let account_name = preset.account_name.to_owned();
+    let mut account = context
+        .describe_account(Some(preset.account_name))
+        .map(|(_, account)| account)
+        .unwrap_or_default();
+    let auth_identity_changed = account.api_base_url.as_deref() != Some(preset.api_base_url)
+        || account.client_id.as_deref() != Some(preset.client_id)
+        || account.redirect_uri.as_deref() != Some(preset.redirect_uri);
+    let portal_identity_changed = account.portal_base_url.as_deref() != preset.portal_base_url;
+
+    account.api_base_url = Some(preset.api_base_url.into());
+    account.portal_base_url = preset.portal_base_url.map(str::to_owned);
+    account.client_id = Some(preset.client_id.into());
+    account.client_secret = None;
+    account.redirect_uri = Some(preset.redirect_uri.into());
+
+    if auth_identity_changed {
+        clear_api_session_fields(&mut account);
+    }
+    if portal_identity_changed {
+        account.cookies.clear();
+    }
+
+    context.upsert_account(account_name.clone(), account.clone(), true)?;
+
+    Ok(ConnectResolveOutput {
+        status: "connected".into(),
+        query,
+        selected_account: Some(account_name.clone()),
+        account: Some(render_account(account_name, &account, context.active_account_name())),
+        r#match: None,
+        matches: Vec::new(),
+    })
+}
+
 fn allocate_account_name(context: &ResolvedContext, brand: &DiscoveryBrand) -> String {
     if let Some((name, _)) = context
         .list_accounts()
@@ -363,6 +408,19 @@ fn render_account(name: String, account: &MyChartAccountState, active_account: O
         expires_at_epoch_seconds: account.expires_at_epoch_seconds,
         discovery: account.discovery.clone(),
     }
+}
+
+fn clear_api_session_fields(account: &mut MyChartAccountState) {
+    account.client_secret = None;
+    account.dynamic_client = None;
+    account.access_token = None;
+    account.refresh_token = None;
+    account.token_type = None;
+    account.scope = None;
+    account.patient_id = None;
+    account.expires_at_epoch_seconds = None;
+    account.pending_oauth_state = None;
+    account.pending_code_verifier = None;
 }
 
 fn render_output<T>(output: T) -> Result<Value>

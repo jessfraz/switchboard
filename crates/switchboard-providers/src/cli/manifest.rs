@@ -24,7 +24,7 @@ pub(crate) struct CliProviderCatalog {
 }
 
 impl CliProviderCatalog {
-    pub(crate) fn from_embedded(manifest_json: &'static str, inventory: &CliInventory) -> Result<Self> {
+    pub(crate) fn from_embedded(manifest_json: &str, inventory: &CliInventory) -> Result<Self> {
         let manifest: CliManifest = serde_json::from_str(manifest_json)
             .map_err(|error| Error::Config(format!("invalid CLI manifest: {error}")))?;
 
@@ -104,6 +104,10 @@ impl CliProviderCatalog {
     }
 }
 
+pub fn validate_manifest_json(manifest_json: &str, inventory: &CliInventory) -> Result<()> {
+    CliProviderCatalog::from_embedded(manifest_json, inventory).map(|_| ())
+}
+
 fn build_manifest_command(
     command: CliManifestCommand,
     provider: ProviderKind,
@@ -134,27 +138,16 @@ fn build_manifest_command(
         CliManifestExecution::PlanningOnly => ToolExecutionSupport::PlanningOnly,
     };
 
-    let descriptor = ToolDescriptor::new(
-        command.name,
-        command.kind,
-        command.summary,
-        switchboard_core::BackendKind::Cli,
-    )?
-    .with_surface(command.surface)
-    .with_aggregate_read_supported(aggregate_read_supported)
-    .with_execution_support(execution_support)
-    .with_undo_support(command.undo_support);
-
     let execution = match command.execution {
         CliManifestExecution::Executable { binary, capability } => Some((
             binaries
                 .get(&binary)
                 .cloned()
-                .ok_or_else(|| Error::Config(format!("tool {} references unknown binary {binary}", descriptor.name)))?,
+                .ok_or_else(|| Error::Config(format!("tool {} references unknown binary {binary}", tool_name)))?,
             capabilities.get(&capability).cloned().ok_or_else(|| {
                 Error::Config(format!(
                     "tool {} references unknown capability {capability}",
-                    descriptor.name
+                    tool_name
                 ))
             })?,
         )),
@@ -170,9 +163,9 @@ fn build_manifest_command(
         Some((binary, capability)) => Some(CliExecutableSpec {
             binary: binary.clone(),
             capability: capability.clone(),
-            args: build_manifest_args_strategy(&descriptor.name, command.args, &defaults)?,
+            args: build_manifest_args_strategy(tool_name.as_str(), command.args, &defaults)?,
             decode: build_manifest_decode_strategy(
-                &descriptor.name,
+                tool_name.as_str(),
                 binary.program.as_str(),
                 command.decode,
                 &defaults,
@@ -182,18 +175,35 @@ fn build_manifest_command(
             if command.args.is_some() {
                 return Err(Error::Config(format!(
                     "tool {} defines args but is planning_only",
-                    descriptor.name
+                    tool_name
                 )));
             }
             if command.decode.is_some() {
                 return Err(Error::Config(format!(
                     "tool {} defines decode but is planning_only",
-                    descriptor.name
+                    tool_name
                 )));
             }
             None
         }
     };
+
+    let arguments = executable
+        .as_ref()
+        .map(|executable| executable.args.argument_specs())
+        .transpose()?
+        .unwrap_or_default();
+    let descriptor = ToolDescriptor::new(
+        command.name,
+        command.kind,
+        command.summary,
+        switchboard_core::BackendKind::Cli,
+    )?
+    .with_surface(command.surface)
+    .with_aggregate_read_supported(aggregate_read_supported)
+    .with_execution_support(execution_support)
+    .with_undo_support(command.undo_support)
+    .with_arguments(arguments);
 
     Ok(CliCommandSpec {
         descriptor,
@@ -214,7 +224,16 @@ fn build_inventory_raw_command(
         .with_surface(ToolSurface::Raw)
         .with_aggregate_read_supported(kind == ToolKind::Read)
         .with_execution_support(ToolExecutionSupport::Executable)
-        .with_undo_support(ToolUndoSupport::None);
+        .with_undo_support(ToolUndoSupport::None)
+        .with_arguments(vec![
+            crate::cli::command::CliArgsStrategy::RawInventory {
+                prefix: command.path.clone(),
+            }
+            .argument_specs()?
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::Config(format!("inventory raw tool {} is missing argv metadata", command.command)))?,
+        ]);
     let capability = CliCapabilityProbe {
         id: format!("inventory:{}", command.command),
         args: command.help_args.clone(),
@@ -256,6 +275,7 @@ fn inventory_tool_kind(operation_kind: CliOperationKind) -> ToolKind {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifest {
     provider: ProviderKind,
     binaries: Vec<CliManifestBinary>,
@@ -264,6 +284,7 @@ struct CliManifest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestBinary {
     id: String,
     program: String,
@@ -273,12 +294,14 @@ struct CliManifestBinary {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestCapability {
     id: String,
     args: Vec<String>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestCommand {
     name: String,
     kind: ToolKind,
@@ -298,7 +321,7 @@ struct CliManifestCommand {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CliManifestStrategy {
     SummaryTemplate {
         template: String,
@@ -310,14 +333,14 @@ enum CliManifestStrategy {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CliManifestExecution {
     Executable { binary: String, capability: String },
     PlanningOnly,
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CliManifestArgsStrategy {
     Template {
         segments: Vec<CliManifestArgsSegment>,
@@ -329,7 +352,7 @@ enum CliManifestArgsStrategy {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CliManifestArgsSegment {
     Literal {
         value: String,
@@ -369,7 +392,7 @@ enum CliManifestArgsSegment {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CliManifestDecodeStrategy {
     JsonProjection(Box<CliManifestJsonProjection>),
     RawPassthrough {
@@ -386,6 +409,7 @@ enum CliManifestJsonProjectionShape {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestJsonField {
     name: String,
     #[serde(default)]
@@ -405,7 +429,7 @@ struct CliManifestJsonField {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CliManifestJsonArgValue {
     Literal {
         value: serde_json::Value,
@@ -431,6 +455,7 @@ enum CliManifestJsonArgValue {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestJsonArgField {
     name: String,
     value: CliManifestJsonArgValue,
@@ -439,6 +464,7 @@ struct CliManifestJsonArgField {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestJsonProjection {
     response_field: String,
     #[serde(default)]
@@ -460,6 +486,7 @@ struct CliManifestJsonProjection {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestJsonRefs {
     kind: switchboard_core::ToolRefKind,
     id_field: String,
@@ -479,6 +506,7 @@ enum CliManifestJsonRefsConfig {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CliManifestJsonEffect {
     undoable: bool,
     #[serde(default)]

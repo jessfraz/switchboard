@@ -3,6 +3,7 @@ mod commands;
 mod discovery;
 mod error;
 mod oauth;
+mod presets;
 mod state;
 
 use std::{
@@ -40,6 +41,8 @@ use crate::{
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  mychart connect search ucla\n",
+    "  mychart connect ucla\n",
+    "  mychart connect epic-sandbox\n",
     "  mychart connect ucla medical center\n",
     "  mychart auth login --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback --scope patient/*.read\n",
@@ -1859,7 +1862,7 @@ mod tests {
 
         let mut context = resolved_context(&config_path);
         let output = crate::commands::connect::run_resolve_output(
-            vec!["ucla".into(), "medical".into(), "center".into()],
+            vec!["santa".into(), "monica".into()],
             &mut context,
         )
         .expect("connect resolve should succeed");
@@ -1884,6 +1887,77 @@ mod tests {
                 .and_then(|discovery| discovery.brand_name.as_deref()),
             Some("UCLA Medical Center")
         );
+    }
+
+    #[test]
+    fn connect_resolve_builtin_ucla_preset_prefills_defaults() {
+        let temp_dir = temp_dir("mychart-connect-ucla-preset");
+        let config_path = temp_dir.join("config.json");
+
+        let mut context = resolved_context(&config_path);
+        let output = crate::commands::connect::run_resolve_output(vec!["ucla".into()], &mut context)
+            .expect("connect resolve should succeed");
+
+        assert_eq!(output.status, "connected");
+        assert_eq!(output.selected_account.as_deref(), Some("ucla"));
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state.accounts.get("ucla").expect("ucla account should be stored");
+        assert_eq!(
+            account.api_base_url.as_deref(),
+            Some(crate::presets::UCLA_FHIR_BASE_URL)
+        );
+        assert_eq!(
+            account.portal_base_url.as_deref(),
+            Some(crate::presets::UCLA_PORTAL_BASE_URL)
+        );
+        assert_eq!(
+            account.client_id.as_deref(),
+            Some(crate::presets::UCLA_PRODUCTION_CLIENT_ID)
+        );
+        assert_eq!(
+            account.redirect_uri.as_deref(),
+            Some(crate::presets::PAGES_REDIRECT_URI)
+        );
+        assert!(account.client_secret.is_none());
+    }
+
+    #[test]
+    fn connect_resolve_builtin_sandbox_alias_uses_canonical_account_and_clears_secret() {
+        let temp_dir = temp_dir("mychart-connect-sandbox-preset");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                current_account: Some("epic-sandbox".into()),
+                accounts: BTreeMap::from([(
+                    "epic-sandbox".into(),
+                    crate::state::MyChartAccountState {
+                        api_base_url: Some(crate::presets::EPIC_SANDBOX_FHIR_BASE_URL.into()),
+                        client_id: Some(crate::presets::EPIC_SANDBOX_CLIENT_ID.into()),
+                        client_secret: Some("stale-secret".into()),
+                        redirect_uri: Some(crate::presets::LOOPBACK_REDIRECT_URI.into()),
+                        access_token: Some("still-good-token".into()),
+                        ..crate::state::MyChartAccountState::default()
+                    },
+                )]),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let mut context = resolved_context(&config_path);
+        let output = crate::commands::connect::run_resolve_output(vec!["sandbox".into()], &mut context)
+            .expect("connect resolve should succeed");
+
+        assert_eq!(output.status, "connected");
+        assert_eq!(output.selected_account.as_deref(), Some("epic-sandbox"));
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("epic-sandbox")
+            .expect("epic-sandbox account should be stored");
+        assert!(account.client_secret.is_none());
+        assert_eq!(account.access_token.as_deref(), Some("still-good-token"));
     }
 
     #[test]
@@ -1928,7 +2002,7 @@ mod tests {
         );
 
         let mut context = resolved_context(&config_path);
-        let output = crate::commands::connect::run_resolve_output(vec!["ucla".into()], &mut context)
+        let output = crate::commands::connect::run_resolve_output(vec!["ucla".into(), "health".into()], &mut context)
             .expect("connect resolve should succeed");
 
         assert_eq!(output.status, "ambiguous");

@@ -15,8 +15,8 @@ use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuditEventId, AuthStore, BackendKind, DispatchOutcome,
     ExecutionMode, NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest,
     ProviderKind, RegisteredTool, ResolvedNamespace, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
-    Switchboard, SwitchboardServices, ToolArgument, ToolArguments, ToolExecutionSupport, ToolKind, ToolName,
-    ToolOutput, ToolRef, ToolRequest, ToolSurface, ToolUndoSupport,
+    Switchboard, SwitchboardServices, ToolArgument, ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolKind,
+    ToolName, ToolOutput, ToolRef, ToolRequest, ToolSurface, ToolUndoSupport,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
@@ -993,6 +993,14 @@ fn render_tool_detail_human(detail: &ToolCatalogDetail) -> String {
             "not supported"
         }
     ));
+    output.push_str("Arguments:\n");
+    if detail.arguments.is_empty() {
+        output.push_str("- none\n");
+    } else {
+        for argument in &detail.arguments {
+            output.push_str(&format!("- {}\n", render_tool_argument_spec_human(argument)));
+        }
+    }
     output.push_str("Namespaces:\n");
     if detail.available_namespaces.is_empty() {
         output.push_str("- none configured\n");
@@ -1017,6 +1025,33 @@ fn render_tool_detail_human(detail: &ToolCatalogDetail) -> String {
     }
 
     output
+}
+
+fn render_tool_argument_spec_human(argument: &ToolArgumentSpec) -> String {
+    let mut qualifiers = vec![
+        format!("transport={}", render_tool_argument_transport(argument)),
+        format!("type={}", render_tool_argument_value_kind(argument)),
+    ];
+    if argument.required {
+        qualifiers.push("required".to_owned());
+    }
+    if argument.repeated {
+        qualifiers.push("repeated".to_owned());
+    }
+    if let Some(flag) = argument.forwarded_flag.as_ref() {
+        let forwarded = match argument.forwarded_key.as_ref() {
+            Some(key) => format!("{flag} {key}"),
+            None => flag.clone(),
+        };
+        qualifiers.push(format!("forwarded={forwarded}"));
+    }
+
+    let mut rendered = format!("{} [{}]", argument.name, qualifiers.join(", "));
+    if !argument.aliases.is_empty() {
+        rendered.push_str(&format!(" aliases={}", argument.aliases.join("|")));
+    }
+
+    rendered
 }
 
 fn render_operations_human(operations: &[StoredOperation]) -> String {

@@ -1102,11 +1102,7 @@ That page only does three things:
 Typical MyChart production flow:
 
 ```text
-mychart connect add --name ucla \
-  --base-url https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4 \
-  --client-id <production-client-id> \
-  --redirect-uri https://jessfraz.github.io/switchboard/mychart-callback/
-
+mychart connect ucla
 mychart --account ucla auth authorize-url --scope openid --scope fhirUser --scope patient/*.read
 ```
 
@@ -1115,6 +1111,11 @@ Finish the browser login, let Epic redirect to the GitHub Pages callback, then r
 ```text
 mychart --account ucla auth exchange-url 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'
 ```
+
+Built-in presets currently include:
+
+- `mychart connect ucla`
+- `mychart connect epic-sandbox`
 
 ## Summary
 
