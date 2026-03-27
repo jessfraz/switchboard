@@ -41,8 +41,12 @@ where
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
+            let exit_code = match error.kind() {
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => ExitCode::SUCCESS,
+                _ => ExitCode::FAILURE,
+            };
             let _ = error.print();
-            return ExitCode::FAILURE;
+            return exit_code;
         }
     };
     let compact = cli.global.compact;
