@@ -17,8 +17,8 @@ pub use crate::{
     types::{
         ApprovalState, AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, ExecutionMode,
         ExecutionTarget, NamespaceId, OperationApproval, OperationEffect, OperationId, OperationStatus, PlannedAction,
-        PlanningTarget, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
-        ResolvedSecret, SecretRef, SecretSource, SecretString, StoredOperation, ToolArgument, ToolArguments,
-        ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRef, ToolRefKind, ToolRequest, WritePolicy,
+        PlanningTarget, PolicyDecision, ProviderKind, RegisteredTool, ResolvedAuth, ResolvedCredentials,
+        ResolvedNamespace, ResolvedSecret, SecretRef, SecretSource, SecretString, StoredOperation, ToolArgument,
+        ToolArguments, ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRef, ToolRefKind, ToolRequest, WritePolicy,
     },
 };

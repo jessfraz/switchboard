@@ -1,4 +1,7 @@
 mod client;
+mod commands;
+mod discovery;
+mod error;
 mod state;
 
 use std::{
@@ -16,12 +19,14 @@ use reqwest::{Method, Url};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+pub(crate) use crate::error::{Error, Result};
 #[cfg(test)]
 use crate::state::{MyChartState, StateStore};
 use crate::{
-    client::{JsonResponse, MyChartClient, RequestBody, RequestSpec, ResolvedResponse},
+    client::{JsonResponse, MyChartClient, ResolvedResponse},
+    commands::{run_api, run_auth, run_connect, run_portal, ApiCommand, AuthCommand, ConnectCommand, PortalCommand},
     state::{
-        ApiSessionState, ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
+        ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
         ENV_MYCHART_CLIENT_SECRET, ENV_MYCHART_CONFIG, ENV_MYCHART_PORTAL_BASE_URL, ENV_MYCHART_REDIRECT_URI,
         ENV_MYCHART_REFRESH_TOKEN, ENV_MYCHART_USERNAME,
     },
@@ -29,6 +34,8 @@ use crate::{
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
+    "  mychart connect search ucla\n",
+    "  mychart connect ucla medical center\n",
     "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
     "  mychart auth exchange-code --code <oauth-code>\n",
@@ -74,7 +81,8 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
     let mut context = ResolvedContext::from_global(&cli.global).map_err(|error| (error, compact))?;
 
     let output = match cli.command {
-        Commands::Auth(command) => run_api_auth(command.command, &mut context),
+        Commands::Connect(command) => run_connect(command.command, &mut context),
+        Commands::Auth(command) => run_auth(command.command, &mut context),
         Commands::Api(command) => run_api(command.command, &mut context),
         Commands::Portal(command) => run_portal(command.command, &mut context),
     }
@@ -87,7 +95,7 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
 #[command(
     name = "mychart",
     version,
-    about = "CLI for the patient-facing Epic SMART on FHIR API, with portal fallbacks for legacy MyChart flows",
+    about = "CLI for patient-facing Epic SMART on FHIR workflows, provider discovery, and MyChart portal fallbacks",
     disable_help_subcommand = true,
     after_help = AFTER_HELP
 )]
@@ -103,6 +111,9 @@ struct Cli {
 pub(crate) struct GlobalArgs {
     #[arg(long, global = true, env = ENV_MYCHART_CONFIG, value_name = "PATH")]
     config: Option<PathBuf>,
+
+    #[arg(long, global = true, env = ENV_MYCHART_ACCOUNT, value_name = "ACCOUNT")]
+    account: Option<String>,
 
     #[arg(long, global = true, env = ENV_MYCHART_BASE_URL, value_name = "URL")]
     base_url: Option<String>,
@@ -134,881 +145,10 @@ pub(crate) struct GlobalArgs {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    Connect(ConnectCommand),
     Auth(AuthCommand),
     Api(ApiCommand),
     Portal(PortalCommand),
-}
-
-#[derive(Debug, Args)]
-struct AuthCommand {
-    #[command(subcommand)]
-    command: AuthSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum AuthSubcommand {
-    #[command(name = "authorize-url")]
-    AuthorizeUrl(AuthAuthorizeUrlArgs),
-    #[command(name = "exchange-code")]
-    ExchangeCode(AuthExchangeCodeArgs),
-    Refresh(AuthRefreshArgs),
-    Status,
-    Logout,
-}
-
-#[derive(Debug, Args)]
-struct AuthAuthorizeUrlArgs {
-    #[arg(long, value_name = "URL")]
-    redirect_uri: Option<String>,
-
-    #[arg(long = "scope", value_name = "SCOPE")]
-    scopes: Vec<String>,
-
-    #[arg(long)]
-    state: Option<String>,
-
-    #[arg(long = "code-verifier", value_name = "VERIFIER")]
-    code_verifier: Option<String>,
-
-    #[arg(long)]
-    no_store: bool,
-}
-
-#[derive(Debug, Args)]
-struct AuthExchangeCodeArgs {
-    #[arg(long)]
-    code: String,
-
-    #[arg(long, value_name = "URL")]
-    redirect_uri: Option<String>,
-
-    #[arg(long = "code-verifier", value_name = "VERIFIER")]
-    code_verifier: Option<String>,
-
-    #[arg(long)]
-    no_store: bool,
-}
-
-#[derive(Debug, Args)]
-struct AuthRefreshArgs {
-    #[arg(long)]
-    refresh_token: Option<String>,
-
-    #[arg(long)]
-    no_store: bool,
-}
-
-#[derive(Debug, Args)]
-struct ApiCommand {
-    #[command(subcommand)]
-    command: ApiSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum ApiSubcommand {
-    Capabilities(ApiCapabilitiesArgs),
-    Resources(ApiResourcesArgs),
-    #[command(external_subcommand)]
-    Resource(Vec<OsString>),
-}
-
-#[derive(Debug, Args)]
-struct ApiCapabilitiesArgs {
-    #[arg(long)]
-    raw: bool,
-}
-
-#[derive(Debug, Args)]
-struct ApiResourcesArgs {
-    #[arg(long)]
-    details: bool,
-
-    #[arg(long, value_name = "OPERATION")]
-    operation: Option<String>,
-}
-
-#[derive(Debug, Args)]
-struct PortalCommand {
-    #[command(subcommand)]
-    command: PortalSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum PortalSubcommand {
-    Auth(PortalAuthCommand),
-    Request(PortalRequestCommand),
-}
-
-#[derive(Debug, Args)]
-struct PortalAuthCommand {
-    #[command(subcommand)]
-    command: PortalAuthSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum PortalAuthSubcommand {
-    #[command(name = "login-password")]
-    LoginPassword(PortalAuthLoginPasswordArgs),
-    Status,
-    Logout,
-}
-
-#[derive(Debug, Args)]
-struct PortalAuthLoginPasswordArgs {
-    #[arg(long)]
-    username: Option<String>,
-
-    #[arg(long)]
-    password: String,
-
-    #[arg(long)]
-    no_store: bool,
-}
-
-#[derive(Debug, Args)]
-struct PortalRequestCommand {
-    #[command(subcommand)]
-    command: PortalRequestSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum PortalRequestSubcommand {
-    Get(PortalRequestGetArgs),
-    Post(PortalRequestPostArgs),
-}
-
-#[derive(Debug, Args)]
-struct PortalRequestGetArgs {
-    #[arg(value_name = "PATH")]
-    path: String,
-
-    #[arg(long = "query", value_parser = parse_key_value, value_name = "KEY=VALUE")]
-    query: Vec<(String, String)>,
-
-    #[arg(long = "no-follow-redirects")]
-    no_follow_redirects: bool,
-}
-
-#[derive(Debug, Args)]
-struct PortalRequestPostArgs {
-    #[arg(value_name = "PATH")]
-    path: String,
-
-    #[arg(long = "query", value_parser = parse_key_value, value_name = "KEY=VALUE")]
-    query: Vec<(String, String)>,
-
-    #[arg(long = "form", value_parser = parse_key_value, value_name = "KEY=VALUE")]
-    form: Vec<(String, String)>,
-
-    #[arg(long = "no-follow-redirects")]
-    no_follow_redirects: bool,
-}
-
-#[derive(Debug)]
-enum Error {
-    Api { status_code: u16, body: Value },
-    Auth { message: String, details: Value },
-    Arguments(String),
-    Config(String),
-    Http(String),
-    Io(String),
-}
-
-impl Error {
-    fn render(&self, compact: bool) -> String {
-        let value = match self {
-            Self::Api { status_code, body } => json!({
-                "status": "error",
-                "kind": "api",
-                "status_code": status_code,
-                "body": body,
-            }),
-            Self::Auth { message, details } => json!({
-                "status": "error",
-                "kind": "auth",
-                "message": message,
-                "details": details,
-            }),
-            Self::Arguments(message) => json!({
-                "status": "error",
-                "kind": "arguments",
-                "message": message,
-            }),
-            Self::Config(message) => json!({
-                "status": "error",
-                "kind": "config",
-                "message": message,
-            }),
-            Self::Http(message) => json!({
-                "status": "error",
-                "kind": "http",
-                "message": message,
-            }),
-            Self::Io(message) => json!({
-                "status": "error",
-                "kind": "io",
-                "message": message,
-            }),
-        };
-
-        render_json(&value, compact)
-    }
-}
-
-type Result<T> = std::result::Result<T, Error>;
-
-fn run_api_auth(command: AuthSubcommand, context: &mut ResolvedContext) -> Result<Value> {
-    match command {
-        AuthSubcommand::AuthorizeUrl(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(args.redirect_uri)?;
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let authorize_endpoint = capability.require_authorize_url()?;
-            let token_endpoint = capability.require_token_url()?;
-            let oauth_state = match args.state {
-                Some(state) => state,
-                None => generate_nonce(24)?,
-            };
-            let code_verifier = match args.code_verifier {
-                Some(verifier) => ensure_code_verifier(verifier)?,
-                None => ensure_code_verifier(generate_nonce(48)?)?,
-            };
-            let scopes = if args.scopes.is_empty() {
-                default_patient_scopes()
-            } else {
-                dedupe_preserving_order(args.scopes)
-            };
-            let authorize_url = build_authorize_url(
-                &authorize_endpoint,
-                &client_id,
-                &redirect_uri,
-                &base_url,
-                &oauth_state,
-                &code_verifier,
-                &scopes,
-            )?;
-
-            if !args.no_store {
-                context.store_pending_oauth(
-                    base_url.clone(),
-                    client_id.clone(),
-                    context.client_secret.clone(),
-                    redirect_uri.clone(),
-                    oauth_state.clone(),
-                    code_verifier.clone(),
-                )?;
-            }
-
-            Ok(json!({
-                "status": "ok",
-                "base_url": base_url,
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "authorize_url": authorize_url.as_str(),
-                "authorize_endpoint": authorize_endpoint,
-                "token_endpoint": token_endpoint,
-                "state": oauth_state,
-                "scopes": scopes,
-                "code_challenge_method": "S256",
-                "code_verifier": if args.no_store {
-                    Value::String(code_verifier)
-                } else {
-                    Value::Null
-                },
-                "stored": !args.no_store,
-            }))
-        }
-        AuthSubcommand::ExchangeCode(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(args.redirect_uri)?;
-            let code_verifier = context.require_code_verifier(args.code_verifier)?;
-            let client_secret = context.client_secret.clone();
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let token_endpoint = capability.require_token_url()?;
-            let mut form = vec![
-                ("grant_type".into(), "authorization_code".into()),
-                ("code".into(), args.code),
-                ("redirect_uri".into(), redirect_uri.clone()),
-                ("client_id".into(), client_id.clone()),
-                ("code_verifier".into(), code_verifier),
-            ];
-            if let Some(client_secret) = client_secret.clone() {
-                form.push(("client_secret".into(), client_secret));
-            }
-
-            let response = client.exchange_oauth_token(&token_endpoint, &form)?;
-            ensure_json_success(&response)?;
-            let token = parse_oauth_token_response(&response.body)?;
-            let refresh_token = token.refresh_token.clone().or_else(|| context.refresh_token.clone());
-            let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
-
-            if !args.no_store {
-                context.store_api_tokens(ApiSessionState {
-                    base_url: base_url.clone(),
-                    client_id: client_id.clone(),
-                    client_secret,
-                    redirect_uri: redirect_uri.clone(),
-                    access_token: token.access_token.clone(),
-                    refresh_token: refresh_token.clone(),
-                    token_type: token.token_type.clone(),
-                    scope: token.scope.clone(),
-                    patient_id: token.patient.clone(),
-                    expires_at_epoch_seconds,
-                })?;
-            }
-
-            Ok(json!({
-                "status": "authenticated",
-                "base_url": base_url,
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "token_endpoint": token_endpoint,
-                "patient_id": token.patient,
-                "scope": split_scopes(token.scope.as_deref()),
-                "token_type": token.token_type,
-                "expires_at_epoch_seconds": expires_at_epoch_seconds,
-                "refresh_token_available": refresh_token.is_some(),
-                "stored": !args.no_store,
-            }))
-        }
-        AuthSubcommand::Refresh(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(None)?;
-            let refresh_token = context.require_refresh_token(args.refresh_token)?;
-            let client_secret = context.client_secret.clone();
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let token_endpoint = capability.require_token_url()?;
-            let mut form = vec![
-                ("grant_type".into(), "refresh_token".into()),
-                ("refresh_token".into(), refresh_token.clone()),
-                ("client_id".into(), client_id.clone()),
-            ];
-            if let Some(client_secret) = client_secret.clone() {
-                form.push(("client_secret".into(), client_secret));
-            }
-
-            let response = client.exchange_oauth_token(&token_endpoint, &form)?;
-            ensure_json_success(&response)?;
-            let token = parse_oauth_token_response(&response.body)?;
-            let next_refresh_token = token.refresh_token.clone().or(Some(refresh_token));
-            let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
-
-            if !args.no_store {
-                context.store_api_tokens(ApiSessionState {
-                    base_url: base_url.clone(),
-                    client_id: client_id.clone(),
-                    client_secret,
-                    redirect_uri,
-                    access_token: token.access_token.clone(),
-                    refresh_token: next_refresh_token.clone(),
-                    token_type: token.token_type.clone(),
-                    scope: token.scope.clone().or_else(|| context.scope.clone()),
-                    patient_id: token.patient.clone().or_else(|| context.patient_id.clone()),
-                    expires_at_epoch_seconds,
-                })?;
-            }
-
-            Ok(json!({
-                "status": "refreshed",
-                "base_url": base_url,
-                "client_id": client_id,
-                "token_endpoint": token_endpoint,
-                "patient_id": token.patient.or_else(|| context.patient_id.clone()),
-                "scope": split_scopes(token.scope.as_deref().or(context.scope.as_deref())),
-                "token_type": token.token_type,
-                "expires_at_epoch_seconds": expires_at_epoch_seconds,
-                "refresh_token_available": next_refresh_token.is_some(),
-                "stored": !args.no_store,
-            }))
-        }
-        AuthSubcommand::Status => {
-            if !context.api_authenticated() {
-                return Ok(json!({
-                    "status": "ok",
-                    "authenticated": false,
-                    "reason": "no_stored_token",
-                    "base_url": context.api_base_url,
-                    "client_id": context.client_id,
-                    "refresh_token_available": context.refresh_token.is_some(),
-                }));
-            }
-
-            let probe = if let (Some(base_url), Some(access_token)) =
-                (context.api_base_url.clone(), context.access_token.clone())
-            {
-                let client = api_client(&base_url)?;
-                let response = client.execute_bearer_json(
-                    Method::GET,
-                    "Patient",
-                    &[("_count".into(), "1".into())],
-                    &access_token,
-                    None,
-                )?;
-                Some(json!({
-                    "status_code": response.status_code,
-                    "final_url": response.final_url.as_str(),
-                    "body": response.body,
-                }))
-            } else {
-                None
-            };
-            let authenticated = probe
-                .as_ref()
-                .and_then(|value| value.get("status_code"))
-                .and_then(Value::as_u64)
-                .map(|status| status < 400 && status != 401 && status != 403)
-                .unwrap_or(false);
-
-            Ok(json!({
-                "status": "ok",
-                "authenticated": authenticated,
-                "base_url": context.api_base_url,
-                "client_id": context.client_id,
-                "patient_id": context.patient_id,
-                "scope": split_scopes(context.scope.as_deref()),
-                "expires_at_epoch_seconds": context.expires_at_epoch_seconds,
-                "refresh_token_available": context.refresh_token.is_some(),
-                "probe": probe,
-            }))
-        }
-        AuthSubcommand::Logout => {
-            context.clear_api_session()?;
-            Ok(json!({
-                "status": "logged_out",
-                "base_url": context.api_base_url,
-                "client_id": context.client_id,
-            }))
-        }
-    }
-}
-
-fn run_api(command: ApiSubcommand, context: &mut ResolvedContext) -> Result<Value> {
-    match command {
-        ApiSubcommand::Capabilities(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client = api_client(&base_url)?;
-            let response = client.fetch_capability_statement()?;
-            ensure_json_success(&response)?;
-            let capability = CapabilitySummary::from_value(response.body.clone())?;
-            Ok(json!({
-                "status": "ok",
-                "base_url": base_url,
-                "fhir_version": capability.fhir_version,
-                "software": {
-                    "name": capability.software_name,
-                    "version": capability.software_version,
-                },
-                "implementation_url": capability.implementation_url,
-                "authorize_endpoint": capability.authorize_url,
-                "token_endpoint": capability.token_url,
-                "resource_count": capability.resources.len(),
-                "capability_statement": if args.raw { response.body } else { Value::Null },
-            }))
-        }
-        ApiSubcommand::Resources(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let requested_interaction = args.operation.as_deref().map(normalize_operation_name);
-            let resources = capability
-                .resources
-                .iter()
-                .filter(|resource| {
-                    requested_interaction
-                        .as_deref()
-                        .map(|interaction| resource.supports(interaction))
-                        .unwrap_or(true)
-                })
-                .map(|resource| resource.render(args.details))
-                .collect::<Vec<_>>();
-            Ok(json!({
-                "status": "ok",
-                "base_url": base_url,
-                "resource_count": resources.len(),
-                "resources": resources,
-            }))
-        }
-        ApiSubcommand::Resource(tokens) => run_api_resource(tokens, context),
-    }
-}
-
-fn run_api_resource(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Result<Value> {
-    let parsed = parse_api_resource_command(tokens)?;
-    let base_url = context.require_api_base_url()?;
-    let access_token = context.require_access_token(None)?;
-    let client = api_client(&base_url)?;
-    let capability = fetch_capability_summary(&client)?;
-    let resource = capability.resolve_resource(&parsed.resource).ok_or_else(|| {
-        Error::Arguments(format!(
-            "unknown patient-facing resource {:?}, run `mychart api resources` to see what this endpoint actually supports",
-            parsed.resource
-        ))
-    })?;
-
-    match normalize_operation_name(&parsed.operation).as_str() {
-        "read" => run_api_resource_get(&client, &resource, &access_token, parsed.args),
-        "search-type" => run_api_resource_search(&client, &resource, &access_token, parsed.args),
-        "create" => run_api_resource_create(&client, &resource, &access_token, parsed.args),
-        "update" => run_api_resource_update(&client, &resource, &access_token, parsed.args),
-        "delete" => run_api_resource_delete(&client, &resource, &access_token, parsed.args),
-        other => Err(Error::Arguments(format!(
-            "unsupported resource operation {other:?}, use get/read, search, create, update, or delete"
-        ))),
-    }
-}
-
-fn run_api_resource_get(
-    client: &MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "read", "get")?;
-    let id = resolve_id_argument(&mut args)?;
-    let query = args.into_query_pairs()?;
-    let path = format!("{}/{}", resource.resource_type, id);
-    let response = client.execute_bearer_json(Method::GET, &path, &query, access_token, None)?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(resource, "get", &response, response.body.clone(), 1))
-}
-
-fn run_api_resource_search(
-    client: &MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "search-type", "search")?;
-    let all_pages = args.take_flag("all-pages");
-    let query = args.into_query_pairs()?;
-    let response = client.execute_bearer_json(Method::GET, &resource.resource_type, &query, access_token, None)?;
-    ensure_json_success(&response)?;
-    let (body, pages_fetched) = if all_pages {
-        merge_bundle_pages(client, &response.body, access_token)?
-    } else {
-        (response.body.clone(), 1)
-    };
-    Ok(render_api_result(resource, "search", &response, body, pages_fetched))
-}
-
-fn run_api_resource_create(
-    client: &MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "create", "create")?;
-    let query = args.take_query_pairs()?;
-    let body = prepare_resource_body(resource, None, args.require_json_body()?)?;
-    let response =
-        client.execute_bearer_json(Method::POST, &resource.resource_type, &query, access_token, Some(&body))?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(
-        resource,
-        "create",
-        &response,
-        response.body.clone(),
-        1,
-    ))
-}
-
-fn run_api_resource_update(
-    client: &MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "update", "update")?;
-    let id = resolve_id_argument(&mut args)?;
-    let query = args.take_query_pairs()?;
-    let body = prepare_resource_body(resource, Some(id.clone()), args.require_json_body()?)?;
-    let path = format!("{}/{}", resource.resource_type, id);
-    let response = client.execute_bearer_json(Method::PUT, &path, &query, access_token, Some(&body))?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(
-        resource,
-        "update",
-        &response,
-        response.body.clone(),
-        1,
-    ))
-}
-
-fn run_api_resource_delete(
-    client: &MyChartClient,
-    resource: &ApiResourceCapability,
-    access_token: &str,
-    mut args: DynamicArgs,
-) -> Result<Value> {
-    require_capability(resource, "delete", "delete")?;
-    let id = resolve_id_argument(&mut args)?;
-    let query = args.into_query_pairs()?;
-    let path = format!("{}/{}", resource.resource_type, id);
-    let response = client.execute_bearer_json(Method::DELETE, &path, &query, access_token, None)?;
-    ensure_json_success(&response)?;
-    Ok(render_api_result(
-        resource,
-        "delete",
-        &response,
-        response.body.clone(),
-        1,
-    ))
-}
-
-fn run_portal(command: PortalSubcommand, context: &mut ResolvedContext) -> Result<Value> {
-    match command {
-        PortalSubcommand::Auth(command) => run_portal_auth(command.command, context),
-        PortalSubcommand::Request(command) => run_portal_request(command.command, context),
-    }
-}
-
-fn run_portal_auth(command: PortalAuthSubcommand, context: &mut ResolvedContext) -> Result<Value> {
-    let portal_base_url = context.require_portal_base_url()?;
-    let client = portal_client(&portal_base_url)?;
-
-    match command {
-        PortalAuthSubcommand::LoginPassword(args) => {
-            let username = context.require_username(args.username)?;
-            let mut cookies = context.cookies.clone();
-
-            let login_page = client.execute(
-                RequestSpec {
-                    method: Method::GET,
-                    path: "/Authentication/Login".into(),
-                    query: Vec::new(),
-                    body: RequestBody::None,
-                },
-                &mut cookies,
-                true,
-            )?;
-            ensure_portal_success_status(&login_page)?;
-
-            let csrf_token = extract_verification_token(&login_page.body_text).ok_or_else(|| Error::Auth {
-                message: "failed to locate the MyChart login CSRF token".into(),
-                details: json!({
-                    "final_url": login_page.final_url.as_str(),
-                    "page": summarize_page(&login_page.final_url, &login_page.body_text),
-                }),
-            })?;
-
-            let login_payload = json!({
-                "Type": "StandardLogin",
-                "Credentials": {
-                    "LoginIdentifier": base64_encode(username.as_bytes()),
-                    "Password": base64_encode(args.password.as_bytes()),
-                }
-            })
-            .to_string();
-
-            let response = client.execute(
-                RequestSpec {
-                    method: Method::POST,
-                    path: "/Authentication/Login/DoLogin".into(),
-                    query: Vec::new(),
-                    body: RequestBody::Form(vec![
-                        ("__RequestVerificationToken".into(), csrf_token),
-                        ("LoginInfo".into(), login_payload),
-                        ("DeviceId".into(), context.device_id.clone()),
-                    ]),
-                },
-                &mut cookies,
-                true,
-            )?;
-
-            if let Some(error_code) = extract_login_error(&response.final_url) {
-                return Err(Error::Auth {
-                    message: login_error_message(&error_code),
-                    details: json!({
-                        "error_code": error_code,
-                        "final_url": response.final_url.as_str(),
-                        "page": summarize_page(&response.final_url, &response.body_text),
-                    }),
-                });
-            }
-
-            ensure_portal_success_status(&response)?;
-
-            let page = summarize_page(&response.final_url, &response.body_text);
-            let verification_required = looks_like_verification_challenge(&response.final_url, &response.body_text);
-
-            if is_login_page(&response.body_text) && !verification_required {
-                return Err(Error::Auth {
-                    message: "MyChart returned to the login page without establishing a portal session".into(),
-                    details: json!({
-                        "final_url": response.final_url.as_str(),
-                        "page": page,
-                    }),
-                });
-            }
-
-            if !args.no_store {
-                context.update_cookies(cookies.clone());
-                context.store_portal_session(portal_base_url.clone(), Some(username.clone()))?;
-            }
-
-            Ok(json!({
-                "status": if verification_required { "verification_required" } else { "authenticated" },
-                "username": username,
-                "portal_base_url": portal_base_url,
-                "final_url": response.final_url.as_str(),
-                "next_url": if verification_required { Value::String(response.final_url.to_string()) } else { Value::Null },
-                "redirect_chain": response.redirect_chain,
-                "stored": !args.no_store,
-                "cookie_names": crate::client::cookie_names(&cookies),
-                "page": page,
-            }))
-        }
-        PortalAuthSubcommand::Status => {
-            if !context.has_portal_session() {
-                return Ok(json!({
-                    "status": "ok",
-                    "authenticated": false,
-                    "reason": "no_stored_session",
-                    "portal_base_url": portal_base_url,
-                    "username": context.username,
-                }));
-            }
-
-            let mut cookies = context.cookies.clone();
-            let response = client.execute(
-                RequestSpec {
-                    method: Method::GET,
-                    path: "/inside.asp".into(),
-                    query: Vec::new(),
-                    body: RequestBody::None,
-                },
-                &mut cookies,
-                true,
-            )?;
-
-            ensure_portal_success_status(&response)?;
-
-            let page = summarize_page(&response.final_url, &response.body_text);
-            let authenticated = !is_login_page(&response.body_text);
-
-            if authenticated {
-                context.update_cookies(cookies);
-                context.store_portal_session(portal_base_url.clone(), None)?;
-            } else {
-                context.clear_portal_session()?;
-            }
-
-            Ok(json!({
-                "status": "ok",
-                "authenticated": authenticated,
-                "portal_base_url": portal_base_url,
-                "username": context.username,
-                "final_url": response.final_url.as_str(),
-                "redirect_chain": response.redirect_chain,
-                "cookie_names": if authenticated { context.cookie_names() } else { Vec::<String>::new() },
-                "page": page,
-            }))
-        }
-        PortalAuthSubcommand::Logout => {
-            if context.has_portal_session() {
-                let mut cookies = context.cookies.clone();
-                let response = client.execute(
-                    RequestSpec {
-                        method: Method::GET,
-                        path: "/Home/LogOut".into(),
-                        query: Vec::new(),
-                        body: RequestBody::None,
-                    },
-                    &mut cookies,
-                    true,
-                )?;
-                ensure_portal_success_status(&response)?;
-            }
-
-            context.clear_portal_session()?;
-            Ok(json!({
-                "status": "logged_out",
-                "portal_base_url": portal_base_url,
-                "username": context.username,
-            }))
-        }
-    }
-}
-
-fn run_portal_request(command: PortalRequestSubcommand, context: &mut ResolvedContext) -> Result<Value> {
-    context.require_portal_session()?;
-    let portal_base_url = context.require_portal_base_url()?;
-    let client = portal_client(&portal_base_url)?;
-
-    let (method, path, query, body, follow_redirects) = match command {
-        PortalRequestSubcommand::Get(args) => (
-            Method::GET,
-            args.path,
-            args.query,
-            RequestBody::None,
-            !args.no_follow_redirects,
-        ),
-        PortalRequestSubcommand::Post(args) => {
-            if args.form.is_empty() {
-                return Err(Error::Arguments(
-                    "missing request form data, provide at least one --form KEY=VALUE pair".into(),
-                ));
-            }
-            (
-                Method::POST,
-                args.path,
-                args.query,
-                RequestBody::Form(args.form),
-                !args.no_follow_redirects,
-            )
-        }
-    };
-
-    let mut cookies = context.cookies.clone();
-    let response = client.execute(
-        RequestSpec {
-            method: method.clone(),
-            path,
-            query,
-            body,
-        },
-        &mut cookies,
-        follow_redirects,
-    )?;
-
-    ensure_portal_success_status(&response)?;
-
-    if is_login_page(&response.body_text) {
-        context.clear_portal_session()?;
-        return Err(Error::Auth {
-            message: "stored MyChart portal session is not authenticated anymore, run mychart portal auth login-password again"
-                .into(),
-            details: json!({
-                "final_url": response.final_url.as_str(),
-                "page": summarize_page(&response.final_url, &response.body_text),
-            }),
-        });
-    }
-
-    context.update_cookies(cookies);
-    context.store_portal_session(portal_base_url, None)?;
-
-    Ok(json!({
-        "status": "ok",
-        "request": {
-            "method": method.as_str(),
-        },
-        "response": {
-            "status_code": response.status_code,
-            "final_url": response.final_url.as_str(),
-            "location": response.location,
-            "content_type": response.content_type,
-            "redirect_chain": response.redirect_chain,
-        },
-        "page": summarize_page(&response.final_url, &response.body_text),
-        "body": parse_portal_response_body(&response),
-    }))
 }
 
 fn api_client(base_url: &str) -> Result<MyChartClient> {
@@ -2021,8 +1161,13 @@ mod tests {
             .contains("response_type=code"));
 
         let state = StateStore::new(config_path).load().expect("state should load");
-        assert_eq!(state.client_id.as_deref(), Some("client-123"));
-        assert!(state.pending_code_verifier.is_some());
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(state.current_account.as_deref(), Some("default"));
+        assert_eq!(account.client_id.as_deref(), Some("client-123"));
+        assert!(account.pending_code_verifier.is_some());
     }
 
     #[test]
@@ -2068,8 +1213,12 @@ mod tests {
         assert_eq!(output["status"], "authenticated");
 
         let state = StateStore::new(config_path).load().expect("state should load");
-        assert_eq!(state.access_token.as_deref(), Some("access-token"));
-        assert_eq!(state.patient_id.as_deref(), Some("patient-123"));
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("access-token"));
+        assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
     }
 
     #[test]
@@ -2198,8 +1347,129 @@ mod tests {
         assert_eq!(output["status"], "authenticated");
 
         let state = StateStore::new(config_path).load().expect("state should load");
-        assert_eq!(state.portal_base_url.as_deref(), Some(server.base_url().as_str()));
-        assert_eq!(state.cookies.len(), 2);
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.portal_base_url.as_deref(), Some(server.base_url().as_str()));
+        assert_eq!(account.cookies.len(), 2);
+    }
+
+    #[test]
+    fn connect_resolve_uses_cached_brand_catalog() {
+        let temp_dir = temp_dir("mychart-connect-resolve");
+        let config_path = temp_dir.join("config.json");
+        write_brands_cache(
+            &temp_dir.join("brands-cache.json"),
+            json!({
+                "source_url": "https://open.epic.com/Endpoints/Brands",
+                "fetched_at_epoch_seconds": 1_800_000_000u64,
+                "bundle_last_updated": "2026-03-27T03:00:03Z",
+                "brands": [{
+                    "brand_id": "brand-1",
+                    "brand_name": "UCLA Medical Center",
+                    "account_slug": "ucla-medical-center",
+                    "fhir_base_url": "https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4",
+                    "endpoint_id": "endpoint-1",
+                    "endpoint_name": "UCLA Medical Center",
+                    "managing_organization_id": "341",
+                    "managing_organization_name": "UCLA Health",
+                    "state": "CA",
+                    "country": "USA",
+                    "facilities": [{
+                        "name": "UCLA Santa Monica",
+                        "city": "Santa Monica",
+                        "state": "CA"
+                    }]
+                }]
+            }),
+        );
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "connect",
+            "ucla",
+            "medical",
+            "center",
+        ]);
+
+        assert_eq!(output["status"], "connected");
+        assert_eq!(output["selected_account"], "ucla-medical-center");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        assert_eq!(state.current_account.as_deref(), Some("ucla-medical-center"));
+        let account = state
+            .accounts
+            .get("ucla-medical-center")
+            .expect("named account should be stored");
+        assert_eq!(
+            account.api_base_url.as_deref(),
+            Some("https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4")
+        );
+        assert_eq!(
+            account
+                .discovery
+                .as_ref()
+                .and_then(|discovery| discovery.brand_name.as_deref()),
+            Some("UCLA Medical Center")
+        );
+    }
+
+    #[test]
+    fn connect_resolve_reports_ambiguity_for_broad_queries() {
+        let temp_dir = temp_dir("mychart-connect-ambiguous");
+        let config_path = temp_dir.join("config.json");
+        write_brands_cache(
+            &temp_dir.join("brands-cache.json"),
+            json!({
+                "source_url": "https://open.epic.com/Endpoints/Brands",
+                "fetched_at_epoch_seconds": 1_800_000_000u64,
+                "bundle_last_updated": "2026-03-27T03:00:03Z",
+                "brands": [
+                    {
+                        "brand_id": "brand-1",
+                        "brand_name": "UCLA Medical Center",
+                        "account_slug": "ucla-medical-center",
+                        "fhir_base_url": "https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4",
+                        "endpoint_id": "endpoint-1",
+                        "endpoint_name": "UCLA Medical Center",
+                        "managing_organization_id": "341",
+                        "managing_organization_name": "UCLA Health",
+                        "state": "CA",
+                        "country": "USA",
+                        "facilities": []
+                    },
+                    {
+                        "brand_id": "brand-2",
+                        "brand_name": "UCLA Health Medicare Advantage Plan",
+                        "account_slug": "ucla-health-medicare-advantage-plan",
+                        "fhir_base_url": "https://arrprox.mednet.ucla.edu/FHIRPRD/HEALTHPLAN/api/FHIR/R4",
+                        "endpoint_id": "endpoint-2",
+                        "endpoint_name": "UCLA Health Medicare Advantage Plan",
+                        "managing_organization_id": "341",
+                        "managing_organization_name": "UCLA Health",
+                        "state": null,
+                        "country": null,
+                        "facilities": []
+                    }
+                ]
+            }),
+        );
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "connect",
+            "ucla",
+        ]);
+
+        assert_eq!(output["status"], "ambiguous");
+        assert_eq!(output["matches"].as_array().map(Vec::len), Some(2));
     }
 
     #[test]
@@ -2229,6 +1499,17 @@ mod tests {
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+    }
+
+    fn write_brands_cache(path: &std::path::Path, value: Value) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("brands cache parent should exist");
+        }
+        fs::write(
+            path,
+            serde_json::to_vec_pretty(&value).expect("brands cache should serialize"),
+        )
+        .expect("brands cache should write");
     }
 
     fn capability_statement_json(base_url: &str, resources: &[Value]) -> Value {

@@ -1,6 +1,6 @@
 [package]
 name = "mychart-cli"
-description = "CLI for Epic MyChart auth flows and authenticated portal requests"
+description = "CLI for Epic patient-facing SMART on FHIR workflows, provider discovery, and MyChart portal fallbacks"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

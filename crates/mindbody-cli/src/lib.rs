@@ -1,19 +1,25 @@
 mod client;
+mod commands;
 mod state;
 
 use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 
 use anyhow::{Context, Result as AnyhowResult};
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 use reqwest::Method;
-use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
+pub(crate) use crate::{client::MindbodyClient, state::ResolvedContext};
 use crate::{
-    client::{Credentials, MindbodyClient, RequestBody, RequestSpec},
+    client::{Credentials, RequestBody, RequestSpec},
+    commands::{
+        run_account, run_bookings, run_classes, run_liability_waivers, run_locations, run_passes, run_pricing,
+        run_purchases, AccountCommand, BookingCommand, ClassCommand, LiabilityWaiverCommand, LocationCommand,
+        PassCommand, PricingCommand, PurchaseCommand,
+    },
     state::{
-        validate_unique_user_id, ResolvedContext, ENV_MINDBODY_API_KEY, ENV_MINDBODY_APP_NAME, ENV_MINDBODY_BASE_URL,
-        ENV_MINDBODY_CLIENT_KEY, ENV_MINDBODY_CLIENT_SECRET, ENV_MINDBODY_CONFIG, ENV_MINDBODY_USER_ID,
+        ENV_MINDBODY_API_KEY, ENV_MINDBODY_APP_NAME, ENV_MINDBODY_BASE_URL, ENV_MINDBODY_CLIENT_KEY,
+        ENV_MINDBODY_CLIENT_SECRET, ENV_MINDBODY_CONFIG, ENV_MINDBODY_USER_ID,
     },
 };
 
@@ -24,9 +30,9 @@ const AFTER_HELP: &str = concat!(
     "  mindbody pricing class --location-id 86784 5134512\n",
     "  mindbody bookings create --location-id 86784 --class-id 5134512 \\\n",
     "    --reconciliation-type pass --reconciliation-id 598a6916-7876-406e-9537-db6af825f9a2\n",
-    "  mindbody bookings create --location-id 86784 --class-id 5134512 \\\n",
-    "    --reconciliation-type pricing-option --reconciliation-id 153458 --pricing-option-total 15.75 \\\n",
-    "    --user-first Joseph --user-last Smith --user-email joseph@example.com --payment-file payment.json\n",
+    "  mindbody purchases list --location-id 86784 --from-purchase-date-time 2026-03-01T00:00:00Z\n",
+    "  mindbody liability-waivers sign --booking-id f5405d87-46a0-4b48-a384-e26159e130d6 \\\n",
+    "    --liability-waiver-hashed-text <hash> --signature-png-file signature.png\n",
     "\n",
     "This CLI is aimed at booking Pilates classes and the surrounding Mindbody member account chaos,\n",
     "with a switchboard-friendly command grammar instead of raw endpoint confetti.\n",
@@ -76,6 +82,8 @@ fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
         Commands::Pricing(command) => run_pricing(command.command, &client, &context),
         Commands::Bookings(command) => run_bookings(command.command, &client, &context),
         Commands::Passes(command) => run_passes(command.command, &client, &context),
+        Commands::Purchases(command) => run_purchases(command.command, &client, &context),
+        Commands::LiabilityWaivers(command) => run_liability_waivers(command.command, &client, &context),
     }
     .context("Mindbody command failed")?;
 
@@ -133,487 +141,12 @@ enum Commands {
     Pricing(PricingCommand),
     Bookings(BookingCommand),
     Passes(PassCommand),
-}
-
-#[derive(Debug, Args)]
-struct AccountCommand {
-    #[command(subcommand)]
-    command: AccountSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum AccountSubcommand {
-    Status,
-}
-
-#[derive(Debug, Args)]
-struct LocationCommand {
-    #[command(subcommand)]
-    command: LocationSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum LocationSubcommand {
-    Search(SearchLocationsArgs),
-    Get(LocationIdArgs),
-}
-
-#[derive(Debug, Args)]
-struct ClassCommand {
-    #[command(subcommand)]
-    command: ClassSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum ClassSubcommand {
-    List(ListClassesArgs),
-    Get(GetClassArgs),
-}
-
-#[derive(Debug, Args)]
-struct PricingCommand {
-    #[command(subcommand)]
-    command: PricingSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum PricingSubcommand {
-    Class(ClassPricingArgs),
-    Location(LocationPricingArgs),
-}
-
-#[derive(Debug, Args)]
-struct BookingCommand {
-    #[command(subcommand)]
-    command: BookingSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum BookingSubcommand {
-    List(ListBookingsArgs),
-    Get(BookingIdArgs),
-    Create(CreateBookingArgs),
-    Cancel(CancelBookingArgs),
-}
-
-#[derive(Debug, Args)]
-struct PassCommand {
-    #[command(subcommand)]
-    command: PassSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum PassSubcommand {
-    List(ListPassesArgs),
-    Get(PassIdArgs),
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum SortDirection {
-    Asc,
-    Desc,
-}
-
-impl SortDirection {
-    fn as_api_value(self) -> &'static str {
-        match self {
-            Self::Asc => "asc",
-            Self::Desc => "desc",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum ReconciliationType {
-    #[value(name = "pass")]
-    Pass,
-    #[value(name = "pricing-option")]
-    PricingOption,
-}
-
-impl ReconciliationType {
-    fn as_api_value(self) -> &'static str {
-        match self {
-            Self::Pass => "Pass",
-            Self::PricingOption => "PricingOption",
-        }
-    }
-}
-
-#[derive(Clone, Debug, Args)]
-struct WindowedQueryArgs {
-    #[arg(long = "max-results")]
-    max_results: Option<u32>,
-
-    #[arg(long)]
-    offset: Option<u32>,
-}
-
-#[derive(Clone, Debug, Args)]
-struct OrderingArgs {
-    #[arg(long = "order-by")]
-    order_by: Option<String>,
-
-    #[arg(long, value_enum)]
-    order: Option<SortDirection>,
-}
-
-#[derive(Debug, Args)]
-struct SearchLocationsArgs {
-    #[arg(long)]
-    address: Option<String>,
-
-    #[arg(long)]
-    latitude: Option<f64>,
-
-    #[arg(long)]
-    longitude: Option<f64>,
-
-    #[arg(long)]
-    radius: Option<f64>,
-
-    #[arg(long = "location-id")]
-    location_id: Option<u64>,
-
-    #[arg(long = "subscriber-id")]
-    subscriber_id: Option<u64>,
-
-    #[arg(long = "country-code")]
-    country_code: Option<String>,
-
-    #[arg(long = "search-text")]
-    search_text: Option<String>,
-
-    #[command(flatten)]
-    window: WindowedQueryArgs,
-
-    #[command(flatten)]
-    ordering: OrderingArgs,
-}
-
-#[derive(Debug, Args)]
-struct LocationIdArgs {
-    #[arg(value_name = "LOCATION_ID")]
-    location_id: u64,
-}
-
-#[derive(Debug, Args)]
-struct ListClassesArgs {
-    #[arg(long = "location-id")]
-    location_id: u64,
-
-    #[arg(long = "start-date-time")]
-    start_date_time: Option<String>,
-
-    #[arg(long = "end-date-time")]
-    end_date_time: Option<String>,
-
-    #[arg(long = "class-type-id")]
-    class_type_id: Option<u64>,
-
-    #[arg(long = "staff-last-name")]
-    staff_last_name: Option<String>,
-
-    #[arg(long = "available-for-booking", value_parser = clap::builder::BoolishValueParser::new())]
-    available_for_booking: Option<bool>,
-
-    #[arg(long = "service-category-id")]
-    service_category_ids: Vec<u64>,
-
-    #[command(flatten)]
-    window: WindowedQueryArgs,
-
-    #[command(flatten)]
-    ordering: OrderingArgs,
-}
-
-#[derive(Debug, Args)]
-struct GetClassArgs {
-    #[arg(long = "location-id")]
-    location_id: u64,
-
-    #[arg(value_name = "CLASS_ID")]
-    class_id: u64,
-}
-
-#[derive(Debug, Args)]
-struct ClassPricingArgs {
-    #[arg(long = "location-id")]
-    location_id: u64,
-
-    #[arg(value_name = "CLASS_ID")]
-    class_id: u64,
-}
-
-#[derive(Debug, Args)]
-struct LocationPricingArgs {
-    #[arg(value_name = "LOCATION_ID")]
-    location_id: u64,
-
-    #[arg(long = "service-category-id")]
-    service_category_ids: Vec<u64>,
-}
-
-#[derive(Debug, Args)]
-struct ListBookingsArgs {
-    #[arg(long = "location-id")]
-    location_id: Option<u64>,
-
-    #[arg(long = "subscriber-id")]
-    subscriber_id: Option<u64>,
-
-    #[command(flatten)]
-    window: WindowedQueryArgs,
-
-    #[command(flatten)]
-    ordering: OrderingArgs,
-}
-
-#[derive(Debug, Args)]
-struct BookingIdArgs {
-    #[arg(value_name = "BOOKING_ID")]
-    booking_id: String,
-}
-
-#[derive(Debug, Args)]
-struct CancelBookingArgs {
-    #[arg(value_name = "BOOKING_ID")]
-    booking_id: String,
-
-    #[arg(long = "suppress-cancellation-confirmation-email")]
-    suppress_cancellation_confirmation_email: bool,
-}
-
-#[derive(Debug, Args)]
-struct CreateBookingArgs {
-    #[arg(long = "location-id")]
-    location_id: u64,
-
-    #[arg(long = "class-id")]
-    class_id: u64,
-
-    #[arg(long = "reconciliation-type", value_enum)]
-    reconciliation_type: ReconciliationType,
-
-    #[arg(long = "reconciliation-id")]
-    reconciliation_id: String,
-
-    #[arg(long = "pricing-option-total")]
-    pricing_option_total: Option<f64>,
-
-    #[arg(long = "suppress-booking-confirmation-email")]
-    suppress_booking_confirmation_email: bool,
-
-    #[arg(long = "suppress-purchase-receipt-email")]
-    suppress_purchase_receipt_email: bool,
-
-    #[arg(long = "subscriber-marketing-opt-in")]
-    subscriber_marketing_opt_in: bool,
-
-    #[arg(long = "user-first")]
-    user_first: Option<String>,
-
-    #[arg(long = "user-last")]
-    user_last: Option<String>,
-
-    #[arg(long = "user-email")]
-    user_email: Option<String>,
-
-    #[arg(long = "user-phone")]
-    user_phone: Option<String>,
-
-    #[arg(long = "payment-file", value_name = "PATH")]
-    payment_file: Option<PathBuf>,
-
-    #[arg(long = "idempotency-key")]
-    idempotency_key: Option<String>,
-}
-
-impl CreateBookingArgs {
-    fn validate(&self, user_id: &str) -> Result<()> {
-        validate_unique_user_id(user_id)?;
-
-        if let Some(idempotency_key) = self.idempotency_key.as_ref() {
-            if idempotency_key.len() != 36 {
-                return Err(Error::Arguments(
-                    "Mindbody idempotency keys must be GUID strings with length 36".into(),
-                ));
-            }
-        }
-
-        match self.reconciliation_type {
-            ReconciliationType::Pass => {
-                if self.pricing_option_total.is_some()
-                    || self.user_first.is_some()
-                    || self.user_last.is_some()
-                    || self.user_email.is_some()
-                    || self.payment_file.is_some()
-                    || self.suppress_purchase_receipt_email
-                    || self.subscriber_marketing_opt_in
-                {
-                    return Err(Error::Arguments(
-                        "pass bookings do not take pricing-option purchase fields".into(),
-                    ));
-                }
-            }
-            ReconciliationType::PricingOption => {
-                if self.pricing_option_total.is_none() {
-                    return Err(Error::Arguments(
-                        "pricing-option bookings require --pricing-option-total".into(),
-                    ));
-                }
-                if self.user_first.is_none() || self.user_last.is_none() || self.user_email.is_none() {
-                    return Err(Error::Arguments(
-                        "pricing-option bookings require --user-first, --user-last, and --user-email".into(),
-                    ));
-                }
-                if self.payment_file.is_none() {
-                    return Err(Error::Arguments(
-                        "pricing-option bookings require --payment-file so card data is not shoved into argv".into(),
-                    ));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn build_body(&self, user_id: &str) -> Result<Value> {
-        self.validate(user_id)?;
-
-        let mut reconciliation = Map::new();
-        reconciliation.insert("id".into(), json!(self.reconciliation_id));
-        reconciliation.insert("type".into(), json!(self.reconciliation_type.as_api_value()));
-        reconciliation.insert(
-            "pricingOptionTotal".into(),
-            match self.reconciliation_type {
-                ReconciliationType::Pass => Value::Null,
-                ReconciliationType::PricingOption => json!(self.pricing_option_total),
-            },
-        );
-
-        let mut body = Map::new();
-        body.insert("locationId".into(), json!(self.location_id));
-        body.insert("classId".into(), json!(self.class_id));
-        body.insert("bookingReconciliation".into(), Value::Object(reconciliation));
-        body.insert("uniqueUserId".into(), json!(user_id));
-
-        if self.suppress_booking_confirmation_email {
-            body.insert("suppressBookingConfirmationEmail".into(), Value::Bool(true));
-        }
-
-        match self.reconciliation_type {
-            ReconciliationType::Pass => {
-                body.insert("paymentDetails".into(), Value::Null);
-            }
-            ReconciliationType::PricingOption => {
-                if self.suppress_purchase_receipt_email {
-                    body.insert("suppressPurchaseReceiptEmail".into(), Value::Bool(true));
-                }
-                if self.subscriber_marketing_opt_in {
-                    body.insert("subscriberMarketingOptIn".into(), Value::Bool(true));
-                }
-                if let Some(user_first) = self.user_first.as_ref() {
-                    body.insert("userFirst".into(), json!(user_first));
-                }
-                if let Some(user_last) = self.user_last.as_ref() {
-                    body.insert("userLast".into(), json!(user_last));
-                }
-                if let Some(user_email) = self.user_email.as_ref() {
-                    body.insert("userEmail".into(), json!(user_email));
-                }
-                if let Some(user_phone) = self.user_phone.as_ref() {
-                    body.insert("userPhone".into(), json!(user_phone));
-                }
-                let payment_file = self
-                    .payment_file
-                    .as_deref()
-                    .ok_or_else(|| Error::Arguments("pricing-option bookings require --payment-file".into()))?;
-                body.insert(
-                    "paymentDetails".into(),
-                    read_payment_details(payment_file)?.into_value(),
-                );
-            }
-        }
-
-        Ok(Value::Object(body))
-    }
-}
-
-#[derive(Debug, Args)]
-struct ListPassesArgs {
-    #[arg(long = "subscriber-id")]
-    subscriber_id: Option<u64>,
-
-    #[arg(long = "limit-to-usable", value_parser = clap::builder::BoolishValueParser::new())]
-    limit_to_usable: Option<bool>,
-
-    #[command(flatten)]
-    window: WindowedQueryArgs,
-
-    #[command(flatten)]
-    ordering: OrderingArgs,
-}
-
-#[derive(Debug, Args)]
-struct PassIdArgs {
-    #[arg(value_name = "PASS_ID")]
-    pass_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PaymentDetailsInput {
-    #[serde(alias = "creditCardNumber")]
-    credit_card_number: String,
-    #[serde(alias = "creditCardExpirationYear")]
-    credit_card_expiration_year: u16,
-    #[serde(alias = "creditCardExpirationMonth")]
-    credit_card_expiration_month: u8,
-    #[serde(alias = "creditCardCvv", alias = "creditCardCVV")]
-    credit_card_cvv: Option<String>,
-    #[serde(alias = "billingName")]
-    billing_name: String,
-    #[serde(alias = "billingAddressLine1")]
-    billing_address_line_1: String,
-    #[serde(alias = "billingAddressLine2")]
-    billing_address_line_2: Option<String>,
-    #[serde(alias = "billingCity")]
-    billing_city: String,
-    #[serde(alias = "billingState")]
-    billing_state: String,
-    #[serde(alias = "billingPostalCode")]
-    billing_postal_code: String,
-}
-
-impl PaymentDetailsInput {
-    fn into_value(self) -> Value {
-        let mut value = Map::new();
-        value.insert("creditCardNumber".into(), json!(self.credit_card_number));
-        value.insert(
-            "creditCardExpirationYear".into(),
-            json!(self.credit_card_expiration_year),
-        );
-        value.insert(
-            "creditCardExpirationMonth".into(),
-            json!(self.credit_card_expiration_month),
-        );
-        if let Some(credit_card_cvv) = self.credit_card_cvv {
-            value.insert("creditCardCvv".into(), json!(credit_card_cvv));
-        }
-        value.insert("billingName".into(), json!(self.billing_name));
-        value.insert("billingAddressLine1".into(), json!(self.billing_address_line_1));
-        if let Some(billing_address_line_2) = self.billing_address_line_2 {
-            value.insert("billingAddressLine2".into(), json!(billing_address_line_2));
-        }
-        value.insert("billingCity".into(), json!(self.billing_city));
-        value.insert("billingState".into(), json!(self.billing_state));
-        value.insert("billingPostalCode".into(), json!(self.billing_postal_code));
-        Value::Object(value)
-    }
+    Purchases(PurchaseCommand),
+    LiabilityWaivers(LiabilityWaiverCommand),
 }
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+pub(crate) enum Error {
     #[error("invalid arguments: {0}")]
     Arguments(String),
     #[error("Mindbody API returned HTTP {status_code}")]
@@ -661,7 +194,7 @@ impl Error {
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 fn render_cli_error(error: &anyhow::Error, compact: bool) -> String {
     if let Some(error) = error.chain().find_map(|cause| cause.downcast_ref::<Error>()) {
@@ -678,181 +211,7 @@ fn render_cli_error(error: &anyhow::Error, compact: bool) -> String {
     )
 }
 
-fn run_account(command: AccountSubcommand, context: &ResolvedContext) -> Result<Value> {
-    match command {
-        AccountSubcommand::Status => {
-            if let Some(user_id) = context.user_id.as_deref() {
-                validate_unique_user_id(user_id)?;
-            }
-
-            Ok(json!({
-                "status": "ok",
-                "provider": "mindbody",
-                "base_url": context.base_url,
-                "app_name": context.app_name,
-                "user_id": context.user_id,
-                "has_api_key": context.api_key.is_some(),
-                "has_client_key": context.client_key.is_some(),
-                "has_client_secret": context.client_secret.is_some(),
-            }))
-        }
-    }
-}
-
-fn run_locations(command: LocationSubcommand, client: &MindbodyClient, context: &ResolvedContext) -> Result<Value> {
-    match command {
-        LocationSubcommand::Search(args) => {
-            validate_coordinate_pair(args.latitude, args.longitude, "locations search")?;
-            let mut query = Vec::new();
-            push_optional_query_string(&mut query, "address", args.address);
-            push_optional_query_f64(&mut query, "latitude", args.latitude);
-            push_optional_query_f64(&mut query, "longitude", args.longitude);
-            push_optional_query_f64(&mut query, "radius", args.radius);
-            push_optional_query_u64(&mut query, "locationId", args.location_id);
-            push_optional_query_u64(&mut query, "subscriberId", args.subscriber_id);
-            push_optional_query_string(&mut query, "countryCode", args.country_code);
-            push_optional_query_string(&mut query, "searchText", args.search_text);
-            push_window_query(&mut query, &args.window);
-            push_ordering_query(&mut query, &args.ordering);
-            execute(client, context, Method::GET, "/locations", query)
-        }
-        LocationSubcommand::Get(args) => execute(
-            client,
-            context,
-            Method::GET,
-            &format!("/locations/{}", args.location_id),
-            Vec::new(),
-        ),
-    }
-}
-
-fn run_classes(command: ClassSubcommand, client: &MindbodyClient, context: &ResolvedContext) -> Result<Value> {
-    match command {
-        ClassSubcommand::List(args) => {
-            let mut query = Vec::new();
-            push_optional_query_string(&mut query, "startDateTime", args.start_date_time);
-            push_optional_query_string(&mut query, "endDateTime", args.end_date_time);
-            push_optional_query_u64(&mut query, "classTypeId", args.class_type_id);
-            push_optional_query_string(&mut query, "staffLastName", args.staff_last_name);
-            push_optional_query_bool(&mut query, "availableForBooking", args.available_for_booking);
-            push_query_csv_u64(&mut query, "serviceCategoryIds", args.service_category_ids);
-            push_window_query(&mut query, &args.window);
-            push_ordering_query(&mut query, &args.ordering);
-            execute(
-                client,
-                context,
-                Method::GET,
-                &format!("/locations/{}/classes", args.location_id),
-                query,
-            )
-        }
-        ClassSubcommand::Get(args) => execute(
-            client,
-            context,
-            Method::GET,
-            &format!("/locations/{}/classes/{}", args.location_id, args.class_id),
-            Vec::new(),
-        ),
-    }
-}
-
-fn run_pricing(command: PricingSubcommand, client: &MindbodyClient, context: &ResolvedContext) -> Result<Value> {
-    match command {
-        PricingSubcommand::Class(args) => execute(
-            client,
-            context,
-            Method::GET,
-            &format!(
-                "/locations/{}/classes/{}/pricingOptions",
-                args.location_id, args.class_id
-            ),
-            Vec::new(),
-        ),
-        PricingSubcommand::Location(args) => {
-            let mut query = Vec::new();
-            push_query_csv_u64(&mut query, "serviceCategoryIds", args.service_category_ids);
-            execute(
-                client,
-                context,
-                Method::GET,
-                &format!("/locations/{}/pricingOptions", args.location_id),
-                query,
-            )
-        }
-    }
-}
-
-fn run_bookings(command: BookingSubcommand, client: &MindbodyClient, context: &ResolvedContext) -> Result<Value> {
-    let user_id = context.require_user_id()?.to_owned();
-    match command {
-        BookingSubcommand::List(args) => {
-            let mut query = Vec::new();
-            push_optional_query_u64(&mut query, "locationId", args.location_id);
-            push_optional_query_u64(&mut query, "subscriberId", args.subscriber_id);
-            push_window_query(&mut query, &args.window);
-            push_ordering_query(&mut query, &args.ordering);
-            execute(
-                client,
-                context,
-                Method::GET,
-                &format!("/users/{user_id}/bookings"),
-                query,
-            )
-        }
-        BookingSubcommand::Get(args) => execute(
-            client,
-            context,
-            Method::GET,
-            &format!("/users/{user_id}/bookings/{}", args.booking_id),
-            Vec::new(),
-        ),
-        BookingSubcommand::Create(args) => execute_json(
-            client,
-            context,
-            Method::POST,
-            "/bookings",
-            Vec::new(),
-            args.build_body(&user_id)?,
-            args.idempotency_key,
-        ),
-        BookingSubcommand::Cancel(args) => {
-            let mut query = Vec::new();
-            if args.suppress_cancellation_confirmation_email {
-                query.push(("suppressCancellationConfirmationEmail".into(), "true".into()));
-            }
-            execute(
-                client,
-                context,
-                Method::DELETE,
-                &format!("/users/{user_id}/bookings/{}", args.booking_id),
-                query,
-            )
-        }
-    }
-}
-
-fn run_passes(command: PassSubcommand, client: &MindbodyClient, context: &ResolvedContext) -> Result<Value> {
-    let user_id = context.require_user_id()?.to_owned();
-    match command {
-        PassSubcommand::List(args) => {
-            let mut query = Vec::new();
-            push_optional_query_u64(&mut query, "subscriberId", args.subscriber_id);
-            push_optional_query_bool(&mut query, "limitToUsable", args.limit_to_usable);
-            push_window_query(&mut query, &args.window);
-            push_ordering_query(&mut query, &args.ordering);
-            execute(client, context, Method::GET, &format!("/users/{user_id}/passes"), query)
-        }
-        PassSubcommand::Get(args) => execute(
-            client,
-            context,
-            Method::GET,
-            &format!("/users/{user_id}/passes/{}", args.pass_id),
-            Vec::new(),
-        ),
-    }
-}
-
-fn execute(
+pub(crate) fn execute(
     client: &MindbodyClient,
     context: &ResolvedContext,
     method: Method,
@@ -876,7 +235,7 @@ fn execute(
     )
 }
 
-fn execute_json(
+pub(crate) fn execute_json(
     client: &MindbodyClient,
     context: &ResolvedContext,
     method: Method,
@@ -900,86 +259,6 @@ fn execute_json(
             idempotency_key,
         },
     )
-}
-
-fn read_payment_details(path: &std::path::Path) -> Result<PaymentDetailsInput> {
-    let contents = if path.as_os_str() == "-" {
-        std::io::read_to_string(std::io::stdin())
-            .map_err(|error| Error::Io(format!("failed to read payment details from stdin: {error}")))?
-    } else {
-        std::fs::read_to_string(path).map_err(|error| {
-            Error::Io(format!(
-                "failed to read payment details from {}: {error}",
-                path.display()
-            ))
-        })?
-    };
-
-    serde_json::from_str(&contents)
-        .map_err(|error| Error::Arguments(format!("payment details file must be valid JSON: {error}")))
-}
-
-fn validate_coordinate_pair(latitude: Option<f64>, longitude: Option<f64>, command: &str) -> Result<()> {
-    if latitude.is_some() ^ longitude.is_some() {
-        return Err(Error::Arguments(format!(
-            "{command} requires both --latitude and --longitude when either is provided"
-        )));
-    }
-
-    Ok(())
-}
-
-fn push_window_query(query: &mut Vec<(String, String)>, window: &WindowedQueryArgs) {
-    push_optional_query_u32(query, "maxResults", window.max_results);
-    push_optional_query_u32(query, "offset", window.offset);
-}
-
-fn push_ordering_query(query: &mut Vec<(String, String)>, ordering: &OrderingArgs) {
-    push_optional_query_string(query, "orderBy", ordering.order_by.clone());
-    if let Some(order) = ordering.order {
-        query.push(("order".into(), order.as_api_value().into()));
-    }
-}
-
-fn push_optional_query_string(query: &mut Vec<(String, String)>, key: &str, value: Option<String>) {
-    if let Some(value) = value {
-        query.push((key.into(), value));
-    }
-}
-
-fn push_optional_query_u64(query: &mut Vec<(String, String)>, key: &str, value: Option<u64>) {
-    if let Some(value) = value {
-        query.push((key.into(), value.to_string()));
-    }
-}
-
-fn push_optional_query_u32(query: &mut Vec<(String, String)>, key: &str, value: Option<u32>) {
-    if let Some(value) = value {
-        query.push((key.into(), value.to_string()));
-    }
-}
-
-fn push_optional_query_f64(query: &mut Vec<(String, String)>, key: &str, value: Option<f64>) {
-    if let Some(value) = value {
-        query.push((key.into(), value.to_string()));
-    }
-}
-
-fn push_optional_query_bool(query: &mut Vec<(String, String)>, key: &str, value: Option<bool>) {
-    if let Some(value) = value {
-        query.push((key.into(), value.to_string()));
-    }
-}
-
-fn push_query_csv_u64(query: &mut Vec<(String, String)>, key: &str, values: Vec<u64>) {
-    if !values.is_empty() {
-        let joined = values
-            .into_iter()
-            .map(|value| value.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        query.push((key.into(), joined));
-    }
 }
 
 fn render_json(value: &Value, compact: bool) -> String {
@@ -1006,6 +285,7 @@ mod tests {
         io::{Read, Write},
         net::TcpListener,
         path::PathBuf,
+        process::ExitCode,
         sync::{Arc, Mutex},
         thread,
         time::{SystemTime, UNIX_EPOCH},
@@ -1014,7 +294,12 @@ mod tests {
     use clap::Parser;
     use serde_json::{json, Value};
 
-    use super::{render_cli_error, run, Cli};
+    use super::{main_entry, render_cli_error, run, Cli};
+
+    #[test]
+    fn main_entry_returns_success_for_help() {
+        assert_eq!(main_entry(["mindbody", "--help"]), ExitCode::SUCCESS);
+    }
 
     #[test]
     fn account_status_reports_resolved_context_without_leaking_secrets() {
@@ -1233,6 +518,125 @@ mod tests {
         assert!(request
             .starts_with("DELETE /users/pilates.user/bookings/booking-123?suppressCancellationConfirmationEmail=true"));
         assert_eq!(output["message"], "Cancellation successful.");
+    }
+
+    #[test]
+    fn purchases_list_uses_filters_and_user_scope() {
+        let capture = Arc::new(Mutex::new(String::new()));
+        let server = TestServer::spawn(
+            json!({
+                "items": [
+                    {
+                        "id": "purchase-1"
+                    }
+                ],
+                "offset": 0,
+                "maxResults": 1,
+                "totalResults": 1
+            })
+            .to_string(),
+            200,
+            Some(capture.clone()),
+        );
+        let temp_dir = temp_dir("mindbody-purchases");
+        let config_path = temp_dir.join("config.json");
+        write_config(
+            &config_path,
+            json!({
+                "base_url": server.base_url(),
+                "api_key": "api-key",
+                "client_key": "client-key",
+                "client_secret": "client-secret",
+                "user_id": "pilates.user"
+            }),
+        );
+
+        let output = run_command(&[
+            "mindbody",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "purchases",
+            "list",
+            "--location-id",
+            "86784",
+            "--subscriber-id",
+            "42",
+            "--from-purchase-date-time",
+            "2026-03-01T00:00:00Z",
+            "--to-purchase-date-time",
+            "2026-03-31T23:59:59Z",
+            "--max-results",
+            "10",
+            "--offset",
+            "5",
+            "--order-by",
+            "purchaseDateTime",
+            "--order",
+            "desc",
+        ]);
+
+        let request = capture.lock().expect("capture lock should work").clone();
+        assert!(request.starts_with("GET /users/pilates.user/purchases?"));
+        assert!(request.contains("locationId=86784"));
+        assert!(request.contains("subscriberId=42"));
+        assert!(request.contains("fromPurchaseDateTime=2026-03-01T00%3A00%3A00Z"));
+        assert!(request.contains("toPurchaseDateTime=2026-03-31T23%3A59%3A59Z"));
+        assert!(request.contains("maxResults=10"));
+        assert!(request.contains("offset=5"));
+        assert!(request.contains("orderBy=purchaseDateTime"));
+        assert!(request.contains("order=desc"));
+        assert_eq!(output["items"][0]["id"], "purchase-1");
+    }
+
+    #[test]
+    fn liability_waiver_sign_reads_png_and_posts_base64() {
+        let capture = Arc::new(Mutex::new(String::new()));
+        let server = TestServer::spawn(
+            json!({
+                "status": "ok"
+            })
+            .to_string(),
+            200,
+            Some(capture.clone()),
+        );
+        let temp_dir = temp_dir("mindbody-liability-waiver");
+        let config_path = temp_dir.join("config.json");
+        let signature_path = temp_dir.join("signature.png");
+        fs::write(&signature_path, [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).expect("signature png should write");
+        write_config(
+            &config_path,
+            json!({
+                "base_url": server.base_url(),
+                "api_key": "api-key",
+                "client_key": "client-key",
+                "client_secret": "client-secret"
+            }),
+        );
+
+        let output = run_command(&[
+            "mindbody",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "liability-waivers",
+            "sign",
+            "--booking-id",
+            "f5405d87-46a0-4b48-a384-e26159e130d6",
+            "--liability-waiver-hashed-text",
+            "21A951F270098C71D8C127EC57B31FDA811B37E64ABF28DD1906F84159C73D64",
+            "--signature-png-file",
+            signature_path.to_str().expect("signature path should be utf-8"),
+        ]);
+
+        let request = capture.lock().expect("capture lock should work").clone();
+        assert!(request.starts_with("POST /signedliabilitywaivers"));
+        assert!(request.contains("\"bookingId\":\"f5405d87-46a0-4b48-a384-e26159e130d6\""));
+        assert!(request.contains(
+            "\"liabilityWaiverHashedText\":\"21A951F270098C71D8C127EC57B31FDA811B37E64ABF28DD1906F84159C73D64\""
+        ));
+        assert!(request.contains("\"pngBase64UserSignaturePicture\":\"iVBORw0KGgoAAAAA\""));
+        assert_eq!(output["status"], "ok");
     }
 
     fn run_command(args: &[&str]) -> Value {

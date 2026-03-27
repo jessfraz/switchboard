@@ -28,6 +28,25 @@ impl AdapterRegistry {
     pub fn get(&self, provider: &ProviderKind) -> Option<Arc<dyn Adapter>> {
         self.adapters.get(provider).cloned()
     }
+
+    pub fn list_tools(&self) -> Result<Vec<crate::RegisteredTool>> {
+        let mut tools = self
+            .adapters
+            .values()
+            .flat_map(|adapter| adapter.tools().iter())
+            .map(crate::RegisteredTool::from_descriptor)
+            .collect::<Result<Vec<_>>>()?;
+        tools.sort_by(|left, right| left.name.as_str().cmp(right.name.as_str()));
+        Ok(tools)
+    }
+
+    pub fn describe_tool(&self, name: &crate::ToolName) -> Result<Option<crate::RegisteredTool>> {
+        let provider = name.provider()?;
+        self.get(&provider)
+            .and_then(|adapter| adapter.find_tool(name).cloned())
+            .map(|descriptor| crate::RegisteredTool::from_descriptor(&descriptor))
+            .transpose()
+    }
 }
 
 pub struct Switchboard {
@@ -52,6 +71,14 @@ impl Switchboard {
 
     pub fn list_namespaces(&self) -> Vec<ResolvedNamespace> {
         self.services.namespaces.list()
+    }
+
+    pub fn list_tools(&self) -> Result<Vec<crate::RegisteredTool>> {
+        self.adapters.list_tools()
+    }
+
+    pub fn describe_tool(&self, name: &crate::ToolName) -> Result<Option<crate::RegisteredTool>> {
+        self.adapters.describe_tool(name)
     }
 
     pub fn list_operations(&self) -> Vec<StoredOperation> {
@@ -171,10 +198,7 @@ impl Switchboard {
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
 
         if descriptor.kind != ToolKind::Read {
-            return Err(Error::UnsupportedOperation(format!(
-                "aggregate reads require a read tool, got {}",
-                request.tool
-            )));
+            return Err(Error::AggregateReadRequiresReadTool(request.tool.clone()));
         }
 
         let tool = request.tool.clone();

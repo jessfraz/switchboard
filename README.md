@@ -365,6 +365,24 @@ All write tools should support `--plan`, `--draft`, or both.
 Curated tools are the nice normalized layer.
 Raw `*.cli.read` and `*.cli.write` tools are the coverage layer, they let the model reach the full underlying CLI surface immediately while still staying inside namespace resolution, auth isolation, policy, and audit.
 
+You should be able to discover that surface without reading the source:
+
+```text
+switchboard tools list
+switchboard tools describe google.cli.write
+```
+
+Raw passthrough should feel boring, not cursed.
+Put `switchboard` flags before `--`.
+Everything after `--` is forwarded to the provider CLI unchanged.
+
+```text
+switchboard google.cli.read  --ns google.work      --json -- calendar +agenda --format json --today
+switchboard github.cli.write --ns github.personal --draft -- pr comment 123 --body "needs tests"
+```
+
+For scripts, `--argv-json` should also work when building argv programmatically.
+
 ## Operation lifecycle
 
 Every action follows the same shape:

@@ -828,6 +828,30 @@ pub struct ToolDescriptor {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct RegisteredTool {
+    pub name: ToolName,
+    pub provider: ProviderKind,
+    pub kind: ToolKind,
+    pub summary: &'static str,
+    pub backend: BackendKind,
+}
+
+impl RegisteredTool {
+    pub fn from_descriptor(descriptor: &ToolDescriptor) -> Result<Self> {
+        let name = ToolName::new(descriptor.name)?;
+        let provider = name.provider()?;
+
+        Ok(Self {
+            name,
+            provider,
+            kind: descriptor.kind,
+            summary: descriptor.summary,
+            backend: descriptor.backend,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditOutcome {
     Planned,

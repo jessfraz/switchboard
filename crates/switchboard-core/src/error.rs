@@ -1,4 +1,4 @@
-use crate::types::ProviderKind;
+use crate::types::{ProviderKind, ToolName};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -40,6 +40,8 @@ pub enum Error {
     },
     #[error("unknown namespace: {0}")]
     UnknownNamespace(String),
+    #[error("aggregate reads require a read tool, got {0}")]
+    AggregateReadRequiresReadTool(ToolName),
     #[error("unsupported operation: {0}")]
     UnsupportedOperation(String),
     #[error("unsupported tool: {0}")]

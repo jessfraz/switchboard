@@ -14,6 +14,7 @@ use crate::{
 };
 
 pub(crate) const ENV_MYCHART_CONFIG: &str = "MYCHART_CONFIG";
+pub(crate) const ENV_MYCHART_ACCOUNT: &str = "MYCHART_ACCOUNT";
 pub(crate) const ENV_MYCHART_BASE_URL: &str = "MYCHART_BASE_URL";
 pub(crate) const ENV_MYCHART_PORTAL_BASE_URL: &str = "MYCHART_PORTAL_BASE_URL";
 pub(crate) const ENV_MYCHART_CLIENT_ID: &str = "MYCHART_CLIENT_ID";
@@ -24,7 +25,70 @@ pub(crate) const ENV_MYCHART_REFRESH_TOKEN: &str = "MYCHART_REFRESH_TOKEN";
 pub(crate) const ENV_MYCHART_USERNAME: &str = "MYCHART_USERNAME";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub(crate) struct AccountDiscoveryState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) brand_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) brand_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) endpoint_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) endpoint_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) managing_organization_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) managing_organization_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) last_synced_at_epoch_seconds: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub(crate) struct MyChartAccountState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) api_base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) portal_base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) client_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) redirect_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) access_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) token_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) patient_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) expires_at_epoch_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_oauth_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_code_verifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) device_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) cookies: Vec<StoredCookie>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) discovery: Option<AccountDiscoveryState>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct MyChartState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) current_account: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) accounts: BTreeMap<String, MyChartAccountState>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) api_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,6 +123,92 @@ pub(crate) struct MyChartState {
     pub(crate) device_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) cookies: Vec<StoredCookie>,
+}
+
+impl MyChartState {
+    fn migrate_legacy_account(&mut self) {
+        if self.portal_base_url.is_none() && self.legacy_base_url.is_some() {
+            self.portal_base_url = self.legacy_base_url.clone();
+        }
+
+        if self.accounts.is_empty() && self.has_legacy_account_data() {
+            self.accounts.insert("default".into(), self.legacy_account_state());
+            self.current_account = Some("default".into());
+        }
+
+        if self.current_account.is_none() {
+            self.current_account = self.accounts.keys().next().cloned();
+        }
+
+        if let Some(current_account) = self.current_account.clone() {
+            if !self.accounts.contains_key(&current_account) {
+                self.current_account = self.accounts.keys().next().cloned();
+            }
+        }
+
+        self.clear_legacy_fields();
+    }
+
+    fn has_legacy_account_data(&self) -> bool {
+        self.api_base_url.is_some()
+            || self.portal_base_url.is_some()
+            || self.client_id.is_some()
+            || self.client_secret.is_some()
+            || self.redirect_uri.is_some()
+            || self.access_token.is_some()
+            || self.refresh_token.is_some()
+            || self.token_type.is_some()
+            || self.scope.is_some()
+            || self.patient_id.is_some()
+            || self.expires_at_epoch_seconds.is_some()
+            || self.pending_oauth_state.is_some()
+            || self.pending_code_verifier.is_some()
+            || self.username.is_some()
+            || self.device_id.is_some()
+            || !self.cookies.is_empty()
+    }
+
+    fn legacy_account_state(&self) -> MyChartAccountState {
+        MyChartAccountState {
+            api_base_url: self.api_base_url.clone(),
+            portal_base_url: self.portal_base_url.clone(),
+            client_id: self.client_id.clone(),
+            client_secret: self.client_secret.clone(),
+            redirect_uri: self.redirect_uri.clone(),
+            access_token: self.access_token.clone(),
+            refresh_token: self.refresh_token.clone(),
+            token_type: self.token_type.clone(),
+            scope: self.scope.clone(),
+            patient_id: self.patient_id.clone(),
+            expires_at_epoch_seconds: self.expires_at_epoch_seconds,
+            pending_oauth_state: self.pending_oauth_state.clone(),
+            pending_code_verifier: self.pending_code_verifier.clone(),
+            username: self.username.clone(),
+            device_id: self.device_id.clone(),
+            cookies: self.cookies.clone(),
+            discovery: None,
+        }
+    }
+
+    fn clear_legacy_fields(&mut self) {
+        self.api_base_url = None;
+        self.portal_base_url = None;
+        self.legacy_base_url = None;
+        self.client_id = None;
+        self.client_secret = None;
+        self.redirect_uri = None;
+        self.access_token = None;
+        self.refresh_token = None;
+        self.token_type = None;
+        self.scope = None;
+        self.patient_id = None;
+        self.expires_at_epoch_seconds = None;
+        self.pending_oauth_state = None;
+        self.pending_code_verifier = None;
+        self.username = None;
+        self.device_id = None;
+        self.cookies = Vec::new();
+    }
 }
 
 pub(crate) struct StateStore {
@@ -111,9 +261,18 @@ impl StateStore {
 
         Ok(())
     }
+
+    fn sibling_path(&self, name: &str) -> Result<PathBuf> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| Error::Config(format!("invalid MyChart state path {}", self.path.display())))?;
+        Ok(parent.join(name))
+    }
 }
 
 pub(crate) struct ResolvedContext {
+    pub(crate) account: String,
     pub(crate) api_base_url: Option<String>,
     pub(crate) portal_base_url: Option<String>,
     pub(crate) client_id: Option<String>,
@@ -152,27 +311,34 @@ impl ResolvedContext {
         let path = resolve_state_path(global.config.as_deref())?;
         let store = StateStore::new(path);
         let mut state = store.load()?;
-        if state.portal_base_url.is_none() && state.legacy_base_url.is_some() {
-            state.portal_base_url = state.legacy_base_url.clone();
-        }
+        state.migrate_legacy_account();
+
+        let account = global
+            .account
+            .clone()
+            .or_else(|| state.current_account.clone())
+            .or_else(|| state.accounts.keys().next().cloned())
+            .unwrap_or_else(|| "default".into());
+        let persisted = state.accounts.get(&account).cloned().unwrap_or_default();
 
         Ok(Self {
-            api_base_url: pick(global.base_url.clone(), state.api_base_url.clone()),
-            portal_base_url: pick(global.portal_base_url.clone(), state.portal_base_url.clone()),
-            client_id: pick(global.client_id.clone(), state.client_id.clone()),
-            client_secret: pick(global.client_secret.clone(), state.client_secret.clone()),
-            redirect_uri: pick(global.redirect_uri.clone(), state.redirect_uri.clone()),
-            access_token: pick(global.access_token.clone(), state.access_token.clone()),
-            refresh_token: pick(global.refresh_token.clone(), state.refresh_token.clone()),
-            token_type: state.token_type.clone(),
-            scope: state.scope.clone(),
-            patient_id: state.patient_id.clone(),
-            expires_at_epoch_seconds: state.expires_at_epoch_seconds,
-            pending_oauth_state: state.pending_oauth_state.clone(),
-            pending_code_verifier: state.pending_code_verifier.clone(),
-            username: pick(global.username.clone(), state.username.clone()),
-            device_id: state.device_id.clone().unwrap_or_else(generate_device_id),
-            cookies: state
+            account,
+            api_base_url: pick(global.base_url.clone(), persisted.api_base_url.clone()),
+            portal_base_url: pick(global.portal_base_url.clone(), persisted.portal_base_url.clone()),
+            client_id: pick(global.client_id.clone(), persisted.client_id.clone()),
+            client_secret: pick(global.client_secret.clone(), persisted.client_secret.clone()),
+            redirect_uri: pick(global.redirect_uri.clone(), persisted.redirect_uri.clone()),
+            access_token: pick(global.access_token.clone(), persisted.access_token.clone()),
+            refresh_token: pick(global.refresh_token.clone(), persisted.refresh_token.clone()),
+            token_type: persisted.token_type.clone(),
+            scope: persisted.scope.clone(),
+            patient_id: persisted.patient_id.clone(),
+            expires_at_epoch_seconds: persisted.expires_at_epoch_seconds,
+            pending_oauth_state: persisted.pending_oauth_state.clone(),
+            pending_code_verifier: persisted.pending_code_verifier.clone(),
+            username: pick(global.username.clone(), persisted.username.clone()),
+            device_id: persisted.device_id.clone().unwrap_or_else(generate_device_id),
+            cookies: persisted
                 .cookies
                 .iter()
                 .map(|cookie| (cookie.name.clone(), cookie.value.clone()))
@@ -182,10 +348,60 @@ impl ResolvedContext {
         })
     }
 
+    pub(crate) fn active_account_name(&self) -> Option<&str> {
+        self.state.current_account.as_deref()
+    }
+
+    pub(crate) fn discovery_cache_path(&self) -> Result<PathBuf> {
+        self.store.sibling_path("brands-cache.json")
+    }
+
+    pub(crate) fn list_accounts(&self) -> Vec<(String, MyChartAccountState)> {
+        self.state
+            .accounts
+            .iter()
+            .map(|(name, state)| (name.clone(), state.clone()))
+            .collect()
+    }
+
+    pub(crate) fn describe_account(&self, name: Option<&str>) -> Option<(String, MyChartAccountState)> {
+        let name = match name {
+            Some(name) => name.to_owned(),
+            None => self.account.clone(),
+        };
+        self.state.accounts.get(&name).cloned().map(|state| (name, state))
+    }
+
+    pub(crate) fn set_current_account(&mut self, name: String) -> Result<()> {
+        let account_state =
+            self.state.accounts.get(&name).cloned().ok_or_else(|| {
+                Error::Config(format!("unknown MyChart account {name:?}, run `mychart connect list`"))
+            })?;
+        self.account = name.clone();
+        self.state.current_account = Some(name);
+        self.apply_account_state(&account_state);
+        self.persist_state()
+    }
+
+    pub(crate) fn upsert_account(
+        &mut self,
+        name: String,
+        account_state: MyChartAccountState,
+        set_current: bool,
+    ) -> Result<()> {
+        self.state.accounts.insert(name.clone(), account_state.clone());
+        if set_current {
+            self.account = name.clone();
+            self.state.current_account = Some(name);
+            self.apply_account_state(&account_state);
+        }
+        self.persist_state()
+    }
+
     pub(crate) fn require_api_base_url(&self) -> Result<String> {
         self.api_base_url.clone().ok_or_else(|| {
             Error::Config(
-                "missing MyChart FHIR base URL, pass --base-url, set MYCHART_BASE_URL, or store it during auth authorize-url"
+                "missing MyChart FHIR base URL, pass --base-url, set MYCHART_BASE_URL, use `mychart connect`, or store it during auth authorize-url"
                     .into(),
             )
         })
@@ -272,13 +488,15 @@ impl ResolvedContext {
         self.redirect_uri = Some(redirect_uri.clone());
         self.pending_oauth_state = Some(oauth_state.clone());
         self.pending_code_verifier = Some(code_verifier.clone());
-        self.state.api_base_url = Some(base_url);
-        self.state.client_id = Some(client_id);
-        self.state.client_secret = client_secret;
-        self.state.redirect_uri = Some(redirect_uri);
-        self.state.pending_oauth_state = Some(oauth_state);
-        self.state.pending_code_verifier = Some(code_verifier);
-        self.store.save(&self.state)
+
+        let account = self.current_account_state_mut();
+        account.api_base_url = Some(base_url);
+        account.client_id = Some(client_id);
+        account.client_secret = client_secret;
+        account.redirect_uri = Some(redirect_uri);
+        account.pending_oauth_state = Some(oauth_state);
+        account.pending_code_verifier = Some(code_verifier);
+        self.persist_state()
     }
 
     pub(crate) fn store_api_tokens(&mut self, session: ApiSessionState) -> Result<()> {
@@ -295,19 +513,20 @@ impl ResolvedContext {
         self.pending_oauth_state = None;
         self.pending_code_verifier = None;
 
-        self.state.api_base_url = Some(session.base_url);
-        self.state.client_id = Some(session.client_id);
-        self.state.client_secret = session.client_secret;
-        self.state.redirect_uri = Some(session.redirect_uri);
-        self.state.access_token = Some(session.access_token);
-        self.state.refresh_token = session.refresh_token;
-        self.state.token_type = session.token_type;
-        self.state.scope = session.scope;
-        self.state.patient_id = session.patient_id;
-        self.state.expires_at_epoch_seconds = session.expires_at_epoch_seconds;
-        self.state.pending_oauth_state = None;
-        self.state.pending_code_verifier = None;
-        self.store.save(&self.state)
+        let account = self.current_account_state_mut();
+        account.api_base_url = Some(session.base_url);
+        account.client_id = Some(session.client_id);
+        account.client_secret = session.client_secret;
+        account.redirect_uri = Some(session.redirect_uri);
+        account.access_token = Some(session.access_token);
+        account.refresh_token = session.refresh_token;
+        account.token_type = session.token_type;
+        account.scope = session.scope;
+        account.patient_id = session.patient_id;
+        account.expires_at_epoch_seconds = session.expires_at_epoch_seconds;
+        account.pending_oauth_state = None;
+        account.pending_code_verifier = None;
+        self.persist_state()
     }
 
     pub(crate) fn clear_api_session(&mut self) -> Result<()> {
@@ -320,15 +539,16 @@ impl ResolvedContext {
         self.pending_oauth_state = None;
         self.pending_code_verifier = None;
 
-        self.state.access_token = None;
-        self.state.refresh_token = None;
-        self.state.token_type = None;
-        self.state.scope = None;
-        self.state.patient_id = None;
-        self.state.expires_at_epoch_seconds = None;
-        self.state.pending_oauth_state = None;
-        self.state.pending_code_verifier = None;
-        self.store.save(&self.state)
+        let account = self.current_account_state_mut();
+        account.access_token = None;
+        account.refresh_token = None;
+        account.token_type = None;
+        account.scope = None;
+        account.patient_id = None;
+        account.expires_at_epoch_seconds = None;
+        account.pending_oauth_state = None;
+        account.pending_code_verifier = None;
+        self.persist_state()
     }
 
     pub(crate) fn update_cookies(&mut self, cookies: BTreeMap<String, String>) {
@@ -341,10 +561,9 @@ impl ResolvedContext {
         }
 
         self.portal_base_url = Some(portal_base_url.clone());
-        self.state.portal_base_url = Some(portal_base_url);
-        self.state.username = self.username.clone();
-        self.state.device_id = Some(self.device_id.clone());
-        self.state.cookies = self
+        let username = self.username.clone();
+        let device_id = self.device_id.clone();
+        let cookies = self
             .cookies
             .iter()
             .map(|(name, value)| StoredCookie {
@@ -352,20 +571,64 @@ impl ResolvedContext {
                 value: value.clone(),
             })
             .collect();
-        self.store.save(&self.state)
+
+        let account = self.current_account_state_mut();
+        account.portal_base_url = Some(portal_base_url);
+        account.username = username;
+        account.device_id = Some(device_id);
+        account.cookies = cookies;
+        self.persist_state()
     }
 
     pub(crate) fn clear_portal_session(&mut self) -> Result<()> {
         self.cookies.clear();
-        self.state.portal_base_url = self.portal_base_url.clone();
-        self.state.username = self.username.clone();
-        self.state.device_id = Some(self.device_id.clone());
-        self.state.cookies = Vec::new();
-        self.store.save(&self.state)
+        let portal_base_url = self.portal_base_url.clone();
+        let username = self.username.clone();
+        let device_id = self.device_id.clone();
+
+        let account = self.current_account_state_mut();
+        account.portal_base_url = portal_base_url;
+        account.username = username;
+        account.device_id = Some(device_id);
+        account.cookies = Vec::new();
+        self.persist_state()
     }
 
     pub(crate) fn cookie_names(&self) -> Vec<String> {
         cookie_names(&self.cookies)
+    }
+
+    fn current_account_state_mut(&mut self) -> &mut MyChartAccountState {
+        self.state.current_account = Some(self.account.clone());
+        self.state.accounts.entry(self.account.clone()).or_default()
+    }
+
+    fn apply_account_state(&mut self, account: &MyChartAccountState) {
+        self.api_base_url = account.api_base_url.clone();
+        self.portal_base_url = account.portal_base_url.clone();
+        self.client_id = account.client_id.clone();
+        self.client_secret = account.client_secret.clone();
+        self.redirect_uri = account.redirect_uri.clone();
+        self.access_token = account.access_token.clone();
+        self.refresh_token = account.refresh_token.clone();
+        self.token_type = account.token_type.clone();
+        self.scope = account.scope.clone();
+        self.patient_id = account.patient_id.clone();
+        self.expires_at_epoch_seconds = account.expires_at_epoch_seconds;
+        self.pending_oauth_state = account.pending_oauth_state.clone();
+        self.pending_code_verifier = account.pending_code_verifier.clone();
+        self.username = account.username.clone();
+        self.device_id = account.device_id.clone().unwrap_or_else(generate_device_id);
+        self.cookies = account
+            .cookies
+            .iter()
+            .map(|cookie| (cookie.name.clone(), cookie.value.clone()))
+            .collect();
+    }
+
+    fn persist_state(&mut self) -> Result<()> {
+        self.state.clear_legacy_fields();
+        self.store.save(&self.state)
     }
 }
 
