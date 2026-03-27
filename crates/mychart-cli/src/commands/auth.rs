@@ -13,6 +13,10 @@ use serde_json::{json, Value};
 use crate::{
     api_client, build_authorize_url, dedupe_preserving_order, default_patient_scopes, ensure_code_verifier,
     ensure_json_success, expires_at_epoch_seconds, fetch_capability_summary, generate_nonce,
+    oauth::{
+        dynamic_client_registration_request, generate_dynamic_client_key_material, sign_dynamic_client_assertion,
+        DynamicClientRegistrationResponse, DynamicClientState, JWT_BEARER_GRANT_TYPE,
+    },
     parse_oauth_token_response, split_scopes,
     state::{ApiSessionState, ResolvedContext},
     Error, Result,
@@ -70,6 +74,9 @@ pub(crate) struct AuthLoginArgs {
 
     #[arg(long)]
     no_open: bool,
+
+    #[arg(long)]
+    dynamic_client: bool,
 }
 
 #[derive(Debug, Args)]
@@ -100,7 +107,12 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
     match command {
         AuthSubcommand::Login(args) => run_login(args, context),
         AuthSubcommand::AuthorizeUrl(args) => {
-            let prepared = prepare_authorization(context, args.options, !args.no_store)?;
+            let prepared = prepare_authorization(
+                context,
+                args.options,
+                !args.no_store,
+                TokenExchangeAuth::StoredClientStrategy,
+            )?;
             Ok(json!({
                 "status": "ok",
                 "base_url": prepared.base_url,
@@ -124,77 +136,11 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             exchange_code(context, args.code, args.redirect_uri, args.code_verifier, args.no_store)
         }
         AuthSubcommand::Refresh(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(None)?;
-            let refresh_token = context.require_refresh_token(args.refresh_token)?;
-            let client_secret = context.client_secret.clone();
-            let authorization_header = client_secret
-                .as_deref()
-                .map(|client_secret| basic_auth_header(&client_id, client_secret));
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let token_endpoint = capability.require_token_url()?;
-            let mut form = vec![
-                ("grant_type".into(), "refresh_token".into()),
-                ("refresh_token".into(), refresh_token.clone()),
-            ];
-            if authorization_header.is_none() {
-                form.push(("client_id".into(), client_id.clone()));
+            if args.refresh_token.is_none() && context.dynamic_client().is_some() {
+                return refresh_with_dynamic_client(context, args.no_store);
             }
 
-            auth_debug(
-                context,
-                "oauth_refresh_request",
-                json!({
-                    "account": context.account,
-                    "token_endpoint": token_endpoint,
-                    "grant_type": "refresh_token",
-                    "redirect_uri": redirect_uri,
-                    "refresh_token_present": true,
-                    "body_fields": form_field_names(&form),
-                    "authorization_header": authorization_header
-                        .as_ref()
-                        .map(|_| "Basic <redacted>")
-                        .unwrap_or("none"),
-                    "client_secret_present": client_secret.is_some(),
-                }),
-            );
-
-            let response = client.exchange_oauth_token(&token_endpoint, &form, authorization_header.as_deref())?;
-            auth_debug_token_response(context, "oauth_refresh_response", &response);
-            ensure_json_success(&response)?;
-            let token = parse_oauth_token_response(&response.body)?;
-            let next_refresh_token = token.refresh_token.clone().or(Some(refresh_token));
-            let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
-
-            if !args.no_store {
-                context.store_api_tokens(ApiSessionState {
-                    base_url: base_url.clone(),
-                    client_id: client_id.clone(),
-                    client_secret,
-                    redirect_uri,
-                    access_token: token.access_token.clone(),
-                    refresh_token: next_refresh_token.clone(),
-                    token_type: token.token_type.clone(),
-                    scope: token.scope.clone().or_else(|| context.scope.clone()),
-                    patient_id: token.patient.clone().or_else(|| context.patient_id.clone()),
-                    expires_at_epoch_seconds,
-                })?;
-            }
-
-            Ok(json!({
-                "status": "refreshed",
-                "base_url": base_url,
-                "client_id": client_id,
-                "token_endpoint": token_endpoint,
-                "patient_id": token.patient.or_else(|| context.patient_id.clone()),
-                "scope": split_scopes(token.scope.as_deref().or(context.scope.as_deref())),
-                "token_type": token.token_type,
-                "expires_at_epoch_seconds": expires_at_epoch_seconds,
-                "refresh_token_available": next_refresh_token.is_some(),
-                "stored": !args.no_store,
-            }))
+            refresh_with_refresh_token(context, args)
         }
         AuthSubcommand::Status => {
             if !context.api_authenticated() {
@@ -204,6 +150,9 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
                     "reason": "no_stored_token",
                     "base_url": context.api_base_url,
                     "client_id": context.client_id,
+                    "dynamic_client_id": context.dynamic_client().map(|dynamic_client| dynamic_client.client_id.clone()),
+                    "dynamic_client_registered": context.dynamic_client().is_some(),
+                    "renewal_method": renewal_method(context),
                     "refresh_token_available": context.refresh_token.is_some(),
                 }));
             }
@@ -239,6 +188,9 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
                 "authenticated": authenticated,
                 "base_url": context.api_base_url,
                 "client_id": context.client_id,
+                "dynamic_client_id": context.dynamic_client().map(|dynamic_client| dynamic_client.client_id.clone()),
+                "dynamic_client_registered": context.dynamic_client().is_some(),
+                "renewal_method": renewal_method(context),
                 "patient_id": context.patient_id,
                 "scope": split_scopes(context.scope.as_deref()),
                 "expires_at_epoch_seconds": context.expires_at_epoch_seconds,
@@ -270,8 +222,35 @@ struct PreparedAuthorization {
     scopes: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum TokenExchangeAuth {
+    StoredClientStrategy,
+    ForcePublic,
+}
+
+#[derive(Debug)]
+struct TokenExchangeResult {
+    base_url: String,
+    client_id: String,
+    client_secret: Option<String>,
+    redirect_uri: String,
+    token_endpoint: String,
+    token: crate::OAuthTokenResponse,
+    expires_at_epoch_seconds: Option<u64>,
+}
+
 fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value> {
-    let prepared = prepare_authorization(context, args.options, true)?;
+    let token_auth = if args.dynamic_client {
+        TokenExchangeAuth::ForcePublic
+    } else {
+        TokenExchangeAuth::StoredClientStrategy
+    };
+    let prepared = prepare_authorization(context, args.options, true, token_auth)?;
+    if args.dynamic_client && !prepared.scopes.iter().any(|scope| scope == "offline_access") {
+        return Err(Error::Arguments(
+            "auth login --dynamic-client requires the offline_access scope so Epic can grant persistent access".into(),
+        ));
+    }
     let redirect_uri = Url::parse(&prepared.redirect_uri)
         .map_err(|error| Error::Config(format!("invalid redirect URI {:?}: {error}", prepared.redirect_uri)))?;
     let bind_address = loopback_bind_address(&redirect_uri)?;
@@ -309,6 +288,10 @@ fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value
         }),
     );
 
+    if args.dynamic_client {
+        return login_with_dynamic_client(context, prepared, callback.code);
+    }
+
     exchange_code(
         context,
         callback.code,
@@ -322,12 +305,13 @@ fn prepare_authorization(
     context: &mut ResolvedContext,
     options: AuthAuthorizeOptions,
     store_pending: bool,
+    token_auth: TokenExchangeAuth,
 ) -> Result<PreparedAuthorization> {
     let base_url = context.require_api_base_url()?;
     let client_id = context.require_client_id()?;
     let redirect_uri = context.require_redirect_uri(options.redirect_uri)?;
     let client = api_client(&base_url)?;
-    let capability = fetch_capability_summary(&client)?;
+    let capability = fetch_capability_summary(&client, Some(&client_id))?;
     let authorize_endpoint = capability.require_authorize_url()?;
     let token_endpoint = capability.require_token_url()?;
     let oauth_state = match options.state {
@@ -376,11 +360,7 @@ fn prepare_authorization(
             "scope_count": scopes.len(),
             "scopes": scopes,
             "client_secret_present": context.client_secret.is_some(),
-            "token_authentication": if context.client_secret.is_some() {
-                "basic"
-            } else {
-                "public_pkce"
-            },
+            "token_authentication": token_exchange_auth_label(token_auth),
         }),
     );
 
@@ -404,16 +384,129 @@ fn exchange_code(
     code_verifier_override: Option<String>,
     no_store: bool,
 ) -> Result<Value> {
+    let result = exchange_code_token(
+        context,
+        code,
+        redirect_uri_override,
+        code_verifier_override,
+        TokenExchangeAuth::StoredClientStrategy,
+    )?;
+    let refresh_token = result
+        .token
+        .refresh_token
+        .clone()
+        .or_else(|| context.refresh_token.clone());
+
+    if !no_store {
+        context.store_api_tokens(ApiSessionState {
+            base_url: result.base_url.clone(),
+            client_id: result.client_id.clone(),
+            client_secret: result.client_secret.clone(),
+            redirect_uri: result.redirect_uri.clone(),
+            access_token: result.token.access_token.clone(),
+            refresh_token: refresh_token.clone(),
+            token_type: result.token.token_type.clone(),
+            scope: result.token.scope.clone(),
+            patient_id: result.token.patient.clone(),
+            expires_at_epoch_seconds: result.expires_at_epoch_seconds,
+        })?;
+    }
+
+    Ok(json!({
+        "status": "authenticated",
+        "base_url": result.base_url,
+        "client_id": result.client_id,
+        "redirect_uri": result.redirect_uri,
+        "token_endpoint": result.token_endpoint,
+        "patient_id": result.token.patient,
+        "scope": split_scopes(result.token.scope.as_deref()),
+        "token_type": result.token.token_type,
+        "expires_at_epoch_seconds": result.expires_at_epoch_seconds,
+        "dynamic_client_id": context.dynamic_client().map(|dynamic_client| dynamic_client.client_id.clone()),
+        "dynamic_client_registered": context.dynamic_client().is_some(),
+        "renewal_method": renewal_method(context),
+        "refresh_token_available": refresh_token.is_some(),
+        "stored": !no_store,
+    }))
+}
+
+fn login_with_dynamic_client(
+    context: &mut ResolvedContext,
+    prepared: PreparedAuthorization,
+    code: String,
+) -> Result<Value> {
+    let initial_token = exchange_code_token(
+        context,
+        code,
+        Some(prepared.redirect_uri.clone()),
+        Some(prepared.code_verifier),
+        TokenExchangeAuth::ForcePublic,
+    )?;
+    let key_material = generate_dynamic_client_key_material()?;
+    let dynamic_client = register_dynamic_client(
+        context,
+        &prepared.client_id,
+        &initial_token.base_url,
+        &initial_token.token.access_token,
+        &key_material.private_key_pem,
+        &key_material.jwks,
+    )?;
+    context.store_dynamic_client(dynamic_client.clone())?;
+    let refreshed = exchange_dynamic_client_token(context, Some(dynamic_client.clone()))?;
+
+    context.store_api_tokens(ApiSessionState {
+        base_url: refreshed.base_url.clone(),
+        client_id: refreshed.client_id.clone(),
+        client_secret: refreshed.client_secret.clone(),
+        redirect_uri: refreshed.redirect_uri.clone(),
+        access_token: refreshed.token.access_token.clone(),
+        refresh_token: refreshed.token.refresh_token.clone(),
+        token_type: refreshed.token.token_type.clone(),
+        scope: refreshed.token.scope.clone(),
+        patient_id: refreshed.token.patient.clone(),
+        expires_at_epoch_seconds: refreshed.expires_at_epoch_seconds,
+    })?;
+
+    Ok(json!({
+        "status": "authenticated",
+        "base_url": refreshed.base_url,
+        "client_id": refreshed.client_id,
+        "dynamic_client_id": dynamic_client.client_id,
+        "dynamic_client_registered": true,
+        "renewal_method": "dynamic_client_jwt_bearer",
+        "registration_endpoint": dynamic_client.registration_endpoint,
+        "redirect_uri": refreshed.redirect_uri,
+        "token_endpoint": refreshed.token_endpoint,
+        "patient_id": refreshed.token.patient,
+        "scope": split_scopes(refreshed.token.scope.as_deref()),
+        "token_type": refreshed.token.token_type,
+        "expires_at_epoch_seconds": refreshed.expires_at_epoch_seconds,
+        "refresh_token_available": refreshed.token.refresh_token.is_some(),
+        "stored": true,
+    }))
+}
+
+fn exchange_code_token(
+    context: &ResolvedContext,
+    code: String,
+    redirect_uri_override: Option<String>,
+    code_verifier_override: Option<String>,
+    token_auth: TokenExchangeAuth,
+) -> Result<TokenExchangeResult> {
     let base_url = context.require_api_base_url()?;
     let client_id = context.require_client_id()?;
     let redirect_uri = context.require_redirect_uri(redirect_uri_override)?;
     let code_verifier = context.require_code_verifier(code_verifier_override)?;
-    let client_secret = context.client_secret.clone();
+    let stored_client_secret = context.client_secret.clone();
+    let client_secret = match token_auth {
+        TokenExchangeAuth::StoredClientStrategy => stored_client_secret.clone(),
+        TokenExchangeAuth::ForcePublic => None,
+    };
     let authorization_header = client_secret
         .as_deref()
         .map(|client_secret| basic_auth_header(&client_id, client_secret));
     let client = api_client(&base_url)?;
-    let capability = fetch_capability_summary(&client)?;
+    let capability = fetch_capability_summary(&client, Some(&client_id))?;
     let token_endpoint = capability.require_token_url()?;
     let mut form = vec![
         ("grant_type".into(), "authorization_code".into()),
@@ -449,6 +542,7 @@ fn exchange_code(
                 .map(|_| "Basic <redacted>")
                 .unwrap_or("none"),
             "client_secret_present": client_secret.is_some(),
+            "token_authentication": token_exchange_auth_label(token_auth),
         }),
     );
 
@@ -456,37 +550,290 @@ fn exchange_code(
     auth_debug_token_response(context, "oauth_token_exchange_response", &response);
     ensure_json_success(&response)?;
     let token = parse_oauth_token_response(&response.body)?;
-    let refresh_token = token.refresh_token.clone().or_else(|| context.refresh_token.clone());
     let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
 
-    if !no_store {
+    Ok(TokenExchangeResult {
+        base_url,
+        client_id,
+        client_secret: stored_client_secret,
+        redirect_uri,
+        token_endpoint,
+        token,
+        expires_at_epoch_seconds,
+    })
+}
+
+fn refresh_with_refresh_token(context: &mut ResolvedContext, args: AuthRefreshArgs) -> Result<Value> {
+    let base_url = context.require_api_base_url()?;
+    let client_id = context.require_client_id()?;
+    let redirect_uri = context.require_redirect_uri(None)?;
+    let refresh_token = context.require_refresh_token(args.refresh_token)?;
+    let client_secret = context.client_secret.clone();
+    let authorization_header = client_secret
+        .as_deref()
+        .map(|client_secret| basic_auth_header(&client_id, client_secret));
+    let client = api_client(&base_url)?;
+    let capability = fetch_capability_summary(&client, Some(&client_id))?;
+    let token_endpoint = capability.require_token_url()?;
+    let mut form = vec![
+        ("grant_type".into(), "refresh_token".into()),
+        ("refresh_token".into(), refresh_token.clone()),
+    ];
+    if authorization_header.is_none() {
+        form.push(("client_id".into(), client_id.clone()));
+    }
+
+    auth_debug(
+        context,
+        "oauth_refresh_request",
+        json!({
+            "account": context.account,
+            "token_endpoint": token_endpoint,
+            "grant_type": "refresh_token",
+            "redirect_uri": redirect_uri,
+            "refresh_token_present": true,
+            "body_fields": form_field_names(&form),
+            "authorization_header": authorization_header
+                .as_ref()
+                .map(|_| "Basic <redacted>")
+                .unwrap_or("none"),
+            "client_secret_present": client_secret.is_some(),
+        }),
+    );
+
+    let response = client.exchange_oauth_token(&token_endpoint, &form, authorization_header.as_deref())?;
+    auth_debug_token_response(context, "oauth_refresh_response", &response);
+    ensure_json_success(&response)?;
+    let token = parse_oauth_token_response(&response.body)?;
+    let next_refresh_token = token.refresh_token.clone().or(Some(refresh_token));
+    let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
+
+    if !args.no_store {
         context.store_api_tokens(ApiSessionState {
             base_url: base_url.clone(),
             client_id: client_id.clone(),
             client_secret,
-            redirect_uri: redirect_uri.clone(),
+            redirect_uri,
             access_token: token.access_token.clone(),
-            refresh_token: refresh_token.clone(),
+            refresh_token: next_refresh_token.clone(),
             token_type: token.token_type.clone(),
-            scope: token.scope.clone(),
-            patient_id: token.patient.clone(),
+            scope: token.scope.clone().or_else(|| context.scope.clone()),
+            patient_id: token.patient.clone().or_else(|| context.patient_id.clone()),
             expires_at_epoch_seconds,
         })?;
     }
 
     Ok(json!({
-        "status": "authenticated",
+        "status": "refreshed",
         "base_url": base_url,
         "client_id": client_id,
-        "redirect_uri": redirect_uri,
+        "dynamic_client_id": context.dynamic_client().map(|dynamic_client| dynamic_client.client_id.clone()),
+        "dynamic_client_registered": context.dynamic_client().is_some(),
+        "renewal_method": renewal_method(context),
         "token_endpoint": token_endpoint,
-        "patient_id": token.patient,
-        "scope": split_scopes(token.scope.as_deref()),
+        "patient_id": token.patient.or_else(|| context.patient_id.clone()),
+        "scope": split_scopes(token.scope.as_deref().or(context.scope.as_deref())),
         "token_type": token.token_type,
         "expires_at_epoch_seconds": expires_at_epoch_seconds,
+        "refresh_token_available": next_refresh_token.is_some(),
+        "stored": !args.no_store,
+    }))
+}
+
+fn refresh_with_dynamic_client(context: &mut ResolvedContext, no_store: bool) -> Result<Value> {
+    let result = exchange_dynamic_client_token(context, None)?;
+    let refresh_token = result
+        .token
+        .refresh_token
+        .clone()
+        .or_else(|| context.refresh_token.clone());
+
+    if !no_store {
+        context.store_api_tokens(ApiSessionState {
+            base_url: result.base_url.clone(),
+            client_id: result.client_id.clone(),
+            client_secret: result.client_secret.clone(),
+            redirect_uri: result.redirect_uri.clone(),
+            access_token: result.token.access_token.clone(),
+            refresh_token: refresh_token.clone(),
+            token_type: result.token.token_type.clone(),
+            scope: result.token.scope.clone().or_else(|| context.scope.clone()),
+            patient_id: result.token.patient.clone().or_else(|| context.patient_id.clone()),
+            expires_at_epoch_seconds: result.expires_at_epoch_seconds,
+        })?;
+    }
+
+    Ok(json!({
+        "status": "refreshed",
+        "base_url": result.base_url,
+        "client_id": result.client_id,
+        "dynamic_client_id": context.dynamic_client().map(|dynamic_client| dynamic_client.client_id.clone()),
+        "dynamic_client_registered": context.dynamic_client().is_some(),
+        "renewal_method": "dynamic_client_jwt_bearer",
+        "token_endpoint": result.token_endpoint,
+        "patient_id": result.token.patient.or_else(|| context.patient_id.clone()),
+        "scope": split_scopes(result.token.scope.as_deref().or(context.scope.as_deref())),
+        "token_type": result.token.token_type,
+        "expires_at_epoch_seconds": result.expires_at_epoch_seconds,
         "refresh_token_available": refresh_token.is_some(),
         "stored": !no_store,
     }))
+}
+
+fn register_dynamic_client(
+    context: &ResolvedContext,
+    software_client_id: &str,
+    base_url: &str,
+    initial_access_token: &str,
+    private_key_pem: &str,
+    jwks: &crate::oauth::DynamicJwkSet,
+) -> Result<DynamicClientState> {
+    let client = api_client(base_url)?;
+    let capability = fetch_capability_summary(&client, Some(software_client_id))?;
+    let register_endpoint = capability.require_register_url()?;
+    let request_body = serde_json::to_value(dynamic_client_registration_request(
+        software_client_id.to_owned(),
+        jwks.clone(),
+    ))
+    .map_err(|error| Error::Auth {
+        message: "failed to serialize the Epic dynamic client registration request".into(),
+        details: json!({
+            "error": error.to_string(),
+        }),
+    })?;
+
+    auth_debug(
+        context,
+        "oauth_dynamic_registration_request",
+        json!({
+            "account": context.account,
+            "register_endpoint": register_endpoint,
+            "software_client_id": software_client_id,
+            "body": request_body,
+        }),
+    );
+
+    let response = client.execute_bearer_json_absolute(
+        Method::POST,
+        &register_endpoint,
+        initial_access_token,
+        Some(&request_body),
+    )?;
+    auth_debug_token_response(context, "oauth_dynamic_registration_response", &response);
+    ensure_json_success(&response)?;
+    let registration: DynamicClientRegistrationResponse =
+        serde_json::from_value(response.body.clone()).map_err(|error| Error::Auth {
+            message: "Epic returned a dynamic client registration response we could not parse".into(),
+            details: json!({
+                "error": error.to_string(),
+                "body": response.body,
+            }),
+        })?;
+    if let Some(token_endpoint_auth_method) = registration.token_endpoint_auth_method.as_deref() {
+        if token_endpoint_auth_method != "none" {
+            return Err(Error::Auth {
+                message: format!(
+                    "Epic registered a dynamic client with unsupported token endpoint auth method {token_endpoint_auth_method:?}"
+                ),
+                details: json!({
+                    "body": response.body,
+                }),
+            });
+        }
+    }
+    if !registration.grant_types.is_empty()
+        && !registration
+            .grant_types
+            .iter()
+            .any(|grant_type| grant_type == JWT_BEARER_GRANT_TYPE)
+    {
+        return Err(Error::Auth {
+            message: "Epic registered a dynamic client that does not advertise JWT bearer grants".into(),
+            details: json!({
+                "grant_types": registration.grant_types,
+                "body": response.body,
+            }),
+        });
+    }
+
+    Ok(DynamicClientState {
+        client_id: registration.client_id,
+        private_key_pem: private_key_pem.to_owned(),
+        registration_endpoint: Some(register_endpoint),
+        client_id_issued_at_epoch_seconds: registration.client_id_issued_at,
+    })
+}
+
+fn exchange_dynamic_client_token(
+    context: &ResolvedContext,
+    dynamic_client_override: Option<DynamicClientState>,
+) -> Result<TokenExchangeResult> {
+    let base_url = context.require_api_base_url()?;
+    let client_id = context.require_client_id()?;
+    let redirect_uri = context.require_redirect_uri(None)?;
+    let dynamic_client = dynamic_client_override
+        .or_else(|| context.dynamic_client().cloned())
+        .ok_or_else(|| {
+            Error::Config(
+                "missing Epic dynamic client registration, run `mychart auth login --dynamic-client` first".into(),
+            )
+        })?;
+    let client = api_client(&base_url)?;
+    let capability = fetch_capability_summary(&client, Some(&client_id))?;
+    let token_endpoint = capability.require_token_url()?;
+    let assertion =
+        sign_dynamic_client_assertion(&dynamic_client.client_id, &token_endpoint, &dynamic_client.private_key_pem)?;
+    let form = vec![
+        ("grant_type".into(), JWT_BEARER_GRANT_TYPE.into()),
+        ("client_id".into(), dynamic_client.client_id.clone()),
+        ("assertion".into(), assertion.clone()),
+    ];
+
+    auth_debug(
+        context,
+        "oauth_dynamic_jwt_request",
+        json!({
+            "account": context.account,
+            "token_endpoint": token_endpoint,
+            "grant_type": JWT_BEARER_GRANT_TYPE,
+            "dynamic_client_id": dynamic_client.client_id,
+            "assertion_length": assertion.len(),
+            "body_fields": form_field_names(&form),
+        }),
+    );
+
+    let response = client.exchange_oauth_token(&token_endpoint, &form, None)?;
+    auth_debug_token_response(context, "oauth_dynamic_jwt_response", &response);
+    ensure_json_success(&response)?;
+    let token = parse_oauth_token_response(&response.body)?;
+    let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
+
+    Ok(TokenExchangeResult {
+        base_url,
+        client_id,
+        client_secret: context.client_secret.clone(),
+        redirect_uri,
+        token_endpoint,
+        token,
+        expires_at_epoch_seconds,
+    })
+}
+
+fn renewal_method(context: &ResolvedContext) -> &'static str {
+    if context.dynamic_client().is_some() {
+        "dynamic_client_jwt_bearer"
+    } else if context.refresh_token.is_some() {
+        "refresh_token"
+    } else {
+        "none"
+    }
+}
+
+fn token_exchange_auth_label(token_auth: TokenExchangeAuth) -> &'static str {
+    match token_auth {
+        TokenExchangeAuth::StoredClientStrategy => "stored_client_strategy",
+        TokenExchangeAuth::ForcePublic => "public_pkce",
+    }
 }
 
 #[derive(Debug)]

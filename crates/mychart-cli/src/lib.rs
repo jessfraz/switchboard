@@ -2,6 +2,7 @@ mod client;
 mod commands;
 mod discovery;
 mod error;
+mod oauth;
 mod state;
 
 use std::{
@@ -42,6 +43,7 @@ const AFTER_HELP: &str = concat!(
     "  mychart connect ucla medical center\n",
     "  mychart auth login --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback --scope patient/*.read\n",
+    "  mychart auth login --dynamic-client --scope offline_access --scope patient/*.read\n",
     "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
     "  mychart timeline --limit 25\n",
@@ -191,8 +193,8 @@ fn portal_client(base_url: &str) -> Result<MyChartClient> {
     MyChartClient::new(base_url.to_owned())
 }
 
-fn fetch_capability_summary(client: &MyChartClient) -> Result<CapabilitySummary> {
-    let response = client.fetch_capability_statement()?;
+fn fetch_capability_summary(client: &MyChartClient, epic_client_id: Option<&str>) -> Result<CapabilitySummary> {
+    let response = client.fetch_capability_statement(epic_client_id)?;
     ensure_json_success(&response)?;
     CapabilitySummary::from_value(response.body)
 }
@@ -253,7 +255,7 @@ fn ensure_code_verifier(verifier: String) -> Result<String> {
     Ok(verifier)
 }
 
-fn generate_nonce(bytes: usize) -> Result<String> {
+pub(crate) fn generate_nonce(bytes: usize) -> Result<String> {
     Ok(base64_url_encode(&random_bytes(bytes)?))
 }
 
@@ -544,7 +546,7 @@ pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     )
 }
 
-fn base64_url_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64_url_encode(bytes: &[u8]) -> String {
     base64_encode_with_alphabet(
         bytes,
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
@@ -942,6 +944,7 @@ impl ApiSearchParamCapability {
 struct CapabilitySummary {
     authorize_url: Option<String>,
     token_url: Option<String>,
+    register_url: Option<String>,
     fhir_version: Option<String>,
     software_name: Option<String>,
     software_version: Option<String>,
@@ -973,6 +976,9 @@ impl CapabilitySummary {
             .and_then(|extension| extension.value_uri.clone());
         let token_url = oauth_uris
             .and_then(|extension| extension.extension.iter().find(|child| child.url == "token"))
+            .and_then(|extension| extension.value_uri.clone());
+        let register_url = oauth_uris
+            .and_then(|extension| extension.extension.iter().find(|child| child.url == "register"))
             .and_then(|extension| extension.value_uri.clone());
 
         let mut resources = rest
@@ -1008,6 +1014,7 @@ impl CapabilitySummary {
         Ok(Self {
             authorize_url,
             token_url,
+            register_url,
             fhir_version: document.fhir_version,
             software_name,
             software_version,
@@ -1026,6 +1033,12 @@ impl CapabilitySummary {
         self.token_url
             .clone()
             .ok_or_else(|| Error::Config("capability statement did not advertise a SMART token endpoint".into()))
+    }
+
+    fn require_register_url(&self) -> Result<String> {
+        self.register_url.clone().ok_or_else(|| {
+            Error::Config("capability statement did not advertise a SMART dynamic client registration endpoint".into())
+        })
     }
 
     fn resolve_resource(&self, token: &str) -> Option<ApiResourceCapability> {
@@ -1125,7 +1138,7 @@ struct CapabilitySearchParam {
 }
 
 #[derive(Debug, Deserialize)]
-struct OAuthTokenResponse {
+pub(crate) struct OAuthTokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     token_type: Option<String>,
@@ -1369,6 +1382,68 @@ mod tests {
     }
 
     #[test]
+    fn refresh_uses_dynamic_client_jwt_bearer_when_registered() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "fresh-access-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read offline_access",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let key_material =
+            crate::oauth::generate_dynamic_client_key_material().expect("dynamic key material should generate");
+        let temp_dir = temp_dir("mychart-refresh-dynamic-client");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                current_account: Some("default".into()),
+                accounts: BTreeMap::from([(
+                    "default".into(),
+                    crate::state::MyChartAccountState {
+                        api_base_url: Some(server.base_url()),
+                        client_id: Some("client-123".into()),
+                        redirect_uri: Some("http://127.0.0.1:8910/callback".into()),
+                        patient_id: Some("patient-123".into()),
+                        dynamic_client: Some(crate::oauth::DynamicClientState {
+                            client_id: "dynamic-client-123".into(),
+                            private_key_pem: key_material.private_key_pem,
+                            registration_endpoint: Some(format!("{}/oauth2/register", server.base_url())),
+                            client_id_issued_at_epoch_seconds: Some(1_800_000_000u64),
+                        }),
+                        ..crate::state::MyChartAccountState::default()
+                    },
+                )]),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "auth",
+            "refresh",
+        ]);
+
+        assert_eq!(output["status"], "refreshed");
+        assert_eq!(output["renewal_method"], "dynamic_client_jwt_bearer");
+        let requests = server.requests();
+        assert!(requests[0].contains("epic-client-id: client-123"));
+        assert!(requests[1].contains("POST /oauth2/token"));
+        assert!(requests[1].contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer"));
+        assert!(requests[1].contains("client_id=dynamic-client-123"));
+        assert!(requests[1].contains("assertion="));
+    }
+
+    #[test]
     fn auth_login_receives_loopback_callback_and_exchanges_code() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
@@ -1439,6 +1514,123 @@ mod tests {
             .expect("default account should be persisted");
         assert_eq!(account.access_token.as_deref(), Some("access-token"));
         assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
+    }
+
+    #[test]
+    fn auth_login_dynamic_client_registers_and_uses_jwt_bearer() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "initial-access-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read offline_access",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                201,
+                json!({
+                    "client_id": "dynamic-client-123",
+                    "client_id_issued_at": 1_800_000_000u64,
+                    "token_endpoint_auth_method": "none",
+                    "grant_types": [crate::oauth::JWT_BEARER_GRANT_TYPE]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "persistent-access-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read offline_access",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-auth-login-dynamic-client");
+        let config_path = temp_dir.join("config.json");
+        let callback_listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
+        let callback_port = callback_listener
+            .local_addr()
+            .expect("listener should have local addr")
+            .port();
+        drop(callback_listener);
+        let redirect_uri = format!("http://127.0.0.1:{callback_port}/callback");
+        let config_path_for_thread = config_path.clone();
+        let server_base_url = format!("{}/", server.base_url());
+
+        let handle = thread::spawn(move || {
+            run_command(&[
+                "mychart",
+                "--config",
+                config_path_for_thread.to_str().expect("config path should be utf-8"),
+                "--base-url",
+                &server_base_url,
+                "--client-id",
+                "client-123",
+                "--redirect-uri",
+                &redirect_uri,
+                "--compact",
+                "auth",
+                "login",
+                "--dynamic-client",
+                "--no-open",
+                "--scope",
+                "patient/*.read",
+                "--scope",
+                "offline_access",
+                "--state",
+                "test-state",
+                "--code-verifier",
+                "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK",
+            ])
+        });
+
+        let callback_sent = wait_for_callback_response(
+            callback_port,
+            "GET /callback?code=oauth-code&state=test-state HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        );
+        assert!(callback_sent.contains("You can close this tab"));
+
+        let output = handle.join().expect("auth login thread should finish");
+        assert_eq!(output["status"], "authenticated");
+        assert_eq!(output["dynamic_client_id"], "dynamic-client-123");
+        assert_eq!(output["renewal_method"], "dynamic_client_jwt_bearer");
+        assert_eq!(output["patient_id"], "patient-123");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("persistent-access-token"));
+        assert_eq!(
+            account.dynamic_client.as_ref().map(|dynamic_client| dynamic_client.client_id.as_str()),
+            Some("dynamic-client-123")
+        );
+
+        let requests = server.requests();
+        assert!(requests[0].contains("epic-client-id: client-123"));
+        assert!(requests[2].contains("POST /oauth2/token"));
+        assert!(requests[2].contains("client_id=client-123"));
+        assert!(!requests[2].contains("authorization: Basic"));
+        assert!(requests[4].contains("POST /oauth2/register"));
+        assert!(requests[4].contains("authorization: Bearer initial-access-token"));
+        assert!(requests[4].contains("\"software_id\":\"client-123\""));
+        assert!(requests[4].contains("\"kty\":\"RSA\""));
+        assert!(requests[6].contains("POST /oauth2/token"));
+        assert!(requests[6].contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer"));
+        assert!(requests[6].contains("client_id=dynamic-client-123"));
+        assert!(requests[6].contains("assertion="));
     }
 
     #[test]
@@ -2586,7 +2778,8 @@ mod tests {
                         "url": "http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris",
                         "extension": [
                             {"url": "authorize", "valueUri": format!("{base_url}/oauth2/authorize")},
-                            {"url": "token", "valueUri": format!("{base_url}/oauth2/token")}
+                            {"url": "token", "valueUri": format!("{base_url}/oauth2/token")},
+                            {"url": "register", "valueUri": format!("{base_url}/oauth2/register")}
                         ]
                     }]
                 },

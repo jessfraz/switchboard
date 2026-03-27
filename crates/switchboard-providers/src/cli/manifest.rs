@@ -11,8 +11,8 @@ use crate::{
         CliDecodeStrategy, CliExecutableSpec, CliSummarizeFn, CliSummarizeStrategy,
     },
     cli::declarative::{
-        CliArgsSegment, CliArgsTemplate, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionShape,
-        CliJsonRefsSpec, CliSummaryTemplate,
+        CliArgsSegment, CliArgsTemplate, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection,
+        CliJsonProjectionShape, CliJsonRefsSpec, CliProjectionTemplate, CliSummaryTemplate,
     },
     inventory::{CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind},
 };
@@ -385,15 +385,7 @@ enum CliManifestDecodeStrategy {
     Handler {
         id: String,
     },
-    JsonProjection {
-        response_field: String,
-        shape: CliManifestJsonProjectionShape,
-        fields: Vec<CliManifestJsonField>,
-        #[serde(default)]
-        count_field: Option<String>,
-        #[serde(default)]
-        refs: Option<CliManifestJsonRefs>,
-    },
+    JsonProjection(Box<CliManifestJsonProjection>),
     RawPassthrough {
         #[serde(default)]
         prefix: Vec<String>,
@@ -410,7 +402,29 @@ enum CliManifestJsonProjectionShape {
 #[derive(Deserialize)]
 struct CliManifestJsonField {
     name: String,
-    pointer: String,
+    #[serde(default)]
+    pointer: Option<String>,
+    #[serde(default)]
+    arg: Option<Vec<String>>,
+    #[serde(default)]
+    default: Option<String>,
+    #[serde(default)]
+    literal: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct CliManifestJsonProjection {
+    response_field: String,
+    shape: CliManifestJsonProjectionShape,
+    fields: Vec<CliManifestJsonField>,
+    #[serde(default)]
+    count_field: Option<String>,
+    #[serde(default)]
+    summary_template: Option<String>,
+    #[serde(default)]
+    refs: Option<CliManifestJsonRefs>,
+    #[serde(default)]
+    effect: Option<CliManifestJsonEffect>,
 }
 
 #[derive(Deserialize)]
@@ -423,6 +437,15 @@ struct CliManifestJsonRefs {
     label_field: Option<String>,
     #[serde(default)]
     url_field: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CliManifestJsonEffect {
+    undoable: bool,
+    #[serde(default)]
+    use_output_refs: bool,
+    #[serde(default)]
+    summary_template: Option<String>,
 }
 
 fn default_surface() -> ToolSurface {
@@ -529,16 +552,19 @@ fn build_manifest_decode_strategy(
                 .ok_or_else(|| Error::Config(format!("handler {} for tool {} is missing decode", handler.id, tool)))?;
             Ok(CliDecodeStrategy::Handler(decode))
         }
-        Some(CliManifestDecodeStrategy::JsonProjection {
-            response_field,
-            shape,
-            fields,
-            count_field,
-            refs,
-        }) => {
+        Some(CliManifestDecodeStrategy::JsonProjection(projection)) => {
+            let CliManifestJsonProjection {
+                response_field,
+                shape,
+                fields,
+                count_field,
+                summary_template,
+                refs,
+                effect,
+            } = *projection;
             let mappings = fields
                 .into_iter()
-                .map(|field| CliJsonFieldMapping::new(field.name, field.pointer))
+                .map(build_manifest_json_field_mapping)
                 .collect::<Result<Vec<_>>>()?;
             let shape = match shape {
                 CliManifestJsonProjectionShape::Object => CliJsonProjectionShape::object(mappings)?,
@@ -553,11 +579,23 @@ fn build_manifest_decode_strategy(
                     refs.url_field,
                 )
             });
+            let summary_template = summary_template.map(CliProjectionTemplate::parse).transpose()?;
+            let effect = effect
+                .map(|effect| {
+                    Ok::<_, Error>(CliJsonEffectSpec::new(
+                        effect.undoable,
+                        effect.use_output_refs,
+                        effect.summary_template.map(CliProjectionTemplate::parse).transpose()?,
+                    ))
+                })
+                .transpose()?;
             Ok(CliDecodeStrategy::JsonProjection(CliJsonProjection::new(
                 response_field,
                 shape,
                 count_field,
+                summary_template,
                 refs,
+                effect,
             )?))
         }
         Some(CliManifestDecodeStrategy::RawPassthrough { prefix }) => Ok(CliDecodeStrategy::RawInventory {
@@ -594,6 +632,35 @@ fn build_manifest_args_segment(segment: CliManifestArgsSegment) -> Result<CliArg
             required,
         } => CliArgsSegment::option(flag, aliases, repeated, required),
         CliManifestArgsSegment::Flag { flag, aliases } => CliArgsSegment::flag(flag, aliases),
+    }
+}
+
+fn build_manifest_json_field_mapping(field: CliManifestJsonField) -> Result<CliJsonFieldMapping> {
+    let CliManifestJsonField {
+        name,
+        pointer,
+        arg,
+        default,
+        literal,
+    } = field;
+
+    match (pointer, arg, literal) {
+        (Some(pointer), None, None) => CliJsonFieldMapping::from_pointer(name, pointer),
+        (None, Some(aliases), None) => CliJsonFieldMapping::from_argument(name, aliases, default),
+        (None, None, Some(value)) => {
+            if default.is_some() {
+                return Err(Error::Config(format!(
+                    "json projection field {name} cannot define both literal and default"
+                )));
+            }
+            CliJsonFieldMapping::from_literal(name, value)
+        }
+        (None, None, None) => Err(Error::Config(format!(
+            "json projection field {name} must define exactly one of pointer, arg, or literal"
+        ))),
+        _ => Err(Error::Config(format!(
+            "json projection field {name} mixes incompatible source definitions"
+        ))),
     }
 }
 

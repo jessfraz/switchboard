@@ -33,13 +33,6 @@ pub(super) fn append_optional_value(args: &mut Vec<String>, arguments: &ToolArgu
     }
 }
 
-pub(super) fn append_repeatable_values(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) {
-    for value in arguments.values(name) {
-        args.push(format!("--{name}"));
-        args.push(value.to_owned());
-    }
-}
-
 pub(super) fn flag_enabled(arguments: &ToolArguments, name: &str) -> Result<bool> {
     if arguments.has_flag(name) {
         return Ok(true);

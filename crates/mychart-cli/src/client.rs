@@ -88,14 +88,16 @@ impl MyChartClient {
         })
     }
 
-    pub(crate) fn fetch_capability_statement(&self) -> Result<JsonResponse> {
-        self.execute_json(
-            Method::GET,
-            "metadata",
-            &[("_format".into(), "json".into())],
-            None,
-            None,
-        )
+    pub(crate) fn fetch_capability_statement(&self, epic_client_id: Option<&str>) -> Result<JsonResponse> {
+        let url = self.build_url("metadata", &[("_format".into(), "json".into())])?;
+        let mut request = self
+            .http
+            .request(Method::GET, url)
+            .header(ACCEPT, "application/fhir+json, application/json");
+        if let Some(epic_client_id) = epic_client_id {
+            request = request.header("Epic-Client-ID", epic_client_id);
+        }
+        self.execute_json_request(request)
     }
 
     pub(crate) fn exchange_oauth_token(

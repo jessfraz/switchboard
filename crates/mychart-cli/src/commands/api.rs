@@ -44,7 +44,7 @@ pub(crate) fn run_api(command: ApiSubcommand, context: &mut ResolvedContext) -> 
         ApiSubcommand::Capabilities(args) => {
             let base_url = context.require_api_base_url()?;
             let client = api_client(&base_url)?;
-            let response = client.fetch_capability_statement()?;
+            let response = client.fetch_capability_statement(context.client_id.as_deref())?;
             ensure_json_success(&response)?;
             let capability = crate::CapabilitySummary::from_value(response.body.clone())?;
             Ok(json!({
@@ -65,7 +65,7 @@ pub(crate) fn run_api(command: ApiSubcommand, context: &mut ResolvedContext) -> 
         ApiSubcommand::Resources(args) => {
             let base_url = context.require_api_base_url()?;
             let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
+            let capability = fetch_capability_summary(&client, context.client_id.as_deref())?;
             let requested_interaction = args.operation.as_deref().map(normalize_operation_name);
             let resources = capability
                 .resources
@@ -94,7 +94,7 @@ fn run_api_resource(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Res
     let base_url = context.require_api_base_url()?;
     let access_token = context.require_access_token(None)?;
     let client = api_client(&base_url)?;
-    let capability = fetch_capability_summary(&client)?;
+    let capability = fetch_capability_summary(&client, context.client_id.as_deref())?;
     let resource = capability.resolve_resource(&parsed.resource).ok_or_else(|| {
         Error::Arguments(format!(
             "unknown patient-facing resource {:?}, run `mychart api resources` to see what this endpoint actually supports",

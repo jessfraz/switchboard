@@ -453,7 +453,7 @@ mod tests {
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
 
-        assert_eq!(output.summary, "Search GitHub repositories matching switchboard");
+        assert_eq!(output.summary, "Found 2 GitHub repositories for github.personal");
         assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Repository);

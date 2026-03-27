@@ -1,5 +1,7 @@
 use serde_json::{json, Map, Value};
-use switchboard_core::{Error, ExecutionTarget, PlannedAction, Result, ToolOutput, ToolRef, ToolRefKind, ToolRequest};
+use switchboard_core::{
+    Error, ExecutionTarget, OperationEffect, PlannedAction, Result, ToolOutput, ToolRef, ToolRefKind, ToolRequest,
+};
 
 use crate::cli::command::CliResponse;
 
@@ -300,7 +302,9 @@ pub(crate) struct CliJsonProjection {
     response_field: String,
     shape: CliJsonProjectionShape,
     count_field: Option<String>,
+    summary_template: Option<CliProjectionTemplate>,
     refs: Option<CliJsonRefsSpec>,
+    effect: Option<CliJsonEffectSpec>,
 }
 
 impl CliJsonProjection {
@@ -308,7 +312,9 @@ impl CliJsonProjection {
         response_field: impl Into<String>,
         shape: CliJsonProjectionShape,
         count_field: Option<String>,
+        summary_template: Option<CliProjectionTemplate>,
         refs: Option<CliJsonRefsSpec>,
+        effect: Option<CliJsonEffectSpec>,
     ) -> Result<Self> {
         let response_field = response_field.into();
         validate_non_empty("decode response_field", &response_field)?;
@@ -322,12 +328,17 @@ impl CliJsonProjection {
         if let Some(refs) = refs.as_ref() {
             refs.validate()?;
         }
+        if let Some(effect) = effect.as_ref() {
+            effect.validate()?;
+        }
 
         Ok(Self {
             response_field,
             shape,
             count_field,
+            summary_template,
             refs,
+            effect,
         })
     }
 
@@ -353,7 +364,7 @@ impl CliJsonProjection {
 
         let (projected, refs, count) = match &self.shape {
             CliJsonProjectionShape::Object { fields } => {
-                let projected = Value::Object(project_object(&value, fields));
+                let projected = Value::Object(project_object(action, &value, fields));
                 let refs = self.extract_refs(action, &[projected.clone()])?;
                 (projected, refs, None)
             }
@@ -367,7 +378,7 @@ impl CliJsonProjection {
                 })?;
                 let projected_items = items
                     .iter()
-                    .map(|item| Value::Object(project_object(item, fields)))
+                    .map(|item| Value::Object(project_object(action, item, fields)))
                     .collect::<Vec<_>>();
                 let count = projected_items.len();
                 let refs = self.extract_refs(action, &projected_items)?;
@@ -375,7 +386,18 @@ impl CliJsonProjection {
             }
         };
 
-        let mut output = ToolOutput::new(action.tool.clone(), action.namespace.clone(), action.summary.clone())
+        let summary = self
+            .summary_template
+            .as_ref()
+            .map(|template| template.render(action, &projected, count))
+            .transpose()?
+            .unwrap_or_else(|| action.summary.clone());
+        let effect = self
+            .effect
+            .as_ref()
+            .map(|effect_spec| effect_spec.build(action, &refs, &projected, count))
+            .transpose()?;
+        let mut output = ToolOutput::new(action.tool.clone(), action.namespace.clone(), summary)
             .with_field("status", "ok")
             .with_field("backend", action.backend.to_string())
             .with_field("auth", target.auth.id.to_string())
@@ -385,6 +407,9 @@ impl CliJsonProjection {
 
         if let Some((count_field, count)) = self.count_field.as_ref().zip(count) {
             output = output.with_value_field(count_field.clone(), json!(count));
+        }
+        if let Some(effect) = effect {
+            output = output.with_effect(effect);
         }
 
         if !stderr.trim().is_empty() {
@@ -460,11 +485,11 @@ impl CliJsonProjectionShape {
 #[derive(Clone, Debug)]
 pub(crate) struct CliJsonFieldMapping {
     name: String,
-    pointer: String,
+    source: CliJsonFieldSource,
 }
 
 impl CliJsonFieldMapping {
-    pub(crate) fn new(name: impl Into<String>, pointer: impl Into<String>) -> Result<Self> {
+    pub(crate) fn from_pointer(name: impl Into<String>, pointer: impl Into<String>) -> Result<Self> {
         let name = name.into();
         let pointer = pointer.into();
         validate_non_empty("json projection field name", &name)?;
@@ -474,8 +499,46 @@ impl CliJsonFieldMapping {
             )));
         }
 
-        Ok(Self { name, pointer })
+        Ok(Self {
+            name,
+            source: CliJsonFieldSource::Pointer(pointer),
+        })
     }
+
+    pub(crate) fn from_argument(
+        name: impl Into<String>,
+        aliases: Vec<String>,
+        default: Option<String>,
+    ) -> Result<Self> {
+        let name = name.into();
+        validate_non_empty("json projection field name", &name)?;
+        Ok(Self {
+            name,
+            source: CliJsonFieldSource::Argument {
+                aliases: validate_aliases("json projection argument source", aliases)?,
+                default,
+            },
+        })
+    }
+
+    pub(crate) fn from_literal(name: impl Into<String>, value: Value) -> Result<Self> {
+        let name = name.into();
+        validate_non_empty("json projection field name", &name)?;
+        Ok(Self {
+            name,
+            source: CliJsonFieldSource::Literal(value),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+enum CliJsonFieldSource {
+    Pointer(String),
+    Argument {
+        aliases: Vec<String>,
+        default: Option<String>,
+    },
+    Literal(Value),
 }
 
 #[derive(Clone, Debug)]
@@ -520,14 +583,178 @@ impl CliJsonRefsSpec {
     }
 }
 
-fn project_object(value: &Value, fields: &[CliJsonFieldMapping]) -> Map<String, Value> {
+#[derive(Clone, Debug)]
+pub(crate) struct CliJsonEffectSpec {
+    undoable: bool,
+    use_output_refs: bool,
+    summary_template: Option<CliProjectionTemplate>,
+}
+
+impl CliJsonEffectSpec {
+    pub(crate) fn new(undoable: bool, use_output_refs: bool, summary_template: Option<CliProjectionTemplate>) -> Self {
+        Self {
+            undoable,
+            use_output_refs,
+            summary_template,
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        if !self.undoable && self.summary_template.is_some() {
+            return Err(Error::Config(
+                "effect summary_template is only valid for undoable effects".into(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn build(
+        &self,
+        action: &PlannedAction,
+        output_refs: &[ToolRef],
+        projection: &Value,
+        count: Option<usize>,
+    ) -> Result<OperationEffect> {
+        let mut effect = OperationEffect::new(self.undoable);
+        if self.use_output_refs {
+            effect = effect.with_refs(output_refs.iter().cloned());
+        }
+        if let Some(summary_template) = self.summary_template.as_ref() {
+            effect = effect.with_undo_summary(summary_template.render(action, projection, count)?)?;
+        }
+        Ok(effect)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CliProjectionTemplate {
+    segments: Vec<CliProjectionSegment>,
+}
+
+impl CliProjectionTemplate {
+    pub(crate) fn parse(template: impl Into<String>) -> Result<Self> {
+        let template = template.into();
+        let mut segments = Vec::new();
+        let mut literal = String::new();
+        let mut chars = template.chars().peekable();
+
+        while let Some(character) = chars.next() {
+            if character != '{' {
+                literal.push(character);
+                continue;
+            }
+
+            if !literal.is_empty() {
+                segments.push(CliProjectionSegment::Literal(std::mem::take(&mut literal)));
+            }
+
+            let mut token = String::new();
+            loop {
+                let Some(next) = chars.next() else {
+                    return Err(Error::Config(format!(
+                        "invalid projection template {template:?}: missing closing brace"
+                    )));
+                };
+                if next == '}' {
+                    break;
+                }
+                token.push(next);
+            }
+
+            segments.push(parse_projection_segment(&template, token)?);
+        }
+
+        if !literal.is_empty() {
+            segments.push(CliProjectionSegment::Literal(literal));
+        }
+
+        Ok(Self { segments })
+    }
+
+    fn render(&self, action: &PlannedAction, value: &Value, count: Option<usize>) -> Result<String> {
+        let fields = value.as_object().filter(|_| !value.is_array());
+        self.render_inner(action, fields, count)
+    }
+
+    fn render_inner(
+        &self,
+        action: &PlannedAction,
+        fields: Option<&Map<String, Value>>,
+        count: Option<usize>,
+    ) -> Result<String> {
+        let mut rendered = String::new();
+        for segment in &self.segments {
+            match segment {
+                CliProjectionSegment::Literal(value) => rendered.push_str(value),
+                CliProjectionSegment::Namespace => rendered.push_str(action.namespace.as_str()),
+                CliProjectionSegment::Count => rendered.push_str(
+                    &count
+                        .ok_or_else(|| {
+                            Error::Execution("projection template references count for non-array output".into())
+                        })?
+                        .to_string(),
+                ),
+                CliProjectionSegment::Field { name } => {
+                    let fields = fields.ok_or_else(|| {
+                        Error::Execution(format!(
+                            "projection template references field {name} for non-object output"
+                        ))
+                    })?;
+                    let value = extract_field_string(fields, name).ok_or_else(|| {
+                        Error::Execution(format!("projection template references missing field {name}"))
+                    })?;
+                    rendered.push_str(&value);
+                }
+            }
+        }
+
+        Ok(rendered)
+    }
+}
+
+#[derive(Clone, Debug)]
+enum CliProjectionSegment {
+    Literal(String),
+    Namespace,
+    Count,
+    Field { name: String },
+}
+
+fn parse_projection_segment(template: &str, token: String) -> Result<CliProjectionSegment> {
+    match token.as_str() {
+        "namespace" => Ok(CliProjectionSegment::Namespace),
+        "count" => Ok(CliProjectionSegment::Count),
+        _ => {
+            if let Some(name) = token.strip_prefix("field:") {
+                validate_non_empty("projection template field name", name)?;
+                Ok(CliProjectionSegment::Field { name: name.to_owned() })
+            } else {
+                Err(Error::Config(format!(
+                    "invalid projection template {template:?}: unsupported placeholder {{{token}}}"
+                )))
+            }
+        }
+    }
+}
+
+fn project_object(action: &PlannedAction, value: &Value, fields: &[CliJsonFieldMapping]) -> Map<String, Value> {
     fields
         .iter()
         .map(|field| {
-            let value = if field.pointer.is_empty() {
-                value.clone()
-            } else {
-                value.pointer(&field.pointer).cloned().unwrap_or(Value::Null)
+            let value = match &field.source {
+                CliJsonFieldSource::Pointer(pointer) => {
+                    if pointer.is_empty() {
+                        value.clone()
+                    } else {
+                        value.pointer(pointer).cloned().unwrap_or(Value::Null)
+                    }
+                }
+                CliJsonFieldSource::Argument { aliases, default } => first_action_value(action, aliases)
+                    .map(Value::String)
+                    .or_else(|| default.as_ref().map(|value| Value::String(value.clone())))
+                    .unwrap_or(Value::Null),
+                CliJsonFieldSource::Literal(value) => value.clone(),
             };
             (field.name.clone(), value)
         })
@@ -605,8 +832,8 @@ mod tests {
     use crate::cli::{
         command::CliResponse,
         declarative::{
-            CliArgsSegment, CliArgsTemplate, CliJsonFieldMapping, CliJsonProjection, CliJsonProjectionShape,
-            CliJsonRefsSpec, CliSummaryTemplate,
+            CliArgsSegment, CliArgsTemplate, CliJsonEffectSpec, CliJsonFieldMapping, CliJsonProjection,
+            CliJsonProjectionShape, CliJsonRefsSpec, CliProjectionTemplate, CliSummaryTemplate,
         },
     };
 
@@ -688,12 +915,16 @@ mod tests {
         let projection = CliJsonProjection::new(
             "repositories",
             CliJsonProjectionShape::array(vec![
-                CliJsonFieldMapping::new("name", "/name").expect("field should build"),
-                CliJsonFieldMapping::new("full_name", "/fullName").expect("field should build"),
-                CliJsonFieldMapping::new("url", "/url").expect("field should build"),
+                CliJsonFieldMapping::from_pointer("name", "/name").expect("field should build"),
+                CliJsonFieldMapping::from_pointer("full_name", "/fullName").expect("field should build"),
+                CliJsonFieldMapping::from_pointer("url", "/url").expect("field should build"),
             ])
             .expect("shape should build"),
             Some("count".into()),
+            Some(
+                CliProjectionTemplate::parse("Found {count} repositories for {namespace}")
+                    .expect("template should build"),
+            ),
             Some(CliJsonRefsSpec::new(
                 ToolRefKind::Repository,
                 "full_name",
@@ -701,6 +932,7 @@ mod tests {
                 Some("name".into()),
                 Some("url".into()),
             )),
+            None,
         )
         .expect("projection should build");
         let action = PlannedAction::new(
@@ -730,6 +962,7 @@ mod tests {
             )
             .expect("projection should decode");
 
+        assert_eq!(output.summary, "Found 1 repositories for github.personal");
         assert_eq!(output.fields.get("count"), Some(&json!(1)));
         assert_eq!(
             output
@@ -745,6 +978,82 @@ mod tests {
         assert_eq!(output.refs.len(), 1);
         assert_eq!(output.refs[0].kind, ToolRefKind::Repository);
         assert_eq!(output.refs[0].id, "KeepSafe/Switchboard");
+    }
+
+    #[test]
+    fn json_projection_supports_argument_fields_and_effect_templates() {
+        let projection = CliJsonProjection::new(
+            "event",
+            CliJsonProjectionShape::object(vec![
+                CliJsonFieldMapping::from_pointer("event_id", "/id").expect("field should build"),
+                CliJsonFieldMapping::from_pointer("title", "/summary").expect("field should build"),
+                CliJsonFieldMapping::from_argument("calendar", vec!["calendar".into()], Some("primary".into()))
+                    .expect("field should build"),
+            ])
+            .expect("shape should build"),
+            None,
+            Some(
+                CliProjectionTemplate::parse("Created calendar event \"{field:title}\" for {namespace}")
+                    .expect("template should build"),
+            ),
+            Some(CliJsonRefsSpec::new(
+                ToolRefKind::Event,
+                "event_id",
+                Some("calendar".into()),
+                Some("title".into()),
+                None,
+            )),
+            Some(CliJsonEffectSpec::new(
+                true,
+                true,
+                Some(
+                    CliProjectionTemplate::parse("Delete calendar event \"{field:title}\" from {namespace}")
+                        .expect("template should build"),
+                ),
+            )),
+        )
+        .expect("projection should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "google.calendar.create",
+                "google.work",
+                ExecutionMode::Apply,
+                vec![
+                    ToolArgument::option("title", "Budget review").expect("argument should build"),
+                    ToolArgument::option("calendar", "primary").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &google_planning_target(),
+            ToolKind::Write,
+            "Create calendar event \"Budget review\" for google.work",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let output = projection
+            .decode(
+                &google_execution_target(),
+                &action,
+                CliResponse {
+                    program: PathBuf::from("gws"),
+                    version: "gws 0.99.0-test".into(),
+                    stdout: r#"{"id":"event-1960budgetwork","summary":"Budget review"}"#.into(),
+                    stderr: String::new(),
+                },
+            )
+            .expect("projection should decode");
+
+        assert_eq!(
+            output.summary,
+            "Created calendar event \"Budget review\" for google.work"
+        );
+        assert_eq!(output.refs[0].id, "event-1960budgetwork");
+        assert_eq!(output.refs[0].parent_id.as_deref(), Some("primary"));
+        assert_eq!(output.effect.as_ref().map(|effect| effect.undoable), Some(true));
+        assert_eq!(
+            output.effect.as_ref().and_then(|effect| effect.undo_summary.as_deref()),
+            Some("Delete calendar event \"Budget review\" from google.work")
+        );
     }
 
     fn planning_target() -> PlanningTarget {
@@ -794,6 +1103,67 @@ mod tests {
             .expect("auth should build"),
             credentials: ResolvedCredentials::GitHubToken {
                 token: "ghp-test-token".to_owned().into(),
+            },
+        }
+    }
+
+    fn google_planning_target() -> PlanningTarget {
+        PlanningTarget {
+            namespace: ResolvedNamespace::new(
+                "google.work",
+                ProviderKind::GoogleWorkspace,
+                "Google Workspace work",
+                "google.work_auth",
+                true,
+                Some(PathBuf::from("/tmp/gws-work")),
+            )
+            .expect("namespace should build"),
+            auth: ResolvedAuth::new(
+                "google.work_auth",
+                ProviderKind::GoogleWorkspace,
+                AuthKind::GoogleOAuth,
+                "Google Workspace work",
+                AuthSecretRefs::GoogleOAuth {
+                    client_id: switchboard_core::SecretRef::new("google.work.client_id")
+                        .expect("secret ref should build"),
+                    client_secret: switchboard_core::SecretRef::new("google.work.client_secret")
+                        .expect("secret ref should build"),
+                    refresh_token: None,
+                },
+            )
+            .expect("auth should build"),
+        }
+    }
+
+    fn google_execution_target() -> ExecutionTarget {
+        ExecutionTarget {
+            namespace: ResolvedNamespace::new(
+                "google.work",
+                ProviderKind::GoogleWorkspace,
+                "Google Workspace work",
+                "google.work_auth",
+                true,
+                Some(PathBuf::from("/tmp/gws-work")),
+            )
+            .expect("namespace should build"),
+            auth: ResolvedAuth::new(
+                "google.work_auth",
+                ProviderKind::GoogleWorkspace,
+                AuthKind::GoogleOAuth,
+                "Google Workspace work",
+                AuthSecretRefs::GoogleOAuth {
+                    client_id: switchboard_core::SecretRef::new("google.work.client_id")
+                        .expect("secret ref should build"),
+                    client_secret: switchboard_core::SecretRef::new("google.work.client_secret")
+                        .expect("secret ref should build"),
+                    refresh_token: None,
+                },
+            )
+            .expect("auth should build"),
+            credentials: ResolvedCredentials::GoogleOAuth {
+                client_id: "client-id".to_owned().into(),
+                client_secret: "client-secret".to_owned().into(),
+                refresh_token: None,
             },
         }
     }

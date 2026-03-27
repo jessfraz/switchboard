@@ -105,6 +105,58 @@
         "kind": "executable",
         "binary": "gws",
         "capability": "calendar_insert"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "calendar" },
+          { "kind": "literal", "value": "+insert" },
+          { "kind": "literal", "value": "--format" },
+          { "kind": "literal", "value": "json" },
+          { "kind": "literal", "value": "--summary" },
+          { "kind": "required_positional", "aliases": ["title", "summary"] },
+          { "kind": "literal", "value": "--start" },
+          { "kind": "required_positional", "aliases": ["start"] },
+          { "kind": "literal", "value": "--end" },
+          { "kind": "required_positional", "aliases": ["end"] },
+          { "kind": "option", "flag": "--calendar", "aliases": ["calendar"] },
+          { "kind": "option", "flag": "--location", "aliases": ["location"] },
+          { "kind": "option", "flag": "--description", "aliases": ["description"] },
+          { "kind": "option", "flag": "--attendee", "aliases": ["attendee"], "repeated": true },
+          { "kind": "flag", "flag": "--meet", "aliases": ["meet"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "event",
+        "shape": "object",
+        "summary_template": "Created calendar event \"{field:title}\" for {namespace}",
+        "fields": [
+          { "name": "event_id", "pointer": "/id" },
+          { "name": "status", "pointer": "/status" },
+          { "name": "title", "pointer": "/summary" },
+          { "name": "description", "pointer": "/description" },
+          { "name": "location", "pointer": "/location" },
+          { "name": "html_link", "pointer": "/htmlLink" },
+          { "name": "meet_link", "pointer": "/hangoutLink" },
+          { "name": "start", "pointer": "/start/dateTime" },
+          { "name": "end", "pointer": "/end/dateTime" },
+          { "name": "calendar", "arg": ["calendar"], "default": "primary" },
+          { "name": "organizer", "pointer": "/organizer/email" },
+          { "name": "attendees", "pointer": "/attendees" }
+        ],
+        "refs": {
+          "kind": "event",
+          "id_field": "event_id",
+          "parent_id_field": "calendar",
+          "label_field": "title",
+          "url_field": "html_link"
+        },
+        "effect": {
+          "undoable": true,
+          "use_output_refs": true,
+          "summary_template": "Delete calendar event \"{field:title}\" from {namespace}"
+        }
       }
     },
     {

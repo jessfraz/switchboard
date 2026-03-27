@@ -221,7 +221,10 @@ fn build_patient_session(
     };
 
     let client = api_client(&base_url)?;
-    let capability = fetch_capability_summary(&client)?;
+    let capability = fetch_capability_summary(
+        &client,
+        account_state.and_then(|account_state| account_state.client_id.as_deref()),
+    )?;
     Ok(Some(PatientSession {
         account_name: account_name.clone(),
         provider_name: provider_name(&account_name, account_state),

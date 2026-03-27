@@ -146,6 +146,7 @@
         "response_field": "repositories",
         "shape": "array",
         "count_field": "count",
+        "summary_template": "Found {count} GitHub repositories for {namespace}",
         "fields": [
           { "name": "id", "pointer": "/id" },
           { "name": "name", "pointer": "/name" },

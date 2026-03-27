@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     client::{cookie_names, normalize_api_base_url, StoredCookie},
+    oauth::DynamicClientState,
     Error, GlobalArgs, Result,
 };
 
@@ -55,6 +56,8 @@ pub(crate) struct MyChartAccountState {
     pub(crate) client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) dynamic_client: Option<DynamicClientState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) redirect_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,6 +178,7 @@ impl MyChartState {
             portal_base_url: self.portal_base_url.clone(),
             client_id: self.client_id.clone(),
             client_secret: self.client_secret.clone(),
+            dynamic_client: None,
             redirect_uri: self.redirect_uri.clone(),
             access_token: self.access_token.clone(),
             refresh_token: self.refresh_token.clone(),
@@ -279,6 +283,7 @@ pub(crate) struct ResolvedContext {
     pub(crate) portal_base_url: Option<String>,
     pub(crate) client_id: Option<String>,
     pub(crate) client_secret: Option<String>,
+    pub(crate) dynamic_client: Option<DynamicClientState>,
     pub(crate) redirect_uri: Option<String>,
     pub(crate) access_token: Option<String>,
     pub(crate) refresh_token: Option<String>,
@@ -330,6 +335,7 @@ impl ResolvedContext {
             portal_base_url: pick(global.portal_base_url.clone(), persisted.portal_base_url.clone()),
             client_id: pick(global.client_id.clone(), persisted.client_id.clone()),
             client_secret: pick(global.client_secret.clone(), persisted.client_secret.clone()),
+            dynamic_client: persisted.dynamic_client.clone(),
             redirect_uri: pick(global.redirect_uri.clone(), persisted.redirect_uri.clone()),
             access_token: pick(global.access_token.clone(), persisted.access_token.clone()),
             refresh_token: pick(global.refresh_token.clone(), persisted.refresh_token.clone()),
@@ -424,6 +430,10 @@ impl ResolvedContext {
         self.client_id
             .clone()
             .ok_or_else(|| Error::Config("missing client id, pass --client-id or set MYCHART_CLIENT_ID".into()))
+    }
+
+    pub(crate) fn dynamic_client(&self) -> Option<&DynamicClientState> {
+        self.dynamic_client.as_ref()
     }
 
     pub(crate) fn require_redirect_uri(&self, explicit: Option<String>) -> Result<String> {
@@ -533,6 +543,12 @@ impl ResolvedContext {
         self.persist_state()
     }
 
+    pub(crate) fn store_dynamic_client(&mut self, dynamic_client: DynamicClientState) -> Result<()> {
+        self.dynamic_client = Some(dynamic_client.clone());
+        self.current_account_state_mut().dynamic_client = Some(dynamic_client);
+        self.persist_state()
+    }
+
     pub(crate) fn clear_api_session(&mut self) -> Result<()> {
         self.access_token = None;
         self.refresh_token = None;
@@ -542,6 +558,7 @@ impl ResolvedContext {
         self.expires_at_epoch_seconds = None;
         self.pending_oauth_state = None;
         self.pending_code_verifier = None;
+        self.dynamic_client = None;
 
         let account = self.current_account_state_mut();
         account.access_token = None;
@@ -552,6 +569,7 @@ impl ResolvedContext {
         account.expires_at_epoch_seconds = None;
         account.pending_oauth_state = None;
         account.pending_code_verifier = None;
+        account.dynamic_client = None;
         self.persist_state()
     }
 
@@ -612,6 +630,7 @@ impl ResolvedContext {
         self.portal_base_url = account.portal_base_url.clone();
         self.client_id = account.client_id.clone();
         self.client_secret = account.client_secret.clone();
+        self.dynamic_client = account.dynamic_client.clone();
         self.redirect_uri = account.redirect_uri.clone();
         self.access_token = account.access_token.clone();
         self.refresh_token = account.refresh_token.clone();

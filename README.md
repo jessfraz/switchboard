@@ -383,9 +383,9 @@ The handwritten manifest should only describe the stuff that actually needs judg
 - raw vs curated
 - executable today vs planning-only
 - whether undo is supported honestly through a compensating action
-- whether a command can use built-in strategies like `raw_passthrough`, `summary_template`, declarative argv mapping, or JSON projection
+- whether a command can use built-in strategies like `raw_passthrough`, `summary_template`, declarative argv mapping, JSON projection, output summary templates, or effect extraction
 
-Rust still owns the smart parts, auth materialization, any truly weird codecs, effect extraction, and compensation logic.
+Rust still owns the smart parts, auth materialization, any truly weird codecs, and compensation logic that cannot honestly be expressed as data.
 The generated inventory is the broad map, the handwritten manifest is the semantic overlay, and neither is a replacement for typed code where it actually matters.
 Adding a new provider should mostly be:
 
