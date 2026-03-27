@@ -121,9 +121,7 @@ fn provider_hint(provider: &ProviderKind) -> String {
 }
 
 fn default_manifest_path(provider: &ProviderKind) -> PathBuf {
-    PathBuf::from(format!(
-        "crates/switchboard-providers/manifests/{provider}.json"
-    ))
+    PathBuf::from(format!("crates/switchboard-providers/manifests/{provider}.json"))
 }
 
 fn default_target(provider: &ProviderKind) -> Option<CliInventoryTarget> {
@@ -279,8 +277,10 @@ fn render_manifest_scaffold(inventory: &CliInventory, program: &str) -> Result<S
             }
         ]
     });
-    let rendered =
-        format!("{}\n", serde_json::to_string_pretty(&manifest).context("failed to serialize scaffold manifest")?);
+    let rendered = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&manifest).context("failed to serialize scaffold manifest")?
+    );
     validate_manifest_json(&rendered, inventory).context("generated scaffold manifest is invalid")?;
     Ok(rendered)
 }

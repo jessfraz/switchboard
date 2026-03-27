@@ -1861,11 +1861,8 @@ mod tests {
         );
 
         let mut context = resolved_context(&config_path);
-        let output = crate::commands::connect::run_resolve_output(
-            vec!["santa".into(), "monica".into()],
-            &mut context,
-        )
-        .expect("connect resolve should succeed");
+        let output = crate::commands::connect::run_resolve_output(vec!["santa".into(), "monica".into()], &mut context)
+            .expect("connect resolve should succeed");
 
         assert_eq!(output.status, "connected");
         assert_eq!(output.selected_account.as_deref(), Some("ucla-medical-center"));

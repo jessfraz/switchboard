@@ -930,11 +930,7 @@ impl ToolArgumentSpec {
         self
     }
 
-    pub fn with_forwarding(
-        mut self,
-        forwarded_flag: Option<String>,
-        forwarded_key: Option<String>,
-    ) -> Result<Self> {
+    pub fn with_forwarding(mut self, forwarded_flag: Option<String>, forwarded_key: Option<String>) -> Result<Self> {
         if let Some(flag) = forwarded_flag.as_ref() {
             validate_non_empty("tool argument forwarded_flag", flag)?;
         }
@@ -963,11 +959,7 @@ impl ToolArgumentSpec {
         self.repeated |= other.repeated;
         self.aliases = normalize_argument_aliases(
             &self.name,
-            self.aliases
-                .iter()
-                .chain(other.aliases.iter())
-                .cloned()
-                .collect(),
+            self.aliases.iter().chain(other.aliases.iter()).cloned().collect(),
         )?;
         Ok(())
     }

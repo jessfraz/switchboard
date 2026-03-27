@@ -1966,12 +1966,15 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct JsonToolArgumentSpec {
         name: String,
+        #[serde(default)]
         aliases: Vec<String>,
         transport: switchboard_core::ToolArgumentTransport,
         value_kind: switchboard_core::ToolArgumentValueKind,
         required: bool,
         repeated: bool,
+        #[allow(dead_code)]
         forwarded_flag: Option<String>,
+        #[allow(dead_code)]
         forwarded_key: Option<String>,
     }
 

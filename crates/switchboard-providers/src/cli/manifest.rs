@@ -145,10 +145,7 @@ fn build_manifest_command(
                 .cloned()
                 .ok_or_else(|| Error::Config(format!("tool {} references unknown binary {binary}", tool_name)))?,
             capabilities.get(&capability).cloned().ok_or_else(|| {
-                Error::Config(format!(
-                    "tool {} references unknown capability {capability}",
-                    tool_name
-                ))
+                Error::Config(format!("tool {} references unknown capability {capability}", tool_name))
             })?,
         )),
         CliManifestExecution::PlanningOnly => None,
@@ -808,16 +805,13 @@ mod tests {
         inventory::embedded_inventory,
     };
 
-    const GOOGLE_MANIFEST_JSON: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/manifests/google.json"
-    ));
+    const GOOGLE_MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
 
     #[test]
     fn google_mail_draft_arguments_are_typed_from_manifest() {
         let inventory = embedded_inventory(ProviderKind::GoogleWorkspace).expect("inventory should load");
-        let catalog = CliProviderCatalog::from_embedded(GOOGLE_MANIFEST_JSON, &inventory)
-            .expect("catalog should build");
+        let catalog =
+            CliProviderCatalog::from_embedded(GOOGLE_MANIFEST_JSON, &inventory).expect("catalog should build");
         let descriptor = catalog
             .tools()
             .iter()
