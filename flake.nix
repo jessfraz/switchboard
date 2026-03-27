@@ -92,6 +92,10 @@
         cargoPackage = "switchboard-cli";
         pname = "switchboard";
       };
+      mychart = buildCli {
+        cargoPackage = "mychart-cli";
+        pname = "mychart";
+      };
       momence = buildCli {
         cargoPackage = "momence-cli";
         pname = "momence";

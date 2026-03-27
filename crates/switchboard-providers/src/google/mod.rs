@@ -9,7 +9,7 @@ use switchboard_core::{
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
     google::{
-        commands::{CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
+        commands::{CALENDAR_CREATE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
         materializer::DefaultGoogleWorkspaceCliMaterializer,
     },
 };
@@ -59,7 +59,12 @@ const TOOLS: &[ToolDescriptor] = &[
     },
 ];
 
-const COMMANDS: &[&CliCommandSpec] = &[&MAIL_SEARCH_COMMAND, &MAIL_READ_COMMAND, &CALENDAR_LIST_COMMAND];
+const COMMANDS: &[&CliCommandSpec] = &[
+    &MAIL_SEARCH_COMMAND,
+    &MAIL_READ_COMMAND,
+    &CALENDAR_LIST_COMMAND,
+    &CALENDAR_CREATE_COMMAND,
+];
 
 pub struct GoogleWorkspaceAdapter {
     backend: CliProviderBackend,
@@ -161,15 +166,15 @@ impl Adapter for GoogleWorkspaceAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+        if let Some(command) = Self::find_command(action.tool.as_str()) {
+            return self.backend.execute(target, action, command);
+        }
+
         if matches!(action.kind, ToolKind::Write) {
             return Err(Error::NotImplemented(format!(
                 "{} apply path is not wired to Google Workspace yet",
                 action.tool
             )));
-        }
-
-        if let Some(command) = Self::find_command(action.tool.as_str()) {
-            return self.backend.execute(target, action, command);
         }
 
         Ok(Self::stub_output(target, action))
@@ -202,6 +207,10 @@ mod tests {
     const GMAIL_READ_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-gmail-read.json"
+    ));
+    const CALENDAR_CREATE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-calendar-create.json"
     ));
     const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -352,6 +361,66 @@ mod tests {
         assert!(captured.contains("ARGV=gmail +read --id 1960abc456work --format json"));
     }
 
+    #[test]
+    fn calendar_create_executes_through_generic_cli_runtime_and_captures_effects() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.calendar.create",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![
+                ToolArgument::option("title", "Budget review").expect("option should build"),
+                ToolArgument::option("start", "2026-03-30T15:00:00-07:00").expect("option should build"),
+                ToolArgument::option("end", "2026-03-30T15:30:00-07:00").expect("option should build"),
+                ToolArgument::option("calendar", "primary").expect("option should build"),
+                ToolArgument::option("location", "Conference Room B").expect("option should build"),
+                ToolArgument::option("description", "Review the Q2 budget plan").expect("option should build"),
+                ToolArgument::option("attendee", "alice@example.com").expect("option should build"),
+                ToolArgument::option("attendee", "bob@example.com").expect("option should build"),
+                ToolArgument::flag("meet").expect("flag should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output.summary,
+            "Created calendar event \"Budget review\" for google.work"
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("event")
+                .and_then(|event| event.get("event_id"))
+                .and_then(Value::as_str),
+            Some("event-1960budgetwork")
+        );
+        assert_eq!(output.refs.len(), 1);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Event);
+        assert_eq!(output.refs[0].id, "event-1960budgetwork");
+        assert_eq!(output.effect.as_ref().map(|effect| effect.undoable), Some(true));
+        assert_eq!(
+            output.effect.as_ref().and_then(|effect| effect.undo_summary.as_deref()),
+            Some("Delete calendar event \"Budget review\" from google.work")
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=calendar +insert --format json --summary Budget review"));
+        assert!(captured.contains("--calendar primary"));
+        assert!(captured.contains("--attendee alice@example.com --attendee bob@example.com --meet"));
+    }
+
     fn google_test_script() -> TempScript {
         TempScript::new("gws-test", &render_google_script())
     }
@@ -361,6 +430,7 @@ mod tests {
             .replace("__AGENDA_FIXTURE__", AGENDA_FIXTURE)
             .replace("__GMAIL_TRIAGE_FIXTURE__", GMAIL_TRIAGE_FIXTURE)
             .replace("__GMAIL_READ_FIXTURE__", GMAIL_READ_FIXTURE)
+            .replace("__CALENDAR_CREATE_FIXTURE__", CALENDAR_CREATE_FIXTURE)
     }
 
     fn planning_target() -> PlanningTarget {

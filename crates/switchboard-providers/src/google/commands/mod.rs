@@ -5,7 +5,7 @@ use switchboard_core::{Error, Result, ToolArguments};
 
 use crate::cli::{CliBinarySpec, CliCapabilityProbe};
 pub(crate) use crate::google::commands::{
-    calendar::CALENDAR_LIST_COMMAND,
+    calendar::{CALENDAR_CREATE_COMMAND, CALENDAR_LIST_COMMAND},
     gmail::{MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
 };
 
@@ -18,6 +18,11 @@ pub(crate) const GWS_BINARY: CliBinarySpec = CliBinarySpec {
 pub(crate) const GWS_CALENDAR_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
     name: "calendar_agenda",
     args: &["calendar", "--help"],
+};
+
+pub(crate) const GWS_CALENDAR_INSERT_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
+    name: "calendar_insert",
+    args: &["calendar", "+insert", "--help"],
 };
 
 pub(crate) const GWS_GMAIL_TRIAGE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
@@ -40,6 +45,13 @@ pub(super) fn append_optional_flag(args: &mut Vec<String>, arguments: &ToolArgum
 
 pub(super) fn append_optional_value(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) {
     if let Some(value) = arguments.value(name) {
+        args.push(format!("--{name}"));
+        args.push(value.to_owned());
+    }
+}
+
+pub(super) fn append_repeatable_values(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) {
+    for value in arguments.values(name) {
         args.push(format!("--{name}"));
         args.push(value.to_owned());
     }

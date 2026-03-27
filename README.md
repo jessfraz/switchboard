@@ -24,6 +24,7 @@ The point is to build the trust layer those tools are usually missing:
 - draft-first writes
 - approvals
 - auditability
+- undoable operations where that can be done honestly
 - backend swapability without changing the command contract
 
 Codex is the preferred operator today.
@@ -365,6 +366,7 @@ Every action follows the same shape:
 1. load auth and runtime context
 1. validate policy
 1. plan the action
+1. persist an operation record for writes
 1. preview or draft if needed
 1. require approval if needed
 1. execute
@@ -383,6 +385,9 @@ request -> resolve ns -> plan -> preview -> approval -> execute -> audit -> resu
 
 The important bit is that planning and approval are first-class.
 The model does not get silent write authority just because it sounds confident.
+
+Today, the default CLI policy still keeps writes draft-first until approval UX is real.
+The write backends can be wired underneath that policy boundary without letting the public CLI start freestyling sends and creates before the safety model is finished.
 
 ## How a real request works
 
@@ -461,6 +466,7 @@ Example draft result:
   "namespace": "google.personal",
   "summary": "Draft calendar event \"Dinner with Sam\" starting at 2026-03-30T19:00:00-07:00",
   "backend": "cli",
+  "operation_id": "op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc",
   "approval_required": true,
   "approval_reason": "google.calendar.create stays draft-first until approval UX is wired"
 }
@@ -841,6 +847,70 @@ Example:
 
 If the system does something important, there should be a receipt.
 
+## Undo model
+
+Undo should be honest.
+
+That means:
+
+- the audit log stays append-only
+- undo is a new compensating write, not a log rewrite
+- only some actions are meaningfully undoable
+- the system should say "not undoable" when that is the truth
+
+For example:
+
+- create a calendar event, undo by deleting that event later
+- create a draft email, undo by deleting that draft later
+- send an email, probably not truly undoable, so do not lie
+
+```text
+create event
+   |
+   +--> append audit record
+   |
+   +--> store operation effect
+   |      - event ref
+   |      - undoable = true
+   |      - undo summary
+   v
+later, user wants undo
+   |
+   +--> plan compensating delete
+   +--> require approval if needed
+   +--> execute
+   +--> append compensation audit record
+```
+
+The important distinction is:
+
+- audit answers "what happened?"
+- operation effects answer "can this be safely compensated later?"
+
+An undoable write receipt should look more like this:
+
+```json
+{
+  "status": "executed",
+  "tool": "google.calendar.create",
+  "namespace": "google.personal",
+  "operation_id": "op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc",
+  "effect": {
+    "undoable": true,
+    "undo_summary": "Delete calendar event \"Dinner with Sam\" from google.personal",
+    "refs": [
+      {
+        "provider": "google_workspace",
+        "namespace": "google.personal",
+        "kind": "event",
+        "id": "event-123",
+        "parent_id": "primary"
+      }
+    ]
+  }
+}
+```
+
 ## Output contract
 
 Commands should return structured JSON by default or with `--json`.
@@ -864,32 +934,6 @@ Example:
 }
 ```
 
-## Suggested workspace
-
-Do not over-split the codebase on day one.
-Start with a small number of crates and split when the seams become real.
-
-```text
-switchboard/
-├─ Cargo.toml
-├─ crates/
-│  ├─ switchboard-cli/
-│  ├─ switchboard-core/
-│  ├─ switchboard-providers/
-│  ├─ switchboard-store/
-└─ docs/
-```
-
-Possible responsibilities:
-
-- `switchboard-cli`: argument parsing, human-facing entrypoint, JSON formatting
-- `switchboard-core`: namespace resolution, policy, planning, approval hooks, shared types
-- `switchboard-providers`: provider modules implementing the core adapter trait
-- `switchboard-store`: SQLite persistence, audit, config
-
-Keep the architecture honest.
-If a crate exists, it should solve a real boundary, not just look tidy in a tree view.
-
 ## V1 success criteria
 
 V1 is successful if it can do these reliably:
@@ -902,42 +946,6 @@ V1 is successful if it can do these reliably:
 1. produce an audit trail for everything that matters
 
 If it cannot do those things cleanly, adding more providers is just expanding the blast radius.
-
-## Rollout plan
-
-### Phase 0, core contract
-
-- CLI skeleton
-- namespace config
-- auth loading
-- SQLite store
-- audit log
-- shared JSON request and response types
-- policy and approval hooks
-
-### Phase 1, GitHub reads
-
-- notifications
-- pull request read flows
-- issue read flows
-- repository and PR search
-
-### Phase 2, Google Workspace reads
-
-- Gmail search and read
-- Calendar list
-- Drive search
-
-### Phase 3, safe writes
-
-- GitHub comment draft and apply
-- Gmail draft and send
-- Calendar draft and create
-- approval UX that is not annoying
-
-### Phase 4, optional local service extras
-
-- background jobs
 - auth refresh
 - caching
 - local approval UI if needed
