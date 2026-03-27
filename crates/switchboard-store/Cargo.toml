@@ -1,0 +1,12 @@
+[package]
+name = "switchboard-store"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+switchboard-core = { path = "../switchboard-core" }
+
+[lints]
+workspace = true

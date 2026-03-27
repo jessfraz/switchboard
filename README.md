@@ -6,10 +6,13 @@ Stable CLI contract, explicit namespaces, safe writes, audit trail.
 
 ## What this is
 
-`switchboard` is a local CLI, with an optional local daemon, that gives humans, scripts, and models a boring way to do useful work across:
+`switchboard` is a local CLI that gives humans, scripts, and models a boring way to do useful work across:
 
 - GitHub
 - Google Workspace
+
+It starts there.
+It is explicitly being designed to grow into Slack, Ramp, iMessage, and other local or work tools later without changing the core contract.
 
 The point is not to build another chat UI.
 The point is not to build another agent shell.
@@ -50,6 +53,13 @@ Do not start with:
 
 Those can come later if the core is good.
 Right now the job is to ship something real, sharp, and trustworthy.
+
+Future providers we are designing for:
+
+- Slack
+- Ramp
+- iMessage
+- other ugly but useful local or work integrations
 
 ## Core thesis
 
@@ -152,9 +162,7 @@ The product is "automation with sane trust boundaries."
      +--> gh
 ```
 
-A long-running daemon is useful for approvals, auth refresh, caching, and background jobs.
-It is not the product.
-The product is still the CLI.
+If a long-running local service becomes useful later for approvals, auth refresh, caching, or background jobs, it should exist to support the CLI, not replace it.
 
 ## Core invariants
 
@@ -298,6 +306,106 @@ request -> resolve ns -> plan -> preview -> approval -> execute -> audit -> resu
 The important bit is that planning and approval are first-class.
 The model does not get silent write authority just because it sounds confident.
 
+## How a real request works
+
+The user talks to the model.
+The model talks to `switchboard`.
+`switchboard` does not parse freeform natural language and pretend to be a mind reader.
+
+Example user request:
+
+> make me this calendar event on my personal account
+
+What should happen:
+
+1. the model decides this is a Google Calendar write
+1. the model maps "personal account" to `google.personal`
+1. the model extracts the event fields it already knows
+1. the model calls `switchboard` in draft mode first
+1. `switchboard` plans the write, checks policy, records audit metadata, and returns a preview
+1. the model shows the preview to the user
+1. after approval, the model calls `switchboard` to apply it
+1. `switchboard` executes the provider adapter and records the result
+
+```text
+User
+  |
+  | "make me this calendar event on my personal account"
+  v
+Model
+  |
+  | decides:
+  | - tool = google.calendar.create
+  | - namespace = google.personal
+  | - mode = --draft first
+  v
+switchboard
+  |
+  +--> resolve namespace: google.personal
+  +--> check provider: google
+  +--> build draft plan
+  +--> require approval because write
+  +--> audit planned action
+  v
+draft preview returned to model
+  |
+  v
+User approves
+  |
+  v
+Model calls switchboard again with apply
+  |
+  +--> execute google adapter
+  +--> create event
+  +--> audit result
+  v
+done
+```
+
+Example draft call:
+
+```bash
+switchboard google.calendar.create \
+  --ns google.personal \
+  --title 'Dinner with Sam' \
+  --start '2026-03-30T19:00:00-07:00' \
+  --end '2026-03-30T21:00:00-07:00' \
+  --draft \
+  --json
+```
+
+Example draft result:
+
+```json
+{
+  "status": "planned",
+  "tool": "google.calendar.create",
+  "namespace": "google.personal",
+  "summary": "Draft calendar event \"Dinner with Sam\" starting at 2026-03-30T19:00:00-07:00",
+  "backend": "api",
+  "approval_required": true,
+  "approval_reason": "google.calendar.create stays draft-first until approval UX is wired"
+}
+```
+
+Then, after the user approves, the model applies it:
+
+```bash
+switchboard google.calendar.create \
+  --ns google.personal \
+  --title 'Dinner with Sam' \
+  --start '2026-03-30T19:00:00-07:00' \
+  --end '2026-03-30T21:00:00-07:00' \
+  --apply \
+  --json
+```
+
+Fail-closed rule:
+
+- if the model cannot confidently map the request to exactly one namespace, it should ask
+- if the event fields are incomplete, it should ask
+- if the request is a write, it should draft first instead of firing blindly
+
 ## Initial provider surface
 
 ### GitHub
@@ -327,7 +435,7 @@ Preferred backend order:
 Example commands:
 
 ```bash
-switchboard github.notifications.list --ns github.work --json
+switchboard github.notifications.list --ns github.personal --json
 
 switchboard github.pull_request.read \
   --ns github.personal \
@@ -481,10 +589,8 @@ switchboard/
 ├─ crates/
 │  ├─ switchboard-cli/
 │  ├─ switchboard-core/
+│  ├─ switchboard-providers/
 │  ├─ switchboard-store/
-│  ├─ switchboard-github/
-│  ├─ switchboard-google/
-│  └─ switchboard-daemon/
 └─ docs/
 ```
 
@@ -492,10 +598,8 @@ Possible responsibilities:
 
 - `switchboard-cli`: argument parsing, human-facing entrypoint, JSON formatting
 - `switchboard-core`: namespace resolution, policy, planning, approval hooks, shared types
+- `switchboard-providers`: provider modules implementing the core adapter trait
 - `switchboard-store`: SQLite persistence, audit, config
-- `switchboard-github`: GitHub adapter
-- `switchboard-google`: Google Workspace adapter
-- `switchboard-daemon`: optional local RPC, approval queue, background jobs
 
 Keep the architecture honest.
 If a crate exists, it should solve a real boundary, not just look tidy in a tree view.
@@ -504,8 +608,7 @@ If a crate exists, it should solve a real boundary, not just look tidy in a tree
 
 V1 is successful if it can do these reliably:
 
-1. list what needs attention on GitHub for a work account
-1. list what needs attention on GitHub for a personal account
+1. list what needs attention on GitHub for your account
 1. search and read work email safely
 1. draft a GitHub comment and require approval before posting
 1. draft an email or calendar event and require approval before sending or creating
@@ -546,7 +649,7 @@ If it cannot do those things cleanly, adding more providers is just expanding th
 - Calendar draft and create
 - approval UX that is not annoying
 
-### Phase 4, optional daemon extras
+### Phase 4, optional local service extras
 
 - background jobs
 - auth refresh

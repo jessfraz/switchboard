@@ -1,0 +1,9 @@
+/target
+
+# Nix build outputs
+/result
+/result-*
+
+# Local environment noise
+.DS_Store
+.direnv/

@@ -1,0 +1,19 @@
+[workspace]
+members = [
+  "crates/switchboard-cli",
+  "crates/switchboard-core",
+  "crates/switchboard-providers",
+  "crates/switchboard-store",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.76"
+version = "0.1.0"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"

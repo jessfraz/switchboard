@@ -1,0 +1,22 @@
+[package]
+name = "switchboard-cli"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "switchboard_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "switchboard"
+path = "src/main.rs"
+
+[dependencies]
+switchboard-core = { path = "../switchboard-core" }
+switchboard-providers = { path = "../switchboard-providers" }
+switchboard-store = { path = "../switchboard-store" }
+
+[lints]
+workspace = true
