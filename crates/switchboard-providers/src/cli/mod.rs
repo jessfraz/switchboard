@@ -11,8 +11,6 @@ pub(crate) use crate::cli::{
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use crate::cli::{
         command::{CliBinarySpec, CliCapabilityProbe},
         executor::ProcessCliExecutor,
@@ -21,11 +19,7 @@ mod tests {
     };
 
     #[test]
-    fn probes_real_gh_binary_when_cli_smoke_is_enabled() {
-        if env::var_os("SWITCHBOARD_RUN_REAL_CLI_SMOKE").is_none() {
-            return;
-        }
-
+    fn probes_real_gh_binary() {
         let version = probe_real_binary(
             CliBinarySpec {
                 program: "gh",
@@ -45,11 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn probes_real_gws_binary_when_cli_smoke_is_enabled() {
-        if env::var_os("SWITCHBOARD_RUN_REAL_CLI_SMOKE").is_none() {
-            return;
-        }
-
+    fn probes_real_gws_binary() {
         let version = probe_real_binary(
             CliBinarySpec {
                 program: "gws",

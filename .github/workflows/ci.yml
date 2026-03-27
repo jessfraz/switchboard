@@ -11,8 +11,6 @@ jobs:
   rust:
     name: Rust Checks
     runs-on: ubuntu-latest
-    env:
-      SWITCHBOARD_RUN_REAL_CLI_SMOKE: "1"
 
     steps:
       - name: Checkout
