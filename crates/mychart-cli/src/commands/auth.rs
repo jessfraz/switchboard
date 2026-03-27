@@ -1138,9 +1138,9 @@ fn prompt_for_callback_url() -> Option<String> {
     }
 
     eprintln!(
-        "Finish the browser login. When the callback page loads, paste the copied login code here, or paste the full callback URL if you insist."
+        "Finish the browser login. When the callback page loads, paste the copied login code here. If you paste the callback URL or the full `mychart finish ...` command, that works too."
     );
-    eprint!("Callback> ");
+    eprint!("Login code> ");
     let _ = io::stderr().flush();
 
     let mut input = String::new();
@@ -1207,6 +1207,13 @@ fn extract_callback_input(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
+    }
+
+    if let Some(command_start) = trimmed.find(" finish ") {
+        let command_tail = trimmed[command_start + " finish ".len()..].trim();
+        if !command_tail.is_empty() {
+            return extract_callback_input(command_tail);
+        }
     }
 
     if let Some(start) = trimmed.find("https://").or_else(|| trimmed.find("http://")) {

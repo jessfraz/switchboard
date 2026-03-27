@@ -1490,6 +1490,49 @@ mod tests {
     }
 
     #[test]
+    fn top_level_finish_accepts_pasted_finish_command() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-finish-command-paste");
+        let config_path = temp_dir.join("config.json");
+        let redirect_uri = "https://jessfraz.github.io/switchboard/mychart-callback/";
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("client-123".into()),
+                redirect_uri: Some(redirect_uri.into()),
+                pending_oauth_state: Some("test-state".into()),
+                pending_code_verifier: Some("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "finish",
+            "mychart finish 'oauth-code';",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+    }
+
+    #[test]
     fn exchange_code_uses_basic_auth_for_confidential_clients() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
@@ -2804,6 +2847,48 @@ mod tests {
         assert!(output.appointments.is_empty());
         assert_eq!(output.warnings.len(), 1);
         assert!(output.warnings[0].contains("patient/Appointment.read"));
+    }
+
+    #[test]
+    fn appointments_upcoming_reports_missing_capability_warning() {
+        let server = TestServer::spawn(vec![ResponseSpec::json(
+            200,
+            capability_statement_json(
+                "http://placeholder",
+                &[resource_capability("Observation", &["read", "search-type"])],
+            ),
+            Vec::new(),
+        )]);
+        let temp_dir = temp_dir("mychart-appointments-capability-warning");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                scope: Some("openid patient/Observation.read".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let context = resolved_context(&config_path);
+        let output = crate::commands::appointments::run_upcoming_output(
+            crate::commands::appointments::AppointmentsUpcomingArgs {
+                patient: None,
+                all_accounts: false,
+                since: None,
+                limit: 10,
+                all_pages: false,
+            },
+            &context,
+        )
+        .expect("upcoming appointments should still render");
+
+        assert_eq!(output.status, "ok");
+        assert!(output.appointments.is_empty());
+        assert_eq!(output.warnings.len(), 1);
+        assert!(output.warnings[0].contains("Appointment"));
+        assert!(output.warnings[0].contains("not exposed"));
     }
 
     #[test]

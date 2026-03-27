@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MyChart OAuth callback</title>
+    <title>Finish MyChart login</title>
     <style>
       :root {
         --bg: #fafafa;
@@ -40,7 +40,7 @@
       }
 
       h1 {
-        font-size: 2.4rem;
+        font-size: 2.7rem;
         font-weight: 400;
         line-height: 1.15;
         letter-spacing: -0.02em;
@@ -229,9 +229,9 @@
     <main>
       <header>
         <div id="status-pill" class="status">Waiting for callback</div>
-        <h1>MyChart Login</h1>
+        <h1>Finish MyChart login</h1>
         <p id="lead">
-          This page hands the OAuth callback back to the CLI.
+          Copy the login code below, paste it into the terminal waiting on <code>mychart login</code>, and move on with your life.
         </p>
       </header>
 
@@ -239,20 +239,20 @@
         <label for="callback-payload">Login code</label>
         <textarea id="callback-payload" readonly></textarea>
         <div class="actions">
-          <button id="copy-payload" class="primary" type="button">Copy login code</button>
-          <button id="copy-command" type="button">Copy finish command</button>
+          <button id="copy-payload" class="primary" type="button">Copy code</button>
+          <button id="copy-command" type="button">Copy fallback command</button>
         </div>
       </section>
 
       <details>
-        <summary>Fallback command</summary>
+        <summary>If the terminal is gone</summary>
         <div style="margin-top: 0.8rem;">
           <textarea id="exchange-command" readonly></textarea>
         </div>
       </details>
 
       <details>
-        <summary>Callback details</summary>
+        <summary>Debug details</summary>
         <div class="meta">
           <div class="meta-row">
             <span class="meta-key">Redirect URI</span>
@@ -327,7 +327,7 @@
             statusPill.textContent = "No callback data";
             statusPill.className = "status";
             lead.textContent =
-              "Open this page through the OAuth redirect. There's nothing to copy yet.";
+              "Open this page through the OAuth redirect. There is nothing to copy yet.";
             callbackPayload.value = "";
             callbackPayload.placeholder = "Waiting for OAuth redirect\u2026";
             exchangeCommand.value = "";
@@ -362,8 +362,8 @@
             statusPill.textContent = "Ready";
             statusPill.className = "status good";
             lead.textContent =
-              "Copy the login code and paste it into the terminal where mychart login is waiting.";
-            copyPayload.textContent = "Copy login code";
+              "Copy the login code and paste it into the terminal where `mychart login` is waiting.";
+            copyPayload.textContent = "Copy code";
           } else {
             statusPill.textContent = "Incomplete callback";
             statusPill.className = "status";
