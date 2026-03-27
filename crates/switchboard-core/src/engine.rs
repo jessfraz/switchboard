@@ -10,8 +10,8 @@ use crate::{
         Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
     },
     types::{
-        AuditEvent, AuditOutcome, AuthSecretRefs, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind,
-        ResolvedCredentials, ResolvedNamespace, ToolKind,
+        AuditEvent, AuditOutcome, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationId, PlannedAction,
+        PlanningTarget, ProviderKind, ResolvedCredentials, ResolvedNamespace, StoredOperation, ToolKind, ToolOutput,
     },
 };
 
@@ -52,6 +52,41 @@ impl Switchboard {
 
     pub fn list_namespaces(&self) -> Vec<ResolvedNamespace> {
         self.services.namespaces.list()
+    }
+
+    pub fn list_operations(&self) -> Vec<StoredOperation> {
+        self.services.operations.list()
+    }
+
+    pub fn get_operation(&self, id: &OperationId) -> Option<StoredOperation> {
+        self.services.operations.get(id)
+    }
+
+    pub fn approve_operation(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+        let operation = self.services.operations.mark_approved(id, actor, note)?;
+        self.services
+            .audit
+            .record(&AuditEvent::from_operation(&operation, AuditOutcome::Approved))?;
+        Ok(operation)
+    }
+
+    pub fn reject_operation(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+        let operation = self.services.operations.mark_rejected(id, actor, note)?;
+        self.services
+            .audit
+            .record(&AuditEvent::from_operation(&operation, AuditOutcome::Rejected))?;
+        Ok(operation)
+    }
+
+    pub fn apply_operation(&self, id: &OperationId) -> Result<ToolOutput> {
+        let operation = self
+            .services
+            .operations
+            .get(id)
+            .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
+        operation.can_apply()?;
+
+        self.execute_stored_operation(operation)
     }
 
     pub fn execute_operation(&self, request: OperationRequest) -> Result<OperationOutcome> {
@@ -219,6 +254,88 @@ impl Switchboard {
             .audit
             .record(&AuditEvent::from_plan(&plan, AuditOutcome::Planned))?;
         Ok(DispatchOutcome::Planned(plan))
+    }
+
+    fn execute_stored_operation(&self, operation: StoredOperation) -> Result<ToolOutput> {
+        let namespace = self
+            .services
+            .namespaces
+            .get(&operation.namespace)
+            .ok_or_else(|| Error::UnknownNamespace(operation.namespace.to_string()))?;
+        let requested_provider = operation.tool.provider()?;
+        if namespace.provider != requested_provider {
+            return Err(Error::ProviderMismatch {
+                namespace: namespace.id.to_string(),
+                namespace_provider: namespace.provider,
+                requested_provider,
+            });
+        }
+
+        let adapter = self
+            .adapters
+            .get(&namespace.provider)
+            .ok_or_else(|| Error::MissingAdapter(namespace.provider.clone()))?;
+        let auth = self
+            .services
+            .auth
+            .get(&operation.auth_ref)
+            .ok_or_else(|| Error::MissingAuth(operation.auth_ref.to_string()))?;
+        if auth.provider != namespace.provider {
+            return Err(Error::AuthProviderMismatch {
+                auth_ref: operation.auth_ref.to_string(),
+                auth_provider: auth.provider,
+                namespace_provider: namespace.provider,
+            });
+        }
+
+        let descriptor = adapter
+            .find_tool(&operation.tool)
+            .ok_or_else(|| Error::UnsupportedTool(operation.tool.to_string()))?;
+        if descriptor.kind != operation.kind {
+            return Err(Error::Operation(format!(
+                "stored operation {} expected tool kind {}, but {} is registered as {}",
+                operation.id, operation.kind, operation.tool, descriptor.kind
+            )));
+        }
+
+        let planning_target = PlanningTarget {
+            namespace,
+            auth,
+        };
+        let plan = PlannedAction {
+            tool: operation.tool.clone(),
+            namespace: operation.namespace.clone(),
+            auth_ref: operation.auth_ref.clone(),
+            kind: operation.kind,
+            mode: ExecutionMode::Apply,
+            summary: operation.summary.clone(),
+            backend: operation.backend,
+            approval_required: operation.approval_required,
+            approval_reason: operation.approval_reason.clone(),
+            args: operation.args.clone(),
+            operation_id: Some(operation.id.clone()),
+        };
+        let execution_target = self.resolve_execution_target(&planning_target)?;
+
+        let output = match adapter.execute(&execution_target, &plan) {
+            Ok(output) => output.with_operation_id(operation.id.clone()),
+            Err(error) => {
+                self.services
+                    .operations
+                    .mark_failed(&operation.id, &error.to_string())?;
+                self.services
+                    .audit
+                    .record(&AuditEvent::from_plan(&plan, AuditOutcome::Failed))?;
+                return Err(error);
+            }
+        };
+
+        self.services.operations.mark_applied(&operation.id, &output)?;
+        self.services
+            .audit
+            .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
+
+        Ok(output)
     }
 
     fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {
@@ -599,6 +716,20 @@ mod tests {
         fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation> {
             self.with_operation_mut(id, |operation| {
                 operation.mark_applied(output.effect.clone());
+                Ok(operation.clone())
+            })
+        }
+
+        fn mark_approved(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.approve(actor, note.map(str::to_owned))?;
+                Ok(operation.clone())
+            })
+        }
+
+        fn mark_rejected(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.reject(actor, note.map(str::to_owned))?;
                 Ok(operation.clone())
             })
         }

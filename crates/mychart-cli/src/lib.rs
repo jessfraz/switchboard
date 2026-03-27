@@ -14,16 +14,18 @@ use crate::{
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
-    "  mychart auth login-password --username you@example.com --password 'super-secret'\n",
+    "  mychart auth login-password --base-url https://my.uclahealth.org/MyChart \\\n",
+    "    --username you@example.com --password 'super-secret'\n",
     "  mychart auth status\n",
     "  mychart request get /inside.asp\n",
     "  mychart request get /Visits/UpcomingAppointments\n",
     "  mychart request post /Authentication/Login/TwoFactorAuthentication \\\n",
     "    --form __RequestVerificationToken=token --form Code=123456\n",
     "\n",
-    "This CLI is aimed at UCLA Health's Epic MyChart portal.\n",
-    "It stores session cookies in a local 0600 config file and exposes request primitives for the flows Epic still refuses to make pleasant.\n",
-    "Because UCLA Health has two-factor authentication enabled, `auth login-password` may return `verification_required` with a `next_url` instead of a fully authenticated session.\n",
+    "This CLI is aimed at Epic MyChart portals.\n",
+    "Pass --base-url once for your organization and it will be persisted in a local 0600 config file alongside session cookies.\n",
+    "It also exposes request primitives for the flows Epic still refuses to make pleasant.\n",
+    "If your organization uses two-factor authentication, `auth login-password` may return `verification_required` with a `next_url` instead of a fully authenticated session.\n",
 );
 
 pub fn main_entry<I, T>(args: I) -> ExitCode
@@ -70,7 +72,7 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
 #[command(
     name = "mychart",
     version,
-    about = "CLI for UCLA Health MyChart auth flows and authenticated portal requests",
+    about = "CLI for Epic MyChart auth flows and authenticated portal requests",
     disable_help_subcommand = true,
     after_help = AFTER_HELP
 )]

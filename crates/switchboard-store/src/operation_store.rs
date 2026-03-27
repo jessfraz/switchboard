@@ -5,8 +5,8 @@ use std::{
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use switchboard_core::{
-    BackendKind, Error, OperationEffect, OperationId, OperationStatus, OperationStore, Result, StoredOperation,
-    ToolKind, ToolOutput,
+    ApprovalState, BackendKind, Error, OperationApproval, OperationEffect, OperationId, OperationStatus,
+    OperationStore, Result, StoredOperation, ToolKind, ToolOutput,
 };
 
 const DEFAULT_DB_FILE: &str = "operations.sqlite3";
@@ -56,6 +56,10 @@ impl SqliteOperationStore {
                summary TEXT NOT NULL,
                backend TEXT NOT NULL,
                approval_required INTEGER NOT NULL,
+               approval_reason TEXT,
+               approval_state TEXT NOT NULL,
+               approval_actor TEXT,
+               approval_note TEXT,
                status TEXT NOT NULL,
                args_json TEXT NOT NULL,
                effect_json TEXT,
@@ -67,6 +71,44 @@ impl SqliteOperationStore {
             .map_err(|error| {
                 Error::Operation(format!(
                     "failed to initialize operation store {}: {error}",
+                    self.path.display()
+                ))
+            })?;
+
+        ensure_column(
+            &connection,
+            "approval_reason",
+            "TEXT",
+            "ALTER TABLE operations ADD COLUMN approval_reason TEXT",
+        )?;
+        ensure_column(
+            &connection,
+            "approval_state",
+            "TEXT NOT NULL DEFAULT 'pending'",
+            "ALTER TABLE operations ADD COLUMN approval_state TEXT NOT NULL DEFAULT 'pending'",
+        )?;
+        ensure_column(
+            &connection,
+            "approval_actor",
+            "TEXT",
+            "ALTER TABLE operations ADD COLUMN approval_actor TEXT",
+        )?;
+        ensure_column(
+            &connection,
+            "approval_note",
+            "TEXT",
+            "ALTER TABLE operations ADD COLUMN approval_note TEXT",
+        )?;
+        connection
+            .execute(
+                "UPDATE operations
+                 SET approval_state = 'not_required'
+                 WHERE approval_required = 0 AND approval_state = 'pending'",
+                [],
+            )
+            .map_err(|error| {
+                Error::Operation(format!(
+                    "failed to backfill approval state in {}: {error}",
                     self.path.display()
                 ))
             })?;
@@ -87,7 +129,7 @@ impl SqliteOperationStore {
     fn get_operation(connection: &Connection, id: &OperationId) -> Result<StoredOperation> {
         connection
             .query_row(
-                "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, status, args_json, effect_json, failure_reason
+                "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
                  FROM operations
                  WHERE operation_id = ?1",
                 params![id.as_str()],
@@ -109,22 +151,68 @@ impl OperationStore for SqliteOperationStore {
         connection
             .execute(
                 "INSERT INTO operations (
-                   operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, status, args_json, effect_json, failure_reason
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL)",
+                   operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11, ?12, NULL, NULL)",
                 params![
                     operation.id.as_str(),
                     operation.tool.as_str(),
                     operation.namespace.as_str(),
                     operation.auth_ref.as_str(),
                     tool_kind_identifier(operation.kind),
-                    operation.summary,
+                    &operation.summary,
                     backend_kind_identifier(operation.backend),
                     operation.approval_required,
+                    operation.approval_reason.as_deref(),
+                    approval_state_identifier(operation.approval.state),
                     operation_status_identifier(operation.status),
                     args_json,
                 ],
             )
             .map_err(|error| Error::Operation(format!("failed to insert operation {}: {error}", operation.id)))?;
+
+        Ok(operation)
+    }
+
+    fn mark_approved(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+        let connection = self.connect()?;
+        let mut operation = Self::get_operation(&connection, id)?;
+        operation.approve(actor, note.map(str::to_owned))?;
+
+        connection
+            .execute(
+                "UPDATE operations
+                 SET approval_state = ?2, approval_actor = ?3, approval_note = ?4, updated_at = CURRENT_TIMESTAMP
+                 WHERE operation_id = ?1",
+                params![
+                    operation.id.as_str(),
+                    approval_state_identifier(operation.approval.state),
+                    operation.approval.actor.as_deref(),
+                    operation.approval.note.as_deref(),
+                ],
+            )
+            .map_err(|error| Error::Operation(format!("failed to mark operation {id} approved: {error}")))?;
+
+        Ok(operation)
+    }
+
+    fn mark_rejected(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+        let connection = self.connect()?;
+        let mut operation = Self::get_operation(&connection, id)?;
+        operation.reject(actor, note.map(str::to_owned))?;
+
+        connection
+            .execute(
+                "UPDATE operations
+                 SET approval_state = ?2, approval_actor = ?3, approval_note = ?4, updated_at = CURRENT_TIMESTAMP
+                 WHERE operation_id = ?1",
+                params![
+                    operation.id.as_str(),
+                    approval_state_identifier(operation.approval.state),
+                    operation.approval.actor.as_deref(),
+                    operation.approval.note.as_deref(),
+                ],
+            )
+            .map_err(|error| Error::Operation(format!("failed to mark operation {id} rejected: {error}")))?;
 
         Ok(operation)
     }
@@ -200,7 +288,7 @@ impl OperationStore for SqliteOperationStore {
             Err(_) => return Vec::new(),
         };
         let mut statement = match connection.prepare(
-            "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, status, args_json, effect_json, failure_reason
+            "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
              FROM operations
              ORDER BY created_at DESC, rowid DESC",
         ) {
@@ -246,10 +334,14 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
     let summary = row.get::<_, String>(5)?;
     let backend = row.get::<_, String>(6)?;
     let approval_required = row.get::<_, bool>(7)?;
-    let status = row.get::<_, String>(8)?;
-    let args_json = row.get::<_, String>(9)?;
-    let effect_json = row.get::<_, Option<String>>(10)?;
-    let failure_reason = row.get::<_, Option<String>>(11)?;
+    let approval_reason = row.get::<_, Option<String>>(8)?;
+    let approval_state = row.get::<_, String>(9)?;
+    let approval_actor = row.get::<_, Option<String>>(10)?;
+    let approval_note = row.get::<_, Option<String>>(11)?;
+    let status = row.get::<_, String>(12)?;
+    let args_json = row.get::<_, String>(13)?;
+    let effect_json = row.get::<_, Option<String>>(14)?;
+    let failure_reason = row.get::<_, Option<String>>(15)?;
 
     Ok(StoredOperation {
         id: OperationId::new(id).map_err(to_sqlite_error)?,
@@ -260,6 +352,12 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
         summary,
         backend: parse_backend_kind(&backend).map_err(to_sqlite_error)?,
         approval_required,
+        approval_reason,
+        approval: OperationApproval {
+            state: parse_approval_state(&approval_state).map_err(to_sqlite_error)?,
+            actor: approval_actor,
+            note: approval_note,
+        },
         status: parse_operation_status(&status).map_err(to_sqlite_error)?,
         args: serde_json::from_str(&args_json).map_err(to_sqlite_error)?,
         effect: decode_effect(effect_json.as_deref()).map_err(to_sqlite_error)?,
@@ -310,6 +408,15 @@ fn operation_status_identifier(status: OperationStatus) -> &'static str {
     }
 }
 
+fn approval_state_identifier(state: ApprovalState) -> &'static str {
+    match state {
+        ApprovalState::NotRequired => "not_required",
+        ApprovalState::Pending => "pending",
+        ApprovalState::Approved => "approved",
+        ApprovalState::Rejected => "rejected",
+    }
+}
+
 fn parse_tool_kind(value: &str) -> Result<ToolKind> {
     match value {
         "read" => Ok(ToolKind::Read),
@@ -344,12 +451,49 @@ fn parse_operation_status(value: &str) -> Result<OperationStatus> {
     }
 }
 
+fn parse_approval_state(value: &str) -> Result<ApprovalState> {
+    match value {
+        "not_required" => Ok(ApprovalState::NotRequired),
+        "pending" => Ok(ApprovalState::Pending),
+        "approved" => Ok(ApprovalState::Approved),
+        "rejected" => Ok(ApprovalState::Rejected),
+        _ => Err(Error::Operation(format!(
+            "unknown approval state in operation store: {value}"
+        ))),
+    }
+}
+
 fn to_sqlite_error(error: impl std::fmt::Display) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(
         0,
         rusqlite::types::Type::Text,
         Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())),
     )
+}
+
+fn ensure_column(connection: &Connection, column_name: &str, _definition: &str, statement: &str) -> Result<()> {
+    if operation_columns(connection)?.iter().any(|column| column == column_name) {
+        return Ok(());
+    }
+
+    connection.execute_batch(statement).map_err(|error| {
+        Error::Operation(format!(
+            "failed to add {column_name} column to operation store: {error}"
+        ))
+    })?;
+
+    Ok(())
+}
+
+fn operation_columns(connection: &Connection) -> Result<Vec<String>> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(operations)")
+        .map_err(|error| Error::Operation(format!("failed to inspect operation store schema: {error}")))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| Error::Operation(format!("failed to query operation store schema: {error}")))?;
+
+    Ok(rows.filter_map(|row| row.ok()).collect())
 }
 
 #[cfg(test)]

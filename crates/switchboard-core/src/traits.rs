@@ -37,6 +37,8 @@ pub trait AuditSink: Send + Sync {
 
 pub trait OperationStore: Send + Sync {
     fn create(&self, plan: &PlannedAction) -> Result<StoredOperation>;
+    fn mark_approved(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation>;
+    fn mark_rejected(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation>;
     fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation>;
     fn mark_failed(&self, id: &OperationId, reason: &str) -> Result<StoredOperation>;
     fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation>;

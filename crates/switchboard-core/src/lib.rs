@@ -15,10 +15,10 @@ pub use crate::{
         Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
     },
     types::{
-        AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, ExecutionMode, ExecutionTarget,
-        NamespaceId, OperationEffect, OperationId, OperationStatus, PlannedAction, PlanningTarget, PolicyDecision,
-        ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, ResolvedSecret, SecretRef, SecretSource,
-        SecretString, StoredOperation, ToolArgument, ToolArguments, ToolDescriptor, ToolKind, ToolName, ToolOutput,
-        ToolRef, ToolRefKind, ToolRequest,
+        ApprovalState, AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, ExecutionMode,
+        ExecutionTarget, NamespaceId, OperationApproval, OperationEffect, OperationId, OperationStatus, PlannedAction,
+        PlanningTarget, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
+        ResolvedSecret, SecretRef, SecretSource, SecretString, StoredOperation, ToolArgument, ToolArguments,
+        ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRef, ToolRefKind, ToolRequest, WritePolicy,
     },
 };

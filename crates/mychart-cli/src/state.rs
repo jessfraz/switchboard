@@ -13,7 +13,6 @@ use crate::{
     Error, GlobalArgs, Result,
 };
 
-pub(crate) const DEFAULT_BASE_URL: &str = "https://my.uclahealth.org/MyChart";
 pub(crate) const ENV_MYCHART_CONFIG: &str = "MYCHART_CONFIG";
 pub(crate) const ENV_MYCHART_BASE_URL: &str = "MYCHART_BASE_URL";
 pub(crate) const ENV_MYCHART_USERNAME: &str = "MYCHART_USERNAME";
@@ -98,12 +97,14 @@ impl ResolvedContext {
         let state = store.load()?;
 
         Ok(Self {
-            base_url: pick(
-                global.base_url.clone(),
-                env_value(ENV_MYCHART_BASE_URL),
-                state.base_url.clone(),
-            )
-            .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned()),
+            base_url: pick(global.base_url.clone(), env_value(ENV_MYCHART_BASE_URL), state.base_url.clone()).ok_or_else(
+                || {
+                    Error::Config(
+                        "missing MyChart base URL, pass --base-url, set MYCHART_BASE_URL, or log in once with --base-url so it can be persisted"
+                            .into(),
+                    )
+                },
+            )?,
             username: pick(
                 global.username.clone(),
                 env_value(ENV_MYCHART_USERNAME),

@@ -153,6 +153,20 @@ impl OperationStore for MemoryOperationStore {
         Ok(operation)
     }
 
+    fn mark_approved(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+        self.with_operation_mut(id, |operation| {
+            operation.approve(actor, note.map(str::to_owned))?;
+            Ok(operation.clone())
+        })
+    }
+
+    fn mark_rejected(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
+        self.with_operation_mut(id, |operation| {
+            operation.reject(actor, note.map(str::to_owned))?;
+            Ok(operation.clone())
+        })
+    }
+
     fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation> {
         self.with_operation_mut(id, |operation| {
             operation.mark_applied(output.effect.clone());
@@ -212,9 +226,9 @@ impl MemoryOperationStore {
 #[cfg(test)]
 mod tests {
     use switchboard_core::{
-        BackendKind, ExecutionMode, NamespaceId, OperationEffect, OperationStatus, OperationStore, PlannedAction,
-        PlanningTarget, ProviderKind, ResolvedAuth, ResolvedNamespace, ToolArgument, ToolKind, ToolName, ToolOutput,
-        ToolRef, ToolRefKind, ToolRequest,
+        ApprovalState, BackendKind, ExecutionMode, NamespaceId, OperationEffect, OperationStatus, OperationStore,
+        PlannedAction, PlanningTarget, ProviderKind, ResolvedAuth, ResolvedNamespace, ToolArgument, ToolKind, ToolName,
+        ToolOutput, ToolRef, ToolRefKind, ToolRequest,
     };
 
     use super::MemoryOperationStore;
@@ -226,6 +240,13 @@ mod tests {
         let created = store.create(&plan).expect("operation should be created");
 
         assert_eq!(created.status, OperationStatus::Planned);
+        assert_eq!(created.approval.state, ApprovalState::Pending);
+
+        let approved = store
+            .mark_approved(&created.id, "codex", Some("ship it"))
+            .expect("operation should be approved");
+        assert_eq!(approved.approval.state, ApprovalState::Approved);
+        assert_eq!(approved.approval.actor.as_deref(), Some("codex"));
 
         let output = ToolOutput::new(
             ToolName::new("google.calendar.create").expect("tool should build"),
@@ -264,12 +285,17 @@ mod tests {
         let store = MemoryOperationStore::default();
         let created = store.create(&planned_action()).expect("operation should be created");
 
+        store
+            .mark_rejected(&created.id, "codex", Some("not safe"))
+            .expect("operation should be rejected");
+
         let failed = store
             .mark_failed(&created.id, "provider returned 403")
             .expect("operation should be marked failed");
 
         assert_eq!(failed.status, OperationStatus::Failed);
         assert_eq!(failed.failure_reason.as_deref(), Some("provider returned 403"));
+        assert_eq!(failed.approval.state, ApprovalState::Rejected);
     }
 
     fn planned_action() -> PlannedAction {

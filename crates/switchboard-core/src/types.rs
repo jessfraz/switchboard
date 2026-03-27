@@ -831,6 +831,8 @@ pub struct ToolDescriptor {
 #[serde(rename_all = "snake_case")]
 pub enum AuditOutcome {
     Planned,
+    Approved,
+    Rejected,
     Executed,
     Failed,
     Compensated,
@@ -862,6 +864,81 @@ impl AuditEvent {
             outcome,
             operation_id: plan.operation_id.clone(),
         }
+    }
+
+    pub fn from_operation(operation: &StoredOperation, outcome: AuditOutcome) -> Self {
+        Self {
+            tool: operation.tool.clone(),
+            namespace: operation.namespace.clone(),
+            auth_ref: operation.auth_ref.clone(),
+            summary: operation.summary.clone(),
+            backend: operation.backend,
+            approval_required: operation.approval_required,
+            outcome,
+            operation_id: Some(operation.id.clone()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalState {
+    NotRequired,
+    Pending,
+    Approved,
+    Rejected,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct OperationApproval {
+    pub state: ApprovalState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl OperationApproval {
+    pub fn not_required() -> Self {
+        Self {
+            state: ApprovalState::NotRequired,
+            actor: None,
+            note: None,
+        }
+    }
+
+    pub fn pending() -> Self {
+        Self {
+            state: ApprovalState::Pending,
+            actor: None,
+            note: None,
+        }
+    }
+
+    pub fn approve(&mut self, actor: impl Into<String>, note: Option<String>) -> Result<()> {
+        let actor = actor.into();
+        validate_non_empty("approval actor", &actor)?;
+        if note.as_ref().is_some_and(|note| note.trim().is_empty()) {
+            return Err(Error::InvalidArguments("approval note cannot be empty".into()));
+        }
+
+        self.state = ApprovalState::Approved;
+        self.actor = Some(actor);
+        self.note = note;
+        Ok(())
+    }
+
+    pub fn reject(&mut self, actor: impl Into<String>, note: Option<String>) -> Result<()> {
+        let actor = actor.into();
+        validate_non_empty("approval actor", &actor)?;
+        if note.as_ref().is_some_and(|note| note.trim().is_empty()) {
+            return Err(Error::InvalidArguments("approval note cannot be empty".into()));
+        }
+
+        self.state = ApprovalState::Rejected;
+        self.actor = Some(actor);
+        self.note = note;
+        Ok(())
     }
 }
 
@@ -919,6 +996,9 @@ pub struct StoredOperation {
     pub summary: String,
     pub backend: BackendKind,
     pub approval_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_reason: Option<String>,
+    pub approval: OperationApproval,
     pub status: OperationStatus,
     pub args: ToolArguments,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -938,6 +1018,12 @@ impl StoredOperation {
             summary: plan.summary.clone(),
             backend: plan.backend,
             approval_required: plan.approval_required,
+            approval_reason: plan.approval_reason.clone(),
+            approval: if plan.approval_required {
+                OperationApproval::pending()
+            } else {
+                OperationApproval::not_required()
+            },
             status: OperationStatus::Planned,
             args: plan.args.clone(),
             effect: None,
@@ -962,6 +1048,78 @@ impl StoredOperation {
     pub fn mark_compensated(&mut self) {
         self.status = OperationStatus::Compensated;
     }
+
+    pub fn approve(&mut self, actor: impl Into<String>, note: Option<String>) -> Result<()> {
+        if !self.approval_required {
+            return Err(Error::Operation(format!(
+                "operation {} does not require approval",
+                self.id
+            )));
+        }
+        if self.status == OperationStatus::Applied || self.status == OperationStatus::Compensated {
+            return Err(Error::Operation(format!(
+                "operation {} can no longer be approved",
+                self.id
+            )));
+        }
+
+        self.approval.approve(actor, note)
+    }
+
+    pub fn reject(&mut self, actor: impl Into<String>, note: Option<String>) -> Result<()> {
+        if !self.approval_required {
+            return Err(Error::Operation(format!(
+                "operation {} does not require approval",
+                self.id
+            )));
+        }
+        if self.status == OperationStatus::Applied || self.status == OperationStatus::Compensated {
+            return Err(Error::Operation(format!(
+                "operation {} can no longer be rejected",
+                self.id
+            )));
+        }
+
+        self.approval.reject(actor, note)
+    }
+
+    pub fn can_apply(&self) -> Result<()> {
+        match self.status {
+            OperationStatus::Applied => {
+                return Err(Error::Operation(format!(
+                    "operation {} has already been applied",
+                    self.id
+                )));
+            }
+            OperationStatus::Compensated => {
+                return Err(Error::Operation(format!(
+                    "operation {} has already been compensated",
+                    self.id
+                )));
+            }
+            OperationStatus::Planned | OperationStatus::Failed => {}
+        }
+
+        match self.approval.state {
+            ApprovalState::NotRequired | ApprovalState::Approved => Ok(()),
+            ApprovalState::Pending => Err(Error::Operation(format!(
+                "operation {} is still pending approval",
+                self.id
+            ))),
+            ApprovalState::Rejected => Err(Error::Operation(format!(
+                "operation {} was rejected and cannot be applied",
+                self.id
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WritePolicy {
+    Allow,
+    RequireApproval,
+    Deny,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

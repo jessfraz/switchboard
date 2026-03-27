@@ -7,16 +7,17 @@ use std::{
 use serde::Deserialize;
 use switchboard_core::{
     AuthKind, AuthRef, AuthSecretRefs, AuthStore, Error, ProviderKind, ResolvedAuth, ResolvedNamespace, ResolvedSecret,
-    Result, SecretRef, SecretSource, SecretStore,
+    Result, SecretRef, SecretSource, SecretStore, WritePolicy,
 };
 
-use crate::{StaticAuthStore, StaticNamespaceStore, StaticSecretStore};
+use crate::{ConfiguredPolicyEngine, StaticAuthStore, StaticNamespaceStore, StaticSecretStore};
 
 #[derive(Clone, Debug)]
 pub struct SwitchboardConfig {
     namespaces: StaticNamespaceStore,
     auth: StaticAuthStore,
     secrets: StaticSecretStore,
+    write_policy: WritePolicy,
 }
 
 impl SwitchboardConfig {
@@ -40,17 +41,23 @@ impl SwitchboardConfig {
         (self.namespaces, self.auth, self.secrets)
     }
 
+    pub fn policy_engine(&self) -> ConfiguredPolicyEngine {
+        ConfiguredPolicyEngine::new(self.write_policy)
+    }
+
     fn from_source(source: &str, source_label: &str) -> Result<Self> {
         let config: RawConfig = toml::from_str(source)
             .map_err(|error| Error::Config(format!("failed to parse {source_label}: {error}")))?;
         let secrets = build_secret_store(config.secret)?;
         let auth = build_auth_store(config.auth, &secrets)?;
         let namespaces = build_namespace_store(config.namespace, &auth)?;
+        let write_policy = config.policy.write;
 
         Ok(Self {
             namespaces,
             auth,
             secrets,
+            write_policy,
         })
     }
 }
@@ -205,6 +212,27 @@ struct RawConfig {
     auth: BTreeMap<String, RawAuth>,
     #[serde(default)]
     namespace: BTreeMap<String, BTreeMap<String, RawNamespace>>,
+    #[serde(default)]
+    policy: RawPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPolicy {
+    #[serde(default = "default_write_policy")]
+    write: WritePolicy,
+}
+
+impl Default for RawPolicy {
+    fn default() -> Self {
+        Self {
+            write: default_write_policy(),
+        }
+    }
+}
+
+fn default_write_policy() -> WritePolicy {
+    WritePolicy::RequireApproval
 }
 
 #[derive(Debug, Deserialize)]

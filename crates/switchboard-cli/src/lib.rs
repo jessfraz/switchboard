@@ -17,7 +17,7 @@ use switchboard_core::{
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
-    resolve_operation_store_path, DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, SqliteOperationStore,
+    resolve_operation_store_path, ConfiguredPolicyEngine, LocalSecretResolver, MemoryAuditSink, SqliteOperationStore,
     SwitchboardConfig,
 };
 
@@ -36,6 +36,7 @@ const AFTER_HELP: &str = concat!(
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
     let config = SwitchboardConfig::from_file(&config_path)?;
+    let policy = config.policy_engine();
     let (namespaces, auth, secrets) = config.into_stores();
     let operations = SqliteOperationStore::open(resolve_operation_store_path(&config_path))?;
 
@@ -44,6 +45,7 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
         Arc::new(auth),
         Arc::new(secrets),
         Arc::new(LocalSecretResolver::default()),
+        Arc::new(policy),
         Arc::new(operations),
     ))
 }
@@ -53,9 +55,9 @@ fn build_switchboard(
     auth: Arc<dyn AuthStore>,
     secrets: Arc<dyn SecretStore>,
     secret_resolver: Arc<dyn SecretResolver>,
+    policy: Arc<dyn switchboard_core::PolicyEngine>,
     operations: Arc<dyn switchboard_core::OperationStore>,
 ) -> Switchboard {
-    let policy = Arc::new(DefaultPolicyEngine);
     let audit = Arc::new(MemoryAuditSink::default());
     let adapters = default_registry();
 

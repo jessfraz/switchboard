@@ -7,7 +7,7 @@ mod stores;
 pub use crate::{
     config::SwitchboardConfig,
     operation_store::{resolve_operation_store_path, SqliteOperationStore},
-    policy::DefaultPolicyEngine,
+    policy::ConfiguredPolicyEngine,
     secrets::LocalSecretResolver,
     stores::{MemoryAuditSink, MemoryOperationStore, StaticAuthStore, StaticNamespaceStore, StaticSecretStore},
 };
