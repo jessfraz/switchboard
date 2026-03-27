@@ -13,10 +13,13 @@ use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
     NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver, SecretStore,
-    Switchboard, ToolName, ToolOutput, ToolRequest,
+    Switchboard, ToolArgument, ToolName, ToolOutput, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, SwitchboardConfig};
+
+#[cfg(test)]
+mod test_support;
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
@@ -217,7 +220,7 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
     })?;
     positionals.remove(0);
     let mut namespaces = Vec::new();
-    let mut args_map = BTreeMap::new();
+    let mut arguments = Vec::new();
     let mut mode = ExecutionMode::Auto;
     let mut index = 0;
 
@@ -245,14 +248,34 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
                 namespaces.push(value.clone());
                 index += 2;
             }
-            _ if current.starts_with("--") => {
-                let key = current.trim_start_matches("--");
-                let value = positionals.get(index + 1).ok_or_else(|| RunError {
-                    message: format!("missing value for {current}"),
+            _ if current.starts_with("--") && current.contains('=') => {
+                let (name, value) = split_inline_argument(current).ok_or_else(|| RunError {
+                    message: format!("invalid argument syntax: {current}"),
                     json,
                 })?;
-                args_map.insert(key.to_string(), value.clone());
-                index += 2;
+                arguments.push(ToolArgument::option(name, value).map_err(|error| RunError {
+                    message: error.to_string(),
+                    json,
+                })?);
+                index += 1;
+            }
+            _ if current.starts_with("--") => {
+                let key = current.trim_start_matches("--");
+                let next = positionals.get(index + 1);
+                if next.is_none() || next.is_some_and(|value| value.starts_with("--")) {
+                    arguments.push(ToolArgument::flag(key).map_err(|error| RunError {
+                        message: error.to_string(),
+                        json,
+                    })?);
+                    index += 1;
+                } else {
+                    let value = next.expect("checked above");
+                    arguments.push(ToolArgument::option(key, value.clone()).map_err(|error| RunError {
+                        message: error.to_string(),
+                        json,
+                    })?);
+                    index += 2;
+                }
             }
             _ => {
                 return Err(RunError {
@@ -271,20 +294,27 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
     }
 
     if namespaces.len() == 1 {
-        let request = ToolRequest::new(tool, namespaces.remove(0), mode, args_map).map_err(|error| RunError {
-            message: error.to_string(),
-            json,
-        })?;
+        let request =
+            ToolRequest::new(tool, namespaces.remove(0), mode, arguments.clone()).map_err(|error| RunError {
+                message: error.to_string(),
+                json,
+            })?;
 
         return Ok(OperationRequest::single(request));
     }
 
-    let request = AggregateReadRequest::new(tool, namespaces, mode, args_map).map_err(|error| RunError {
+    let request = AggregateReadRequest::new(tool, namespaces, mode, arguments).map_err(|error| RunError {
         message: error.to_string(),
         json,
     })?;
 
     Ok(OperationRequest::aggregate_read(request))
+}
+
+fn split_inline_argument(argument: &str) -> Option<(&str, &str)> {
+    let trimmed = argument.strip_prefix("--")?;
+    let (name, value) = trimmed.split_once('=')?;
+    Some((name, value))
 }
 
 fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
@@ -591,9 +621,7 @@ mod tests {
         collections::BTreeMap,
         env, fs,
         path::{Path, PathBuf},
-        process,
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
+        sync::MutexGuard,
     };
 
     use clap::Parser;
@@ -603,17 +631,28 @@ mod tests {
         ToolName, ToolOutput, ToolRequest,
     };
 
-    use crate::{run, select_config_path, Cli, ConfigPathCandidates};
+    use crate::{
+        run, select_config_path,
+        test_support::{lock_env, TempScript},
+        Cli, ConfigPathCandidates,
+    };
 
     const BASIC_CONFIG_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/basic.toml"
     ));
+    const GOOGLE_CALENDAR_AGENDA_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-calendar-agenda.json"
+    ));
+    const GITHUB_NOTIFICATIONS_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-notifications.json"
+    ));
     const GOOGLE_PERSONAL_OAUTH_JSON: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/secrets/google-personal-oauth.json"
     ));
-    static TEST_ENV_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn configured_namespaces_match_current_examples() {
@@ -766,6 +805,37 @@ mod tests {
     }
 
     #[test]
+    fn valueless_flags_flow_through_to_real_cli_backends() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.calendar.list",
+            "--ns",
+            "google.work",
+            "--today",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "executed");
+        assert_eq!(value["tool"], "google.calendar.list");
+        assert_eq!(value["namespace"], "google.work");
+        assert_eq!(value["fields"]["count"], 2);
+        assert!(
+            environment
+                .gws_capture_contents()
+                .contains("ARGV=calendar +agenda --format json --today"),
+            "expected --today to reach gws"
+        );
+    }
+
+    #[test]
     fn aggregate_read_operations_can_fan_out_across_calendar_namespaces() {
         let environment = TestEnvironment::new();
         let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
@@ -864,24 +934,34 @@ mod tests {
     }
 
     struct TestEnvironment {
+        _env_guard: MutexGuard<'static, ()>,
         directory: PathBuf,
         path: PathBuf,
+        _gws_script: TempScript,
+        _gh_script: TempScript,
     }
 
     impl TestEnvironment {
         fn new() -> Self {
-            let directory = env::temp_dir().join(format!(
-                "switchboard-test-{}-{}-{}",
-                process::id(),
-                TEST_ENV_COUNTER.fetch_add(1, Ordering::Relaxed),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("system time should be after unix epoch")
-                    .as_nanos()
-            ));
+            let env_guard = lock_env();
+            let directory = test_fixture_directory();
             fs::create_dir_all(&directory).expect("temp dir should be created");
             env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_ID", "google-work-client-id");
             env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET", "google-work-client-secret");
+            let gws_script = TempScript::new(
+                "gws-test",
+                &format!(
+                    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gws 0.99.0-test'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'calendar help'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"+agenda\" ]; then\n  cat >> \"$(dirname \"$0\")/env.txt\" <<EOF\nCONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR\nCLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID\nCLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET\nCREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE\nTOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN\nARGV=$*\n---\nEOF\n  cat <<'JSON'\n{GOOGLE_CALENDAR_AGENDA_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
+                ),
+            );
+            let gh_script = TempScript::new(
+                "gh-test",
+                &format!(
+                    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gh version 9.9.9-test'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'api help'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"notifications\" ]; then\n  cat >> \"$(dirname \"$0\")/env.txt\" <<EOF\nGH_CONFIG_DIR=$GH_CONFIG_DIR\nGH_TOKEN=$GH_TOKEN\nGITHUB_TOKEN=$GITHUB_TOKEN\nARGV=$*\n---\nEOF\n  cat <<'JSON'\n{GITHUB_NOTIFICATIONS_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
+                ),
+            );
+            env::set_var("SWITCHBOARD_GWS_BIN", gws_script.path());
+            env::set_var("SWITCHBOARD_GH_BIN", gh_script.path());
             let oauth_path = directory.join("google-personal-oauth.json");
             fs::write(&oauth_path, GOOGLE_PERSONAL_OAUTH_JSON).expect("oauth fixture should be written");
             let path = directory.join("switchboard.toml");
@@ -891,7 +971,13 @@ mod tests {
             );
             fs::write(&path, contents).expect("config should be written");
 
-            Self { directory, path }
+            Self {
+                _env_guard: env_guard,
+                directory,
+                path,
+                _gws_script: gws_script,
+                _gh_script: gh_script,
+            }
         }
 
         fn path(&self) -> &Path {
@@ -901,11 +987,27 @@ mod tests {
         fn path_string(&self) -> String {
             self.path.to_str().expect("temp path should be valid utf-8").to_owned()
         }
+
+        fn gws_capture_contents(&self) -> String {
+            self._gws_script.capture_contents()
+        }
     }
 
     impl Drop for TestEnvironment {
         fn drop(&mut self) {
+            env::remove_var("GOOGLE_WORKSPACE_CLI_CLIENT_ID");
+            env::remove_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET");
+            env::remove_var("SWITCHBOARD_GWS_BIN");
+            env::remove_var("SWITCHBOARD_GH_BIN");
             let _ = fs::remove_dir_all(&self.directory);
         }
+    }
+
+    fn test_fixture_directory() -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        env::temp_dir().join(format!("switchboard-test-{}-{stamp}", std::process::id()))
     }
 }

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "23131972398",
+    "unread": true,
+    "reason": "subscribed",
+    "updated_at": "2026-03-03T15:07:36Z",
+    "subject": {
+      "title": "Format Code keyboard shortcut should work",
+      "type": "Issue"
+    },
+    "repository": {
+      "full_name": "KittyCAD/modeling-app"
+    },
+    "url": "https://api.github.com/notifications/threads/23131972398"
+  },
+  {
+    "id": "23131972399",
+    "unread": false,
+    "reason": "mention",
+    "updated_at": "2026-03-20T11:02:10Z",
+    "subject": {
+      "title": "Review API response cleanup",
+      "type": "PullRequest"
+    },
+    "repository": {
+      "full_name": "jessfraz/switchboard"
+    },
+    "url": "https://api.github.com/notifications/threads/23131972399"
+  }
+]

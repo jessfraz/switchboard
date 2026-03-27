@@ -72,6 +72,16 @@ impl ProcessContext {
         )))
     }
 
+    pub(crate) fn apply_to_command(&self, command: &mut process::Command) {
+        for key in &self.cleared_env {
+            command.env_remove(key);
+        }
+
+        for (key, value) in &self.env {
+            command.env(key, value);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn env(&self) -> &BTreeMap<String, String> {
         &self.env

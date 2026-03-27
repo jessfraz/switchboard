@@ -1,10 +1,8 @@
-use std::collections::BTreeMap;
-
 use serde::Serialize;
 
 use crate::{
     error::{Error, Result},
-    types::{ExecutionMode, NamespaceId, PlannedAction, ToolKind, ToolName, ToolOutput, ToolRequest},
+    types::{ExecutionMode, NamespaceId, PlannedAction, ToolArguments, ToolKind, ToolName, ToolOutput, ToolRequest},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -29,7 +27,7 @@ pub struct AggregateReadRequest {
     pub tool: ToolName,
     pub namespaces: Vec<NamespaceId>,
     pub mode: ExecutionMode,
-    pub args: BTreeMap<String, String>,
+    pub args: ToolArguments,
 }
 
 impl AggregateReadRequest {
@@ -37,7 +35,7 @@ impl AggregateReadRequest {
         tool: impl Into<String>,
         namespaces: impl IntoIterator<Item = impl Into<String>>,
         mode: ExecutionMode,
-        args: BTreeMap<String, String>,
+        args: impl Into<ToolArguments>,
     ) -> Result<Self> {
         let tool = ToolName::new(tool)?;
         let namespaces = namespaces
@@ -55,7 +53,7 @@ impl AggregateReadRequest {
             tool,
             namespaces,
             mode,
-            args,
+            args: args.into(),
         })
     }
 

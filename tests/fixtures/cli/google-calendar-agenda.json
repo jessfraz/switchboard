@@ -1,0 +1,21 @@
+{
+  "events": [
+    {
+      "start": "2026-03-26T09:00:00-07:00",
+      "end": "2026-03-26T09:30:00-07:00",
+      "summary": "Standup",
+      "calendar": "Work",
+      "location": "Conference Room A"
+    },
+    {
+      "start": "2026-03-26T13:00:00-07:00",
+      "end": "2026-03-26T14:00:00-07:00",
+      "summary": "Vet visit",
+      "calendar": "Personal",
+      "location": ""
+    }
+  ],
+  "count": 2,
+  "timeMin": "2026-03-26T00:00:00-07:00",
+  "timeMax": "2026-03-27T00:00:00-07:00"
+}

@@ -8,69 +8,69 @@ use switchboard_core::{
 
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
-    google::{commands::CALENDAR_LIST_COMMAND, materializer::DefaultGoogleWorkspaceCliMaterializer},
+    github::{commands::NOTIFICATIONS_COMMAND, materializer::DefaultGitHubCliMaterializer},
 };
 
 const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
-        name: "google.mail.search",
+        name: "github.notifications.list",
         kind: ToolKind::Read,
-        summary: "Search Gmail",
+        summary: "List notifications for a GitHub namespace",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
-        name: "google.mail.read",
+        name: "github.pull_request.read",
         kind: ToolKind::Read,
-        summary: "Read a Gmail message",
+        summary: "Read a pull request",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
-        name: "google.mail.draft",
+        name: "github.pull_request.search",
+        kind: ToolKind::Read,
+        summary: "Search pull requests",
+        backend: BackendKind::Cli,
+    },
+    ToolDescriptor {
+        name: "github.pull_request.comment",
         kind: ToolKind::Write,
-        summary: "Draft an email",
+        summary: "Draft or send a pull request comment",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
-        name: "google.mail.send",
-        kind: ToolKind::Write,
-        summary: "Send an email",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.calendar.list",
+        name: "github.issue.read",
         kind: ToolKind::Read,
-        summary: "List calendar events",
+        summary: "Read an issue",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
-        name: "google.calendar.create",
+        name: "github.issue.comment",
         kind: ToolKind::Write,
-        summary: "Draft or create a calendar event",
+        summary: "Draft or send an issue comment",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
-        name: "google.drive.search",
+        name: "github.repository.search",
         kind: ToolKind::Read,
-        summary: "Search Drive files",
+        summary: "Search repositories",
         backend: BackendKind::Cli,
     },
 ];
 
-const COMMANDS: &[&CliCommandSpec] = &[&CALENDAR_LIST_COMMAND];
+const COMMANDS: &[&CliCommandSpec] = &[&NOTIFICATIONS_COMMAND];
 
-pub struct GoogleWorkspaceAdapter {
+pub struct GitHubAdapter {
     backend: CliProviderBackend,
 }
 
-impl Default for GoogleWorkspaceAdapter {
+impl Default for GitHubAdapter {
     fn default() -> Self {
         Self {
-            backend: CliProviderBackend::new(Box::new(DefaultGoogleWorkspaceCliMaterializer)),
+            backend: CliProviderBackend::new(Box::new(DefaultGitHubCliMaterializer)),
         }
     }
 }
 
-impl GoogleWorkspaceAdapter {
+impl GitHubAdapter {
     fn find_command(tool: &str) -> Option<&'static CliCommandSpec> {
         COMMANDS.iter().copied().find(|command| command.name() == tool)
     }
@@ -90,26 +90,33 @@ impl GoogleWorkspaceAdapter {
         }
 
         let summary = match request.tool.as_str() {
-            "google.mail.search" => {
+            "github.pull_request.read" => {
+                let repo = Self::required_arg(request, "repo")?;
+                let number = Self::required_arg(request, "number")?;
+                format!("Read pull request {repo}#{number}")
+            }
+            "github.pull_request.search" => {
                 let query = Self::required_arg(request, "query")?;
-                format!("Search Gmail in {} for {query:?}", namespace.id)
+                format!("Search GitHub pull requests matching {query:?}")
             }
-            "google.mail.read" => {
-                let message_id = Self::required_arg(request, "message-id")?;
-                format!("Read Gmail message {message_id}")
+            "github.pull_request.comment" => {
+                let repo = Self::required_arg(request, "repo")?;
+                let number = Self::required_arg(request, "number")?;
+                format!("Draft comment for pull request {repo}#{number}")
             }
-            "google.mail.draft" | "google.mail.send" => {
-                let to = Self::required_arg(request, "to")?;
-                format!("Draft email to {to} from {}", namespace.id)
+            "github.issue.read" => {
+                let repo = Self::required_arg(request, "repo")?;
+                let number = Self::required_arg(request, "number")?;
+                format!("Read issue {repo}#{number}")
             }
-            "google.calendar.create" => {
-                let title = Self::required_arg(request, "title")?;
-                let start = Self::required_arg(request, "start")?;
-                format!("Draft calendar event {title:?} starting at {start}")
+            "github.issue.comment" => {
+                let repo = Self::required_arg(request, "repo")?;
+                let number = Self::required_arg(request, "number")?;
+                format!("Draft comment for issue {repo}#{number}")
             }
-            "google.drive.search" => {
+            "github.repository.search" => {
                 let query = Self::required_arg(request, "query")?;
-                format!("Search Google Drive in {} for {query:?}", namespace.id)
+                format!("Search GitHub repositories matching {query:?}")
             }
             _ => {
                 return Err(Error::UnsupportedTool(request.tool.to_string()));
@@ -128,13 +135,13 @@ impl GoogleWorkspaceAdapter {
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
         .with_field("auth", target.auth.id.to_string())
-        .with_field("note", "google workspace command execution is not wired yet")
+        .with_field("note", "github command execution is not wired yet")
     }
 }
 
-impl Adapter for GoogleWorkspaceAdapter {
+impl Adapter for GitHubAdapter {
     fn provider(&self) -> ProviderKind {
-        ProviderKind::GoogleWorkspace
+        ProviderKind::GitHub
     }
 
     fn tools(&self) -> &'static [ToolDescriptor] {
@@ -160,7 +167,7 @@ impl Adapter for GoogleWorkspaceAdapter {
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
         if matches!(action.kind, ToolKind::Write) {
             return Err(Error::NotImplemented(format!(
-                "{} apply path is not wired to Google Workspace yet",
+                "{} apply path is not wired to GitHub yet",
                 action.tool
             )));
         }
@@ -184,35 +191,35 @@ mod tests {
     };
 
     use crate::{
-        google::GoogleWorkspaceAdapter,
+        github::GitHubAdapter,
         test_support::{lock_env, TempScript},
     };
 
-    const AGENDA_FIXTURE: &str = include_str!(concat!(
+    const NOTIFICATIONS_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/cli/google-calendar-agenda.json"
+        "/../../tests/fixtures/cli/github-notifications.json"
     ));
 
     #[test]
-    fn calendar_list_executes_through_generic_cli_runtime() {
+    fn notifications_list_executes_through_generic_cli_runtime() {
         let _env_guard = lock_env();
         let script = TempScript::new(
-            "gws-test",
+            "gh-test",
             &format!(
-                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gws 0.99.0-test'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'calendar help'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"+agenda\" ]; then\n  cat > \"$(dirname \"$0\")/env.txt\" <<EOF\nCONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR\nCLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID\nCLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET\nCREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE\nTOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN\nARGV=$*\nEOF\n  cat <<'JSON'\n{AGENDA_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gh version 9.9.9-test'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'api help'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"notifications\" ]; then\n  cat > \"$(dirname \"$0\")/env.txt\" <<EOF\nGH_CONFIG_DIR=$GH_CONFIG_DIR\nGH_TOKEN=$GH_TOKEN\nGITHUB_TOKEN=$GITHUB_TOKEN\nARGV=$*\nEOF\n  cat <<'JSON'\n{NOTIFICATIONS_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
             ),
         );
-        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GitHubAdapter::default();
         let planning = planning_target();
         let request = ToolRequest::new(
-            "google.calendar.list",
-            "google.work",
+            "github.notifications.list",
+            "github.personal",
             ExecutionMode::Auto,
             vec![
-                ToolArgument::flag("today").expect("flag should build"),
-                ToolArgument::option("timezone", "America/Los_Angeles").expect("option should build"),
+                ToolArgument::flag("all").expect("flag should build"),
+                ToolArgument::option("per_page", "50").expect("option should build"),
             ],
         )
         .expect("request should build");
@@ -224,48 +231,44 @@ mod tests {
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
 
-        assert_eq!(output.summary, "Listed 2 calendar events for google.work");
+        assert_eq!(output.summary, "Listed 2 GitHub notifications for github.personal");
         assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
         assert_eq!(
             output
                 .fields
-                .get("events")
+                .get("notifications")
                 .and_then(Value::as_array)
-                .and_then(|events| events.first())
-                .and_then(|event| event.get("title"))
+                .and_then(|notifications| notifications.first())
+                .and_then(|notification| notification.get("repository"))
                 .and_then(Value::as_str),
-            Some("Standup")
+            Some("KittyCAD/modeling-app")
         );
 
         let captured = script.capture_contents();
-        assert!(captured.contains("CONFIG_DIR=/tmp/gws-work"));
-        assert!(captured.contains("CLIENT_ID=client-id"));
-        assert!(captured.contains("CLIENT_SECRET=client-secret"));
-        assert!(captured.contains("CREDENTIALS_FILE="));
-        assert!(captured.contains("TOKEN="));
-        assert!(captured.contains("ARGV=calendar +agenda --format json --today --timezone America/Los_Angeles"));
+        assert!(captured.contains("GH_CONFIG_DIR=/tmp/gh-personal"));
+        assert!(captured.contains("GH_TOKEN=ghp-test-token"));
+        assert!(captured.contains("GITHUB_TOKEN="));
+        assert!(captured.contains("ARGV=api notifications -F all=true -F per_page=50"));
     }
 
     fn planning_target() -> PlanningTarget {
         PlanningTarget {
             namespace: ResolvedNamespace::new(
-                "google.work",
-                ProviderKind::GoogleWorkspace,
-                "Google Workspace (work)",
-                "google.work_auth",
+                "github.personal",
+                ProviderKind::GitHub,
+                "GitHub personal",
+                "github.personal_auth",
                 false,
-                Some(PathBuf::from("/tmp/gws-work")),
+                Some(PathBuf::from("/tmp/gh-personal")),
             )
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
-                "google.work_auth",
-                ProviderKind::GoogleWorkspace,
-                AuthKind::GoogleOAuth,
-                "jess@example.com",
-                AuthSecretRefs::GoogleOAuth {
-                    client_id: SecretRef::new("google.work_client_id").expect("secret ref should build"),
-                    client_secret: SecretRef::new("google.work_client_secret").expect("secret ref should build"),
-                    refresh_token: Some(SecretRef::new("google.work_refresh_token").expect("secret ref should build")),
+                "github.personal_auth",
+                ProviderKind::GitHub,
+                AuthKind::GitHubToken,
+                "jessfraz",
+                AuthSecretRefs::GitHubToken {
+                    token: SecretRef::new("github.personal_token").expect("secret ref should build"),
                 },
             )
             .expect("auth should build"),
@@ -276,10 +279,8 @@ mod tests {
         ExecutionTarget {
             namespace: planning_target().namespace,
             auth: planning_target().auth,
-            credentials: ResolvedCredentials::GoogleOAuth {
-                client_id: "client-id".to_owned().into(),
-                client_secret: "client-secret".to_owned().into(),
-                refresh_token: Some("refresh-token".to_owned().into()),
+            credentials: ResolvedCredentials::GitHubToken {
+                token: "ghp-test-token".to_owned().into(),
             },
         }
     }

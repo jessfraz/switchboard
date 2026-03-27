@@ -2,8 +2,7 @@ use std::fs;
 
 use switchboard_core::{Error, ResolvedSecret, Result, SecretSource, SecretString};
 
-use crate::secrets::env_secret::normalize_secret;
-use crate::secrets::SecretBackend;
+use crate::secrets::{env_secret::normalize_secret, SecretBackend};
 
 pub(super) struct FileSecretBackend;
 

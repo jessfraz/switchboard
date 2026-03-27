@@ -2,8 +2,7 @@ use std::{collections::BTreeMap, env, io::IsTerminal, process::Command, sync::Mu
 
 use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
 
-use crate::secrets::env_secret::normalize_secret;
-use crate::secrets::SecretBackend;
+use crate::secrets::{env_secret::normalize_secret, SecretBackend};
 
 #[derive(Default)]
 pub(super) struct OnePasswordSecretBackend {

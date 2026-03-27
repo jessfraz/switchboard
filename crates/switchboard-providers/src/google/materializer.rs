@@ -1,16 +1,12 @@
 use switchboard_core::{Error, ExecutionTarget, ResolvedCredentials, Result};
 
-use crate::process_runtime::ProcessContext;
+use crate::{cli::CliRuntimeMaterializer, process_runtime::ProcessContext};
 
 pub(crate) const CLIENT_ID_ENV: &str = "GOOGLE_WORKSPACE_CLI_CLIENT_ID";
 pub(crate) const CLIENT_SECRET_ENV: &str = "GOOGLE_WORKSPACE_CLI_CLIENT_SECRET";
 pub(crate) const CONFIG_DIR_ENV: &str = "GOOGLE_WORKSPACE_CLI_CONFIG_DIR";
 pub(crate) const CREDENTIALS_FILE_ENV: &str = "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE";
 pub(crate) const TOKEN_ENV: &str = "GOOGLE_WORKSPACE_CLI_TOKEN";
-
-pub(crate) trait GoogleWorkspaceCliMaterializer: Send + Sync {
-    fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext>;
-}
 
 pub(crate) struct DefaultGoogleWorkspaceCliMaterializer;
 
@@ -43,7 +39,7 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
     }
 }
 
-impl GoogleWorkspaceCliMaterializer for DefaultGoogleWorkspaceCliMaterializer {
+impl CliRuntimeMaterializer for DefaultGoogleWorkspaceCliMaterializer {
     fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext> {
         let mut context = ProcessContext::new();
 
@@ -83,9 +79,12 @@ mod tests {
         SecretRef,
     };
 
-    use crate::google::materializer::{
-        DefaultGoogleWorkspaceCliMaterializer, GoogleWorkspaceCliMaterializer, CLIENT_ID_ENV, CLIENT_SECRET_ENV,
-        CONFIG_DIR_ENV, CREDENTIALS_FILE_ENV, TOKEN_ENV,
+    use crate::{
+        cli::CliRuntimeMaterializer,
+        google::materializer::{
+            DefaultGoogleWorkspaceCliMaterializer, CLIENT_ID_ENV, CLIENT_SECRET_ENV, CONFIG_DIR_ENV,
+            CREDENTIALS_FILE_ENV, TOKEN_ENV,
+        },
     };
 
     const GOOGLE_PERSONAL_OAUTH_JSON: &str = include_str!(concat!(

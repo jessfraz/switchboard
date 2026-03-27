@@ -492,11 +492,97 @@ pub struct ExecutionTarget {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToolArgument {
+    Flag { name: String },
+    Option { name: String, value: String },
+}
+
+impl ToolArgument {
+    pub fn flag(name: impl Into<String>) -> Result<Self> {
+        let name = validate_argument_name(name.into())?;
+        Ok(Self::Flag { name })
+    }
+
+    pub fn option(name: impl Into<String>, value: impl Into<String>) -> Result<Self> {
+        let name = validate_argument_name(name.into())?;
+        Ok(Self::Option {
+            name,
+            value: value.into(),
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Flag { name } | Self::Option { name, .. } => name,
+        }
+    }
+
+    pub fn value(&self) -> Option<&str> {
+        match self {
+            Self::Flag { .. } => None,
+            Self::Option { value, .. } => Some(value),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ToolArguments(Vec<ToolArgument>);
+
+impl ToolArguments {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn new(arguments: Vec<ToolArgument>) -> Self {
+        Self(arguments)
+    }
+
+    pub fn has_flag(&self, name: &str) -> bool {
+        self.0
+            .iter()
+            .any(|argument| matches!(argument, ToolArgument::Flag { name: candidate } if candidate == name))
+    }
+
+    pub fn value<'a>(&'a self, name: &'a str) -> Option<&'a str> {
+        self.values(name).last()
+    }
+
+    pub fn values<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.0.iter().filter_map(move |argument| match argument {
+            ToolArgument::Option { name: candidate, value } if candidate == name => Some(value.as_str()),
+            _ => None,
+        })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &ToolArgument> {
+        self.0.iter()
+    }
+}
+
+impl From<Vec<ToolArgument>> for ToolArguments {
+    fn from(value: Vec<ToolArgument>) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<BTreeMap<String, String>> for ToolArguments {
+    fn from(value: BTreeMap<String, String>) -> Self {
+        let arguments = value
+            .into_iter()
+            .map(|(name, value)| ToolArgument::Option { name, value })
+            .collect();
+        Self::new(arguments)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolRequest {
     pub tool: ToolName,
     pub namespace: NamespaceId,
     pub mode: ExecutionMode,
-    pub args: BTreeMap<String, String>,
+    pub args: ToolArguments,
 }
 
 impl ToolRequest {
@@ -504,13 +590,13 @@ impl ToolRequest {
         tool: impl Into<String>,
         namespace: impl Into<String>,
         mode: ExecutionMode,
-        args: BTreeMap<String, String>,
+        args: impl Into<ToolArguments>,
     ) -> Result<Self> {
         Ok(Self {
             tool: ToolName::new(tool)?,
             namespace: NamespaceId::new(namespace)?,
             mode,
-            args,
+            args: args.into(),
         })
     }
 }
@@ -526,7 +612,7 @@ pub struct PlannedAction {
     pub backend: BackendKind,
     pub approval_required: bool,
     pub approval_reason: Option<String>,
-    pub args: BTreeMap<String, String>,
+    pub args: ToolArguments,
 }
 
 impl PlannedAction {
@@ -579,6 +665,14 @@ impl ToolOutput {
         self.fields.insert(key.into(), value);
         self
     }
+}
+
+fn validate_argument_name(name: String) -> Result<String> {
+    if name.trim().is_empty() {
+        return Err(Error::InvalidArguments("tool argument name cannot be empty".into()));
+    }
+
+    Ok(name)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

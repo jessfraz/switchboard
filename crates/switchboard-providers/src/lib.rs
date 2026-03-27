@@ -1,6 +1,9 @@
+mod cli;
 mod github;
 mod google;
 mod process_runtime;
+#[cfg(test)]
+mod test_support;
 
 use std::sync::Arc;
 
@@ -10,7 +13,7 @@ pub use crate::{github::GitHubAdapter, google::GoogleWorkspaceAdapter};
 
 pub fn default_registry() -> AdapterRegistry {
     let mut adapters = AdapterRegistry::default();
-    adapters.register(Arc::new(GitHubAdapter));
+    adapters.register(Arc::new(GitHubAdapter::default()));
     adapters.register(Arc::new(GoogleWorkspaceAdapter::default()));
     adapters
 }

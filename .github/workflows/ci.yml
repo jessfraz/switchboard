@@ -11,6 +11,8 @@ jobs:
   rust:
     name: Rust Checks
     runs-on: ubuntu-latest
+    env:
+      SWITCHBOARD_RUN_REAL_CLI_SMOKE: "1"
 
     steps:
       - name: Checkout
@@ -23,6 +25,25 @@ jobs:
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
+
+      - name: Install GitHub CLI
+        run: |
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Install Google Workspace CLI
+        run: cargo install --locked google-workspace-cli --bin gws
+
+      - name: Smoke Check Installed CLIs
+        run: |
+          gh --version
+          gws --version
 
       - name: Format
         run: cargo fmt --check
