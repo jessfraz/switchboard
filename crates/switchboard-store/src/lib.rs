@@ -7,5 +7,5 @@ pub use crate::{
     config::SwitchboardConfig,
     policy::DefaultPolicyEngine,
     secrets::LocalSecretResolver,
-    stores::{MemoryAuditSink, StaticAuthStore, StaticNamespaceStore, StaticSecretStore},
+    stores::{MemoryAuditSink, MemoryOperationStore, StaticAuthStore, StaticNamespaceStore, StaticSecretStore},
 };

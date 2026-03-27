@@ -6,7 +6,9 @@ use crate::{
         AggregateReadOutcome, AggregateReadRequest, AggregateReadResult, DispatchOutcome, OperationOutcome,
         OperationRequest,
     },
-    traits::{Adapter, AuditSink, AuthStore, NamespaceStore, PolicyEngine, SecretResolver, SecretStore},
+    traits::{
+        Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
+    },
     types::{
         AuditEvent, AuditOutcome, AuthSecretRefs, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind,
         ResolvedCredentials, ResolvedNamespace, ToolKind,
@@ -29,38 +31,27 @@ impl AdapterRegistry {
 }
 
 pub struct Switchboard {
-    namespaces: Arc<dyn NamespaceStore>,
-    auth: Arc<dyn AuthStore>,
-    secrets: Arc<dyn SecretStore>,
-    secret_resolver: Arc<dyn SecretResolver>,
-    policy: Arc<dyn PolicyEngine>,
-    audit: Arc<dyn AuditSink>,
+    services: SwitchboardServices,
     adapters: AdapterRegistry,
 }
 
+pub struct SwitchboardServices {
+    pub namespaces: Arc<dyn NamespaceStore>,
+    pub auth: Arc<dyn AuthStore>,
+    pub secrets: Arc<dyn SecretStore>,
+    pub secret_resolver: Arc<dyn SecretResolver>,
+    pub policy: Arc<dyn PolicyEngine>,
+    pub audit: Arc<dyn AuditSink>,
+    pub operations: Arc<dyn OperationStore>,
+}
+
 impl Switchboard {
-    pub fn new(
-        namespaces: Arc<dyn NamespaceStore>,
-        auth: Arc<dyn AuthStore>,
-        secrets: Arc<dyn SecretStore>,
-        secret_resolver: Arc<dyn SecretResolver>,
-        policy: Arc<dyn PolicyEngine>,
-        audit: Arc<dyn AuditSink>,
-        adapters: AdapterRegistry,
-    ) -> Self {
-        Self {
-            namespaces,
-            auth,
-            secrets,
-            secret_resolver,
-            policy,
-            audit,
-            adapters,
-        }
+    pub fn new(services: SwitchboardServices, adapters: AdapterRegistry) -> Self {
+        Self { services, adapters }
     }
 
     pub fn list_namespaces(&self) -> Vec<ResolvedNamespace> {
-        self.namespaces.list()
+        self.services.namespaces.list()
     }
 
     pub fn execute_operation(&self, request: OperationRequest) -> Result<OperationOutcome> {
@@ -74,6 +65,7 @@ impl Switchboard {
 
     pub fn dispatch(&self, request: crate::ToolRequest) -> Result<DispatchOutcome> {
         let namespace = self
+            .services
             .namespaces
             .get(&request.namespace)
             .ok_or_else(|| Error::UnknownNamespace(request.namespace.to_string()))?;
@@ -92,6 +84,7 @@ impl Switchboard {
             .get(&namespace.provider)
             .ok_or_else(|| Error::MissingAdapter(namespace.provider.clone()))?;
         let auth = self
+            .services
             .auth
             .get(&namespace.auth_ref)
             .ok_or_else(|| Error::MissingAuth(namespace.auth_ref.to_string()))?;
@@ -111,14 +104,17 @@ impl Switchboard {
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let mut plan = adapter.plan(&target, &request, descriptor)?;
 
-        match self.policy.evaluate(&namespace, &plan) {
+        match self.services.policy.evaluate(&namespace, &plan) {
             crate::PolicyDecision::Allow => {}
             crate::PolicyDecision::RequireApproval { reason } => {
                 plan.approval_required = true;
                 plan.approval_reason = Some(reason);
             }
             crate::PolicyDecision::Deny { reason } => {
-                let _ = self.audit.record(&AuditEvent::from_plan(&plan, AuditOutcome::Blocked));
+                let _ = self
+                    .services
+                    .audit
+                    .record(&AuditEvent::from_plan(&plan, AuditOutcome::Blocked));
                 return Err(Error::PolicyDenied(reason));
             }
         }
@@ -171,14 +167,16 @@ impl Switchboard {
     ) -> Result<DispatchOutcome> {
         match plan.mode {
             crate::ExecutionMode::Plan | crate::ExecutionMode::Draft => {
-                self.audit
+                self.services
+                    .audit
                     .record(&AuditEvent::from_plan(&plan, AuditOutcome::Planned))?;
                 Ok(DispatchOutcome::Planned(plan))
             }
             crate::ExecutionMode::Auto | crate::ExecutionMode::Apply => {
                 let target = self.resolve_execution_target(target)?;
                 let output = adapter.execute(&target, &plan)?;
-                self.audit
+                self.services
+                    .audit
                     .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
                 Ok(DispatchOutcome::Executed(output))
             }
@@ -191,17 +189,34 @@ impl Switchboard {
         target: &PlanningTarget,
         plan: PlannedAction,
     ) -> Result<DispatchOutcome> {
+        let operation = self.services.operations.create(&plan)?;
+        let plan = plan.with_operation_id(operation.id.clone());
         let should_apply = matches!(plan.mode, crate::ExecutionMode::Apply) && !plan.approval_required;
 
         if should_apply {
             let target = self.resolve_execution_target(target)?;
-            let output = adapter.execute(&target, &plan)?;
-            self.audit
+            let operation_id = operation.id.clone();
+            let output = match adapter.execute(&target, &plan) {
+                Ok(output) => output.with_operation_id(operation_id.clone()),
+                Err(error) => {
+                    self.services
+                        .operations
+                        .mark_failed(&operation_id, &error.to_string())?;
+                    self.services
+                        .audit
+                        .record(&AuditEvent::from_plan(&plan, AuditOutcome::Failed))?;
+                    return Err(error);
+                }
+            };
+            self.services.operations.mark_applied(&operation_id, &output)?;
+            self.services
+                .audit
                 .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
             return Ok(DispatchOutcome::Executed(output));
         }
 
-        self.audit
+        self.services
+            .audit
             .record(&AuditEvent::from_plan(&plan, AuditOutcome::Planned))?;
         Ok(DispatchOutcome::Planned(plan))
     }
@@ -238,10 +253,405 @@ impl Switchboard {
 
     fn resolve_secret(&self, secret_ref: &crate::SecretRef) -> Result<crate::SecretString> {
         let secret = self
+            .services
             .secrets
             .get(secret_ref)
             .ok_or_else(|| Error::MissingSecret(secret_ref.to_string()))?;
 
-        self.secret_resolver.resolve(&secret)
+        self.services.secret_resolver.resolve(&secret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::BTreeMap,
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc, Mutex,
+        },
+    };
+
+    use crate::{
+        engine::{AdapterRegistry, Switchboard, SwitchboardServices},
+        traits::{
+            Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
+        },
+        AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, DispatchOutcome, Error,
+        ExecutionMode, ExecutionTarget, NamespaceId, OperationEffect, OperationId, OperationStatus, PlannedAction,
+        PlanningTarget, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedNamespace, ResolvedSecret, Result,
+        SecretRef, SecretSource, SecretString, StoredOperation, ToolDescriptor, ToolKind, ToolOutput, ToolRef,
+        ToolRefKind, ToolRequest,
+    };
+
+    #[test]
+    fn planned_writes_get_operation_ids_and_planned_audit_events() {
+        let audit = Arc::new(TestAuditSink::default());
+        let operations = Arc::new(TestOperationStore::default());
+        let switchboard = test_switchboard(
+            Arc::new(RequireApprovalPolicy),
+            audit.clone(),
+            operations.clone(),
+            Arc::new(TestAdapter { fail_execution: false }),
+        );
+
+        let outcome = switchboard
+            .dispatch(
+                ToolRequest::new(
+                    "github.issue.comment",
+                    "github.personal",
+                    ExecutionMode::Draft,
+                    vec![
+                        crate::ToolArgument::option("repo", "openai/codex").expect("repo arg should build"),
+                        crate::ToolArgument::option("number", "77").expect("number arg should build"),
+                        crate::ToolArgument::option("body", "ship it").expect("body arg should build"),
+                    ],
+                )
+                .expect("request should build"),
+            )
+            .expect("dispatch should succeed");
+
+        let plan = match outcome {
+            DispatchOutcome::Planned(plan) => plan,
+            DispatchOutcome::Executed(_) => panic!("write should stay planned"),
+        };
+
+        assert!(plan.operation_id.is_some());
+        let operation_id = plan.operation_id.expect("operation id should exist");
+        let stored = operations
+            .get(&operation_id)
+            .expect("planned operation should be stored");
+        assert_eq!(stored.status, OperationStatus::Planned);
+
+        let audit_events = audit.snapshot();
+        assert_eq!(audit_events.len(), 1);
+        assert_eq!(audit_events[0].outcome, AuditOutcome::Planned);
+        assert_eq!(audit_events[0].operation_id.as_ref(), Some(&operation_id));
+    }
+
+    #[test]
+    fn failed_apply_marks_operation_failed_and_audits_failure() {
+        let audit = Arc::new(TestAuditSink::default());
+        let operations = Arc::new(TestOperationStore::default());
+        let switchboard = test_switchboard(
+            Arc::new(AllowPolicy),
+            audit.clone(),
+            operations.clone(),
+            Arc::new(TestAdapter { fail_execution: true }),
+        );
+
+        let error = switchboard
+            .dispatch(
+                ToolRequest::new(
+                    "github.issue.comment",
+                    "github.personal",
+                    ExecutionMode::Apply,
+                    vec![
+                        crate::ToolArgument::option("repo", "openai/codex").expect("repo arg should build"),
+                        crate::ToolArgument::option("number", "77").expect("number arg should build"),
+                        crate::ToolArgument::option("body", "ship it").expect("body arg should build"),
+                    ],
+                )
+                .expect("request should build"),
+            )
+            .expect_err("execution should fail");
+
+        assert_eq!(error, Error::Execution("adapter blew up".into()));
+
+        let stored = operations.list();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].status, OperationStatus::Failed);
+        assert_eq!(
+            stored[0].failure_reason.as_deref(),
+            Some("execution failure: adapter blew up")
+        );
+
+        let audit_events = audit.snapshot();
+        assert_eq!(audit_events.len(), 1);
+        assert_eq!(audit_events[0].outcome, AuditOutcome::Failed);
+        assert_eq!(audit_events[0].operation_id.as_ref(), Some(&stored[0].id));
+    }
+
+    fn test_switchboard(
+        policy: Arc<dyn PolicyEngine>,
+        audit: Arc<dyn AuditSink>,
+        operations: Arc<dyn OperationStore>,
+        adapter: Arc<dyn Adapter>,
+    ) -> Switchboard {
+        let namespace = ResolvedNamespace::new(
+            "github.personal",
+            ProviderKind::GitHub,
+            "GitHub personal",
+            "github.personal_auth",
+            false,
+            None,
+        )
+        .expect("namespace should build");
+        let auth = ResolvedAuth::new(
+            "github.personal_auth",
+            ProviderKind::GitHub,
+            AuthKind::GitHubCli,
+            "jessfraz",
+            AuthSecretRefs::None,
+        )
+        .expect("auth should build");
+
+        let mut adapters = AdapterRegistry::default();
+        adapters.register(adapter);
+
+        Switchboard::new(
+            SwitchboardServices {
+                namespaces: Arc::new(TestNamespaceStore { namespace }),
+                auth: Arc::new(TestAuthStore { auth }),
+                secrets: Arc::new(TestSecretStore),
+                secret_resolver: Arc::new(TestSecretResolver),
+                policy,
+                audit,
+                operations,
+            },
+            adapters,
+        )
+    }
+
+    struct TestAdapter {
+        fail_execution: bool,
+    }
+
+    impl Adapter for TestAdapter {
+        fn provider(&self) -> ProviderKind {
+            ProviderKind::GitHub
+        }
+
+        fn tools(&self) -> &'static [ToolDescriptor] {
+            &[ToolDescriptor {
+                name: "github.issue.comment",
+                kind: ToolKind::Write,
+                summary: "Comment on a GitHub issue",
+                backend: BackendKind::Cli,
+            }]
+        }
+
+        fn plan(
+            &self,
+            target: &PlanningTarget,
+            request: &ToolRequest,
+            descriptor: &'static ToolDescriptor,
+        ) -> Result<PlannedAction> {
+            Ok(PlannedAction::new(
+                request,
+                target,
+                descriptor.kind,
+                "Draft comment for GitHub issue",
+                descriptor.backend,
+            ))
+        }
+
+        fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+            if self.fail_execution {
+                return Err(Error::Execution("adapter blew up".into()));
+            }
+
+            Ok(ToolOutput::new(
+                action.tool.clone(),
+                action.namespace.clone(),
+                "Created GitHub issue comment",
+            )
+            .with_ref(
+                ToolRef::new(ProviderKind::GitHub, action.namespace.clone(), ToolRefKind::Issue, "77")?
+                    .with_parent_id("openai/codex")?,
+            )
+            .with_effect(
+                OperationEffect::new(true)
+                    .with_ref(
+                        ToolRef::new(ProviderKind::GitHub, action.namespace.clone(), ToolRefKind::Issue, "77")?
+                            .with_parent_id("openai/codex")?,
+                    )
+                    .with_undo_summary(format!("Delete comment in {}", target.namespace.id))?,
+            ))
+        }
+    }
+
+    struct AllowPolicy;
+
+    impl PolicyEngine for AllowPolicy {
+        fn evaluate(&self, _namespace: &ResolvedNamespace, _plan: &PlannedAction) -> PolicyDecision {
+            PolicyDecision::Allow
+        }
+    }
+
+    struct RequireApprovalPolicy;
+
+    impl PolicyEngine for RequireApprovalPolicy {
+        fn evaluate(&self, _namespace: &ResolvedNamespace, _plan: &PlannedAction) -> PolicyDecision {
+            PolicyDecision::RequireApproval {
+                reason: "writes need approval".into(),
+            }
+        }
+    }
+
+    struct TestNamespaceStore {
+        namespace: ResolvedNamespace,
+    }
+
+    impl NamespaceStore for TestNamespaceStore {
+        fn get(&self, id: &NamespaceId) -> Option<ResolvedNamespace> {
+            (self.namespace.id == *id).then_some(self.namespace.clone())
+        }
+
+        fn list(&self) -> Vec<ResolvedNamespace> {
+            vec![self.namespace.clone()]
+        }
+    }
+
+    struct TestAuthStore {
+        auth: ResolvedAuth,
+    }
+
+    impl AuthStore for TestAuthStore {
+        fn get(&self, id: &AuthRef) -> Option<ResolvedAuth> {
+            (self.auth.id == *id).then_some(self.auth.clone())
+        }
+
+        fn list(&self) -> Vec<ResolvedAuth> {
+            vec![self.auth.clone()]
+        }
+    }
+
+    #[derive(Default)]
+    struct TestSecretStore;
+
+    impl SecretStore for TestSecretStore {
+        fn get(&self, _id: &SecretRef) -> Option<ResolvedSecret> {
+            None
+        }
+
+        fn list(&self) -> Vec<ResolvedSecret> {
+            Vec::new()
+        }
+    }
+
+    struct TestSecretResolver;
+
+    impl SecretResolver for TestSecretResolver {
+        fn resolve(&self, secret: &ResolvedSecret) -> Result<SecretString> {
+            match &secret.source {
+                SecretSource::Env { name } => Ok(format!("resolved:{name}").into()),
+                SecretSource::File { path } => Ok(path.display().to_string().into()),
+                SecretSource::OnePasswordItem { item, .. } => Ok(format!("op:{item}").into()),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct TestAuditSink {
+        events: Mutex<Vec<AuditEvent>>,
+    }
+
+    impl TestAuditSink {
+        fn snapshot(&self) -> Vec<AuditEvent> {
+            match self.events.lock() {
+                Ok(events) => events.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            }
+        }
+    }
+
+    impl AuditSink for TestAuditSink {
+        fn record(&self, event: &AuditEvent) -> Result<()> {
+            match self.events.lock() {
+                Ok(mut events) => events.push(event.clone()),
+                Err(poisoned) => poisoned.into_inner().push(event.clone()),
+            }
+
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct TestOperationStore {
+        next_id: AtomicU64,
+        operations: Mutex<BTreeMap<OperationId, StoredOperation>>,
+    }
+
+    impl TestOperationStore {
+        fn next_operation_id(&self) -> Result<OperationId> {
+            let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+            OperationId::new(format!("op_test_{id:04}"))
+        }
+    }
+
+    impl OperationStore for TestOperationStore {
+        fn create(&self, plan: &PlannedAction) -> Result<StoredOperation> {
+            let operation = StoredOperation::from_plan(self.next_operation_id()?, plan);
+
+            match self.operations.lock() {
+                Ok(mut operations) => {
+                    operations.insert(operation.id.clone(), operation.clone());
+                }
+                Err(poisoned) => {
+                    poisoned.into_inner().insert(operation.id.clone(), operation.clone());
+                }
+            }
+
+            Ok(operation)
+        }
+
+        fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.mark_applied(output.effect.clone());
+                Ok(operation.clone())
+            })
+        }
+
+        fn mark_failed(&self, id: &OperationId, reason: &str) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.mark_failed(reason)?;
+                Ok(operation.clone())
+            })
+        }
+
+        fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.mark_compensated();
+                Ok(operation.clone())
+            })
+        }
+
+        fn get(&self, id: &OperationId) -> Option<StoredOperation> {
+            match self.operations.lock() {
+                Ok(operations) => operations.get(id).cloned(),
+                Err(poisoned) => poisoned.into_inner().get(id).cloned(),
+            }
+        }
+
+        fn list(&self) -> Vec<StoredOperation> {
+            match self.operations.lock() {
+                Ok(operations) => operations.values().cloned().collect(),
+                Err(poisoned) => poisoned.into_inner().values().cloned().collect(),
+            }
+        }
+    }
+
+    impl TestOperationStore {
+        fn with_operation_mut<T, F>(&self, id: &OperationId, mut update: F) -> Result<T>
+        where
+            F: FnMut(&mut StoredOperation) -> Result<T>,
+        {
+            match self.operations.lock() {
+                Ok(mut operations) => {
+                    let operation = operations
+                        .get_mut(id)
+                        .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
+                    update(operation)
+                }
+                Err(poisoned) => {
+                    let mut operations = poisoned.into_inner();
+                    let operation = operations
+                        .get_mut(id)
+                        .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
+                    update(operation)
+                }
+            }
+        }
     }
 }

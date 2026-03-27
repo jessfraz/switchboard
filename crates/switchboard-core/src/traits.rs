@@ -1,9 +1,9 @@
 use crate::{
     error::Result,
     types::{
-        AuditEvent, AuthRef, ExecutionTarget, PlannedAction, PlanningTarget, PolicyDecision, ProviderKind,
-        ResolvedAuth, ResolvedNamespace, ResolvedSecret, SecretRef, SecretString, ToolDescriptor, ToolName, ToolOutput,
-        ToolRequest,
+        AuditEvent, AuthRef, ExecutionTarget, OperationId, PlannedAction, PlanningTarget, PolicyDecision, ProviderKind,
+        ResolvedAuth, ResolvedNamespace, ResolvedSecret, SecretRef, SecretString, StoredOperation, ToolDescriptor,
+        ToolName, ToolOutput, ToolRequest,
     },
     NamespaceId,
 };
@@ -33,6 +33,15 @@ pub trait PolicyEngine: Send + Sync {
 
 pub trait AuditSink: Send + Sync {
     fn record(&self, event: &AuditEvent) -> Result<()>;
+}
+
+pub trait OperationStore: Send + Sync {
+    fn create(&self, plan: &PlannedAction) -> Result<StoredOperation>;
+    fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation>;
+    fn mark_failed(&self, id: &OperationId, reason: &str) -> Result<StoredOperation>;
+    fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation>;
+    fn get(&self, id: &OperationId) -> Option<StoredOperation>;
+    fn list(&self) -> Vec<StoredOperation>;
 }
 
 pub trait Adapter: Send + Sync {

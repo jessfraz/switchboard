@@ -12,11 +12,13 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
-    NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver, SecretStore,
-    Switchboard, ToolArgument, ToolName, ToolOutput, ToolRef, ToolRequest,
+    NamespaceStore, OperationEffect, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver,
+    SecretStore, Switchboard, SwitchboardServices, ToolArgument, ToolName, ToolOutput, ToolRef, ToolRequest,
 };
 use switchboard_providers::default_registry;
-use switchboard_store::{DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, SwitchboardConfig};
+use switchboard_store::{
+    DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, MemoryOperationStore, SwitchboardConfig,
+};
 
 #[cfg(test)]
 mod test_support;
@@ -51,9 +53,21 @@ fn build_switchboard(
 ) -> Switchboard {
     let policy = Arc::new(DefaultPolicyEngine);
     let audit = Arc::new(MemoryAuditSink::default());
+    let operations = Arc::new(MemoryOperationStore::default());
     let adapters = default_registry();
 
-    Switchboard::new(namespaces, auth, secrets, secret_resolver, policy, audit, adapters)
+    Switchboard::new(
+        SwitchboardServices {
+            namespaces,
+            auth,
+            secrets,
+            secret_resolver,
+            policy,
+            audit,
+            operations,
+        },
+        adapters,
+    )
 }
 
 pub fn main_entry<I, T>(args: I) -> ExitCode
@@ -355,6 +369,9 @@ fn render_dispatch_human(outcome: &DispatchOutcome) -> String {
             output.push_str(&format!("Namespace: {}\n", plan.namespace));
             output.push_str(&format!("Backend: {}\n", plan.backend));
             output.push_str(&format!("Approval required: {}\n", plan.approval_required));
+            if let Some(operation_id) = &plan.operation_id {
+                output.push_str(&format!("Operation ID: {operation_id}\n"));
+            }
             if let Some(reason) = &plan.approval_reason {
                 output.push_str(&format!("Approval reason: {reason}\n"));
             }
@@ -369,6 +386,9 @@ fn render_output_human(output: &ToolOutput) -> String {
     rendered.push_str(&format!("Executed: {}\n", output.summary));
     rendered.push_str(&format!("Tool: {}\n", output.tool));
     rendered.push_str(&format!("Namespace: {}\n", output.namespace));
+    if let Some(operation_id) = &output.operation_id {
+        rendered.push_str(&format!("Operation ID: {operation_id}\n"));
+    }
     if !output.fields.is_empty() {
         rendered.push_str("Fields:\n");
         for (key, value) in &output.fields {
@@ -391,6 +411,9 @@ fn render_output_human(output: &ToolOutput) -> String {
             rendered.push_str(&format!("- {}\n", render_ref_human(tool_ref)));
         }
     }
+    if let Some(effect) = &output.effect {
+        rendered.push_str(&render_effect_human(effect));
+    }
 
     rendered
 }
@@ -405,6 +428,22 @@ fn render_ref_human(tool_ref: &ToolRef) -> String {
     }
     if let Some(web_url) = &tool_ref.web_url {
         rendered.push_str(&format!(" url={web_url}"));
+    }
+
+    rendered
+}
+
+fn render_effect_human(effect: &OperationEffect) -> String {
+    let mut rendered = String::from("Effect:\n");
+    rendered.push_str(&format!("- undoable: {}\n", effect.undoable));
+    if let Some(undo_summary) = &effect.undo_summary {
+        rendered.push_str(&format!("- undo_summary: {undo_summary}\n"));
+    }
+    if !effect.refs.is_empty() {
+        rendered.push_str("- refs:\n");
+        for tool_ref in &effect.refs {
+            rendered.push_str(&format!("  - {}\n", render_ref_human(tool_ref)));
+        }
     }
 
     rendered
@@ -577,6 +616,8 @@ enum DispatchResponse<'a> {
         backend: BackendKind,
         approval_required: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
+        operation_id: Option<&'a switchboard_core::OperationId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         approval_reason: Option<&'a str>,
     },
     Executed {
@@ -585,6 +626,10 @@ enum DispatchResponse<'a> {
         summary: &'a str,
         fields: &'a BTreeMap<String, JsonValue>,
         refs: &'a [ToolRef],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        operation_id: Option<&'a switchboard_core::OperationId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        effect: Option<&'a OperationEffect>,
     },
 }
 
@@ -603,6 +648,7 @@ impl<'a> DispatchResponse<'a> {
             summary: &plan.summary,
             backend: plan.backend,
             approval_required: plan.approval_required,
+            operation_id: plan.operation_id.as_ref(),
             approval_reason: plan.approval_reason.as_deref(),
         }
     }
@@ -614,6 +660,8 @@ impl<'a> DispatchResponse<'a> {
             summary: &output.summary,
             fields: &output.fields,
             refs: &output.refs,
+            operation_id: output.operation_id.as_ref(),
+            effect: output.effect.as_ref(),
         }
     }
 }
@@ -747,6 +795,7 @@ mod tests {
             DispatchOutcome::Planned(plan) => {
                 assert!(plan.approval_required);
                 assert_eq!(plan.backend.to_string(), "cli");
+                assert!(plan.operation_id.is_some());
             }
             DispatchOutcome::Executed(_) => {
                 panic!("write requests should not execute yet");

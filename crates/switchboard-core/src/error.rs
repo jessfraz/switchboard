@@ -12,6 +12,7 @@ pub enum Error {
     Audit(String),
     Config(String),
     Execution(String),
+    Operation(String),
     MissingAuth(String),
     MissingSecret(String),
     AuthProviderMismatch {
@@ -44,6 +45,7 @@ impl Display for Error {
             Self::Audit(message) => write!(f, "audit failure: {message}"),
             Self::Config(message) => write!(f, "config error: {message}"),
             Self::Execution(message) => write!(f, "execution failure: {message}"),
+            Self::Operation(message) => write!(f, "operation failure: {message}"),
             Self::MissingAuth(auth_ref) => write!(f, "missing auth configuration: {auth_ref}"),
             Self::MissingSecret(secret_ref) => write!(f, "missing secret configuration: {secret_ref}"),
             Self::AuthProviderMismatch {

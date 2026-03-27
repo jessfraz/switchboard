@@ -337,6 +337,28 @@ pub enum ExecutionMode {
     Apply,
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct OperationId(String);
+
+impl OperationId {
+    pub fn new(value: impl Into<String>) -> Result<Self> {
+        let value = value.into();
+        validate_non_empty("operation id", &value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for OperationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind {
@@ -613,6 +635,8 @@ pub struct PlannedAction {
     pub approval_required: bool,
     pub approval_reason: Option<String>,
     pub args: ToolArguments,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<OperationId>,
 }
 
 impl PlannedAction {
@@ -634,7 +658,13 @@ impl PlannedAction {
             approval_required: false,
             approval_reason: None,
             args: request.args.clone(),
+            operation_id: None,
         }
+    }
+
+    pub fn with_operation_id(mut self, operation_id: OperationId) -> Self {
+        self.operation_id = Some(operation_id);
+        self
     }
 }
 
@@ -731,6 +761,10 @@ pub struct ToolOutput {
     pub fields: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refs: Vec<ToolRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<OperationId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effect: Option<OperationEffect>,
 }
 
 impl ToolOutput {
@@ -741,6 +775,8 @@ impl ToolOutput {
             summary: summary.into(),
             fields: BTreeMap::new(),
             refs: Vec::new(),
+            operation_id: None,
+            effect: None,
         }
     }
 
@@ -761,6 +797,16 @@ impl ToolOutput {
 
     pub fn with_refs(mut self, tool_refs: impl IntoIterator<Item = ToolRef>) -> Self {
         self.refs.extend(tool_refs);
+        self
+    }
+
+    pub fn with_operation_id(mut self, operation_id: OperationId) -> Self {
+        self.operation_id = Some(operation_id);
+        self
+    }
+
+    pub fn with_effect(mut self, effect: OperationEffect) -> Self {
+        self.effect = Some(effect);
         self
     }
 }
@@ -786,6 +832,8 @@ pub struct ToolDescriptor {
 pub enum AuditOutcome {
     Planned,
     Executed,
+    Failed,
+    Compensated,
     Blocked,
 }
 
@@ -798,6 +846,8 @@ pub struct AuditEvent {
     pub backend: BackendKind,
     pub approval_required: bool,
     pub outcome: AuditOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<OperationId>,
 }
 
 impl AuditEvent {
@@ -810,7 +860,107 @@ impl AuditEvent {
             backend: plan.backend,
             approval_required: plan.approval_required,
             outcome,
+            operation_id: plan.operation_id.clone(),
         }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct OperationEffect {
+    pub refs: Vec<ToolRef>,
+    pub undoable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undo_summary: Option<String>,
+}
+
+impl OperationEffect {
+    pub fn new(undoable: bool) -> Self {
+        Self {
+            refs: Vec::new(),
+            undoable,
+            undo_summary: None,
+        }
+    }
+
+    pub fn with_ref(mut self, tool_ref: ToolRef) -> Self {
+        self.refs.push(tool_ref);
+        self
+    }
+
+    pub fn with_refs(mut self, tool_refs: impl IntoIterator<Item = ToolRef>) -> Self {
+        self.refs.extend(tool_refs);
+        self
+    }
+
+    pub fn with_undo_summary(mut self, undo_summary: impl Into<String>) -> Result<Self> {
+        let undo_summary = undo_summary.into();
+        validate_non_empty("undo summary", &undo_summary)?;
+        self.undo_summary = Some(undo_summary);
+        Ok(self)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationStatus {
+    Planned,
+    Applied,
+    Failed,
+    Compensated,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StoredOperation {
+    pub id: OperationId,
+    pub tool: ToolName,
+    pub namespace: NamespaceId,
+    pub auth_ref: AuthRef,
+    pub kind: ToolKind,
+    pub summary: String,
+    pub backend: BackendKind,
+    pub approval_required: bool,
+    pub status: OperationStatus,
+    pub args: ToolArguments,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effect: Option<OperationEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+}
+
+impl StoredOperation {
+    pub fn from_plan(id: OperationId, plan: &PlannedAction) -> Self {
+        Self {
+            id,
+            tool: plan.tool.clone(),
+            namespace: plan.namespace.clone(),
+            auth_ref: plan.auth_ref.clone(),
+            kind: plan.kind,
+            summary: plan.summary.clone(),
+            backend: plan.backend,
+            approval_required: plan.approval_required,
+            status: OperationStatus::Planned,
+            args: plan.args.clone(),
+            effect: None,
+            failure_reason: None,
+        }
+    }
+
+    pub fn mark_applied(&mut self, effect: Option<OperationEffect>) {
+        self.status = OperationStatus::Applied;
+        self.effect = effect;
+        self.failure_reason = None;
+    }
+
+    pub fn mark_failed(&mut self, failure_reason: impl Into<String>) -> Result<()> {
+        let failure_reason = failure_reason.into();
+        validate_non_empty("operation failure reason", &failure_reason)?;
+        self.status = OperationStatus::Failed;
+        self.failure_reason = Some(failure_reason);
+        Ok(())
+    }
+
+    pub fn mark_compensated(&mut self) {
+        self.status = OperationStatus::Compensated;
     }
 }
 
