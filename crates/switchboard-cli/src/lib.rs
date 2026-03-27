@@ -15,7 +15,8 @@ use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuditEventId, AuthStore, BackendKind, DispatchOutcome,
     ExecutionMode, NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest,
     ProviderKind, RegisteredTool, ResolvedNamespace, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
-    Switchboard, SwitchboardServices, ToolArgument, ToolKind, ToolName, ToolOutput, ToolRef, ToolRequest,
+    Switchboard, SwitchboardServices, ToolArgument, ToolArguments, ToolKind, ToolName, ToolOutput, ToolRef,
+    ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
@@ -32,12 +33,14 @@ const AFTER_HELP: &str = concat!(
     "  switchboard tools describe google.cli.write\n",
     "  switchboard audit list\n",
     "  switchboard op list\n",
+    "  switchboard op list --pending\n",
     "  switchboard github.notifications.list --ns github.personal --json\n",
     "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
     "  switchboard google.calendar.list --ns google.work --ns google.personal --json\n",
     "  switchboard google.cli.read --ns google.work --json -- calendar +agenda --format json --today\n",
     "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n",
     "  switchboard op approve op_1234abcd --actor codex --note 'ship it'\n",
+    "  switchboard op approve op_1234abcd --actor codex --apply --json\n",
     "  switchboard op undo op_1234abcd --apply --json\n",
     "  switchboard op apply op_1234abcd --json\n"
 );
@@ -246,8 +249,12 @@ fn run_tool_catalog_command(switchboard: &Switchboard, command: ToolCatalogRunti
 
 fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperationCommand) -> Result<String> {
     match command {
-        StoredOperationCommand::List { json } => {
-            let operations = switchboard.list_operations();
+        StoredOperationCommand::List { pending_only, json } => {
+            let operations = switchboard
+                .list_operations()
+                .into_iter()
+                .filter(|operation| !pending_only || operation_needs_attention(operation))
+                .collect::<Vec<_>>();
             if json {
                 render_json(
                     &StoredOperationListResponse {
@@ -276,8 +283,23 @@ fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperat
                 Ok(render_stored_operation_human(&operation))
             }
         }
-        StoredOperationCommand::Approve { id, actor, note, json } => {
+        StoredOperationCommand::Approve {
+            id,
+            actor,
+            note,
+            apply,
+            json,
+        } => {
             let operation = switchboard.approve_operation(&id, &actor, note.as_deref())?;
+            if apply {
+                let output = switchboard.apply_operation(&id)?;
+                if json {
+                    return render_json_dispatch(&DispatchOutcome::Executed(output));
+                }
+
+                return Ok(render_output_human(&output));
+            }
+
             if json {
                 render_json(
                     &StoredOperationResponse {
@@ -510,7 +532,10 @@ impl OperationCommand {
 
     fn into_runtime_command(self) -> Result<CommandKind> {
         let command = match self.command {
-            OperationSubcommand::List(arguments) => StoredOperationCommand::List { json: arguments.json },
+            OperationSubcommand::List(arguments) => StoredOperationCommand::List {
+                pending_only: arguments.pending,
+                json: arguments.json,
+            },
             OperationSubcommand::Show(arguments) => StoredOperationCommand::Show {
                 id: OperationId::new(arguments.id)?,
                 json: arguments.json,
@@ -519,6 +544,7 @@ impl OperationCommand {
                 id: OperationId::new(arguments.id)?,
                 actor: arguments.actor.unwrap_or_else(default_actor),
                 note: arguments.note,
+                apply: arguments.apply,
                 json: arguments.json,
             },
             OperationSubcommand::Reject(arguments) => StoredOperationCommand::Reject {
@@ -546,14 +572,16 @@ impl OperationCommand {
 enum OperationSubcommand {
     List(OperationListArgs),
     Show(OperationShowArgs),
-    Approve(OperationDecisionArgs),
-    Reject(OperationDecisionArgs),
+    Approve(OperationApproveArgs),
+    Reject(OperationRejectArgs),
     Apply(OperationApplyArgs),
     Undo(OperationUndoArgs),
 }
 
 #[derive(Debug, Args)]
 struct OperationListArgs {
+    #[arg(long)]
+    pending: bool,
     #[arg(long)]
     json: bool,
 }
@@ -566,7 +594,20 @@ struct OperationShowArgs {
 }
 
 #[derive(Debug, Args)]
-struct OperationDecisionArgs {
+struct OperationApproveArgs {
+    id: String,
+    #[arg(long)]
+    actor: Option<String>,
+    #[arg(long)]
+    note: Option<String>,
+    #[arg(long)]
+    apply: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct OperationRejectArgs {
     id: String,
     #[arg(long)]
     actor: Option<String>,
@@ -645,6 +686,7 @@ enum AuditSelection {
 #[derive(Debug)]
 enum StoredOperationCommand {
     List {
+        pending_only: bool,
         json: bool,
     },
     Show {
@@ -655,6 +697,7 @@ enum StoredOperationCommand {
         id: OperationId,
         actor: String,
         note: Option<String>,
+        apply: bool,
         json: bool,
     },
     Reject {
@@ -970,6 +1013,11 @@ fn render_tool_detail_human(detail: &ToolCatalogDetail) -> String {
 
 fn render_operations_human(operations: &[StoredOperation]) -> String {
     let mut output = String::from("Operations\n");
+    if operations.is_empty() {
+        output.push_str("- no operations\n");
+        return output;
+    }
+
     for operation in operations {
         output.push_str(&format!(
             "- {} {} {} approval={} status={}\n",
@@ -998,6 +1046,10 @@ fn render_stored_operation_human(operation: &StoredOperation) -> String {
     ));
     if let Some(operation_id) = &operation.compensates_operation_id {
         output.push_str(&format!("Compensates: {operation_id}\n"));
+    }
+    if operation.args.iter().next().is_some() {
+        output.push_str("Args:\n");
+        output.push_str(&render_tool_arguments_human(&operation.args, "  "));
     }
     if let Some(reason) = &operation.approval_reason {
         output.push_str(&format!("Approval reason: {reason}\n"));
@@ -1039,6 +1091,10 @@ fn render_dispatch_human(outcome: &DispatchOutcome) -> String {
             }
             if let Some(operation_id) = &plan.compensates_operation_id {
                 output.push_str(&format!("Compensates: {operation_id}\n"));
+            }
+            if plan.args.iter().next().is_some() {
+                output.push_str("Args:\n");
+                output.push_str(&render_tool_arguments_human(&plan.args, "  "));
             }
             if let Some(reason) = &plan.approval_reason {
                 output.push_str(&format!("Approval reason: {reason}\n"));
@@ -1111,6 +1167,23 @@ fn render_effect_human(effect: &OperationEffect) -> String {
         rendered.push_str("- refs:\n");
         for tool_ref in &effect.refs {
             rendered.push_str(&format!("  - {}\n", render_ref_human(tool_ref)));
+        }
+    }
+
+    rendered
+}
+
+fn render_tool_arguments_human(arguments: &ToolArguments, indent: &str) -> String {
+    let mut rendered = String::new();
+    for argument in arguments.iter() {
+        match argument {
+            ToolArgument::Flag { name } => {
+                rendered.push_str(&format!("{indent}- --{name}\n"));
+            }
+            ToolArgument::Option { name, value } => {
+                let value = value.replace('\r', "\\r").replace('\n', "\\n");
+                rendered.push_str(&format!("{indent}- --{name}={value}\n"));
+            }
         }
     }
 
@@ -1194,6 +1267,11 @@ fn render_operation_status(status: switchboard_core::OperationStatus) -> &'stati
         switchboard_core::OperationStatus::Failed => "failed",
         switchboard_core::OperationStatus::Compensated => "compensated",
     }
+}
+
+fn operation_needs_attention(operation: &StoredOperation) -> bool {
+    operation.status == switchboard_core::OperationStatus::Planned
+        && operation.approval.state == ApprovalState::Pending
 }
 
 fn render_audit_outcome(outcome: &switchboard_core::AuditOutcome) -> &'static str {
@@ -1699,6 +1777,12 @@ mod tests {
     }
 
     #[derive(Debug, Deserialize)]
+    struct JsonStoredOperationListEnvelope {
+        status: String,
+        operations: Vec<JsonStoredOperation>,
+    }
+
+    #[derive(Debug, Deserialize)]
     struct JsonStoredOperation {
         id: switchboard_core::OperationId,
         status: switchboard_core::OperationStatus,
@@ -1805,6 +1889,22 @@ mod tests {
     struct GoogleMailReadMessage {
         gmail_message_id: String,
         gmail_thread_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoogleMailDraftFields {
+        draft: GoogleMailDraftPayload,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoogleMailDraftPayload {
+        draft_id: String,
+        gmail_message_id: String,
+        gmail_thread_id: Option<String>,
+        to: Vec<String>,
+        subject: Option<String>,
+        has_body_text: bool,
+        has_body_html: bool,
     }
 
     #[derive(Debug, Deserialize)]

@@ -4,6 +4,7 @@ use reqwest::Method;
 use serde_json::Value;
 
 use crate::{
+    client::JsonResponse,
     api_client, ensure_json_success, fetch_capability_summary, merge_bundle_pages, normalize_token,
     state::ResolvedContext, ApiResourceCapability, CapabilitySummary, Error, Result,
 };
@@ -16,6 +17,34 @@ pub(crate) struct PatientSession {
 }
 
 impl PatientSession {
+    pub(crate) fn read_resource(&self, resource_token: &str, id: &str) -> Result<Option<Value>> {
+        let Some(resource) = self.capability.resolve_resource(resource_token) else {
+            return Ok(None);
+        };
+
+        if resource.supports("read") {
+            let response = self.client.execute_bearer_json(
+                Method::GET,
+                &format!("{}/{}", resource.resource_type, id),
+                &[],
+                &self.access_token,
+                None,
+            )?;
+            ensure_json_success(&response)?;
+            return Ok(Some(response.body));
+        }
+
+        if resource.supports("search-type") {
+            return Ok(self
+                .search_resource(resource_token, &[("_id".into(), id.to_owned())], false)?
+                .and_then(|bundle| bundle_entries(&bundle).into_iter().find(|resource| {
+                    first_string(resource, &["/id"]).as_deref() == Some(id)
+                })));
+        }
+
+        Ok(None)
+    }
+
     pub(crate) fn search_resource(
         &self,
         resource_token: &str,
@@ -52,6 +81,16 @@ impl PatientSession {
 
     pub(crate) fn resource(&self, resource_token: &str) -> Option<ApiResourceCapability> {
         self.capability.resolve_resource(resource_token)
+    }
+
+    pub(crate) fn fetch_url(&self, url: &str) -> Result<JsonResponse> {
+        if url.starts_with("http://") || url.starts_with("https://") {
+            self.client
+                .execute_bearer_json_absolute(Method::GET, url, &self.access_token, None)
+        } else {
+            self.client
+                .execute_bearer_json(Method::GET, url, &[], &self.access_token, None)
+        }
     }
 }
 
@@ -100,6 +139,14 @@ pub(crate) fn resolve_since_floor(input: Option<&str>) -> Result<Option<String>>
 
 pub(crate) fn current_utc_date_string() -> String {
     days_ago_iso_date(0)
+}
+
+pub(crate) fn resolve_until_ceiling(input: Option<&str>, default_relative_days: u64) -> Result<String> {
+    match input {
+        Some(input) if looks_like_iso_date(input) => Ok(input.to_owned()),
+        Some(input) => parse_relative_period(input).map(days_from_now_iso_date),
+        None => Ok(days_from_now_iso_date(default_relative_days)),
+    }
 }
 
 pub(crate) fn iso_on_or_after(candidate: &str, floor: &str) -> bool {
@@ -260,12 +307,20 @@ fn parse_relative_period(input: &str) -> Result<u64> {
 }
 
 fn days_ago_iso_date(days_ago: u64) -> String {
+    shifted_iso_date(-(days_ago as i64))
+}
+
+fn days_from_now_iso_date(days_from_now: u64) -> String {
+    shifted_iso_date(days_from_now as i64)
+}
+
+fn shifted_iso_date(day_offset: i64) -> String {
     let unix_days = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() / 86_400)
-        .unwrap_or(0)
-        .saturating_sub(days_ago);
-    let (year, month, day) = civil_from_days(unix_days as i64);
+        .unwrap_or(0) as i64;
+    let shifted_days = unix_days.saturating_add(day_offset).max(0);
+    let (year, month, day) = civil_from_days(shifted_days);
     format!("{year:04}-{month:02}-{day:02}")
 }
 

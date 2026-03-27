@@ -10,8 +10,8 @@ use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
     google::{
         commands::{
-            CALENDAR_CREATE_COMMAND, CALENDAR_DELETE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND,
-            MAIL_SEARCH_COMMAND, RAW_READ_COMMAND, RAW_WRITE_COMMAND,
+            CALENDAR_CREATE_COMMAND, CALENDAR_DELETE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_DRAFT_COMMAND,
+            MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND, RAW_READ_COMMAND, RAW_WRITE_COMMAND,
         },
         materializer::DefaultGoogleWorkspaceCliMaterializer,
     },
@@ -85,6 +85,7 @@ const COMMANDS: &[&CliCommandSpec] = &[
     &RAW_WRITE_COMMAND,
     &MAIL_SEARCH_COMMAND,
     &MAIL_READ_COMMAND,
+    &MAIL_DRAFT_COMMAND,
     &CALENDAR_LIST_COMMAND,
     &CALENDAR_CREATE_COMMAND,
     &CALENDAR_DELETE_COMMAND,
@@ -122,7 +123,7 @@ impl GoogleWorkspaceAdapter {
         }
 
         let summary = match request.tool.as_str() {
-            "google.mail.draft" | "google.mail.send" => {
+            "google.mail.send" => {
                 let to = Self::required_arg(request, "to")?;
                 format!("Draft email to {to} from {}", namespace.id)
             }
@@ -411,6 +412,66 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=gmail +read --id 1960abc456work --format json"));
+    }
+
+    #[test]
+    fn mail_draft_executes_through_generic_cli_runtime() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.mail.draft",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![
+                ToolArgument::option("to", "dogs@example.com").expect("option should build"),
+                ToolArgument::option("cc", "frontdesk@example.com").expect("option should build"),
+                ToolArgument::option("subject", "Boarding request").expect("option should build"),
+                ToolArgument::option("body-text", "Hi there,\nCan you board the dogs next week?")
+                    .expect("option should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output.summary,
+            "Drafted Gmail message \"Boarding request\" for google.work"
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("draft")
+                .and_then(|draft| draft.get("draft_id"))
+                .and_then(Value::as_str),
+            Some("draft-1960work")
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("draft")
+                .and_then(|draft| draft.get("gmail_message_id"))
+                .and_then(Value::as_str),
+            Some("1960draftmsgwork")
+        );
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Message);
+        assert_eq!(output.refs[1].kind, switchboard_core::ToolRefKind::Thread);
+        assert_eq!(output.effect.as_ref().map(|effect| effect.undoable), Some(false));
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=gmail users drafts create --params {\"userId\":\"me\"}"));
+        assert!(captured.contains("--format json"));
+        assert!(captured.contains("\"raw\":"));
     }
 
     #[test]
