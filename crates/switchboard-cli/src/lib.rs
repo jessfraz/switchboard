@@ -7,8 +7,8 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use switchboard_core::{
-    BackendKind, DispatchOutcome, ExecutionMode, NamespaceId, ResolvedNamespace, Result, Switchboard, ToolName,
-    ToolOutput, ToolRequest,
+    AggregateReadOutcome, AggregateReadRequest, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
+    OperationOutcome, OperationRequest, ResolvedNamespace, Result, Switchboard, ToolName, ToolOutput, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{DefaultPolicyEngine, MemoryAuditSink, StaticNamespaceStore};
@@ -18,6 +18,7 @@ const AFTER_HELP: &str = concat!(
     "  switchboard ns list\n",
     "  switchboard github.notifications.list --ns github.personal --json\n",
     "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
+    "  switchboard google.calendar.list --ns google.work --ns google.personal --json\n",
     "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n"
 );
 
@@ -75,16 +76,16 @@ fn run(cli: Cli) -> std::result::Result<String, RunError> {
                 Ok(render_namespaces_human(&namespaces))
             }
         }
-        CommandKind::Tool(request) => {
-            let outcome = switchboard.dispatch(request).map_err(|error| RunError {
+        CommandKind::Operation(request) => {
+            let outcome = switchboard.execute_operation(request).map_err(|error| RunError {
                 message: error.to_string(),
                 json: json_requested,
             })?;
 
             if json_requested {
-                render_json_dispatch(&outcome)
+                render_json_operation(&outcome)
             } else {
-                Ok(render_dispatch_human(&outcome))
+                Ok(render_operation_human(&outcome))
             }
         }
     }
@@ -123,7 +124,7 @@ impl Commands {
     fn into_runtime_command(self) -> std::result::Result<CommandKind, RunError> {
         match self {
             Self::Ns(namespace) => Ok(namespace.into_runtime_command()),
-            Self::Tool(tokens) => parse_external_tool_invocation(tokens).map(CommandKind::Tool),
+            Self::Tool(tokens) => parse_external_tool_invocation(tokens).map(CommandKind::Operation),
         }
     }
 }
@@ -162,7 +163,7 @@ struct ListNamespaceArgs {
 #[derive(Debug)]
 enum CommandKind {
     NamespaceList,
-    Tool(ToolRequest),
+    Operation(OperationRequest),
 }
 
 #[derive(Debug)]
@@ -171,7 +172,7 @@ struct RunError {
     json: bool,
 }
 
-fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<ToolRequest, RunError> {
+fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<OperationRequest, RunError> {
     let mut positionals = tokens.into_iter().map(os_string_to_string).collect::<Vec<_>>();
     let json = contains_json_token(&positionals);
     let tool = positionals.first().cloned().ok_or_else(|| RunError {
@@ -179,7 +180,7 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
         json,
     })?;
     positionals.remove(0);
-    let mut namespace = None;
+    let mut namespaces = Vec::new();
     let mut args_map = BTreeMap::new();
     let mut mode = ExecutionMode::Auto;
     let mut index = 0;
@@ -205,7 +206,7 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
                     message: "missing value for --ns".into(),
                     json,
                 })?;
-                namespace = Some(value.clone());
+                namespaces.push(value.clone());
                 index += 2;
             }
             _ if current.starts_with("--") => {
@@ -226,17 +227,28 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
         }
     }
 
-    let namespace = namespace.ok_or_else(|| RunError {
-        message: "tool commands require --ns <namespace>".into(),
-        json,
-    })?;
+    if namespaces.is_empty() {
+        return Err(RunError {
+            message: "tool commands require at least one --ns <namespace>".into(),
+            json,
+        });
+    }
 
-    let request = ToolRequest::new(tool, namespace, mode, args_map).map_err(|error| RunError {
+    if namespaces.len() == 1 {
+        let request = ToolRequest::new(tool, namespaces.remove(0), mode, args_map).map_err(|error| RunError {
+            message: error.to_string(),
+            json,
+        })?;
+
+        return Ok(OperationRequest::single(request));
+    }
+
+    let request = AggregateReadRequest::new(tool, namespaces, mode, args_map).map_err(|error| RunError {
         message: error.to_string(),
         json,
     })?;
 
-    Ok(request)
+    Ok(OperationRequest::aggregate_read(request))
 }
 
 fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
@@ -249,6 +261,13 @@ fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     }
 
     output
+}
+
+fn render_operation_human(outcome: &OperationOutcome) -> String {
+    match outcome {
+        OperationOutcome::Single(outcome) => render_dispatch_human(outcome),
+        OperationOutcome::AggregateRead(outcome) => render_aggregate_read_human(outcome),
+    }
 }
 
 fn render_dispatch_human(outcome: &DispatchOutcome) -> String {
@@ -284,30 +303,54 @@ fn render_output_human(output: &ToolOutput) -> String {
     rendered
 }
 
+fn render_aggregate_read_human(outcome: &AggregateReadOutcome) -> String {
+    let namespaces = outcome
+        .namespaces
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut output = format!("Aggregate read: {}\nNamespaces: {namespaces}\n", outcome.tool);
+
+    for result in &outcome.results {
+        output.push('\n');
+        output.push_str(&format!("[{}]\n", result.namespace));
+
+        let rendered = render_dispatch_human(&result.outcome);
+        for line in rendered.lines() {
+            output.push_str(&format!("  {line}\n"));
+        }
+    }
+
+    output
+}
+
+fn render_json_operation(outcome: &OperationOutcome) -> std::result::Result<String, RunError> {
+    match outcome {
+        OperationOutcome::Single(outcome) => render_json_dispatch(outcome),
+        OperationOutcome::AggregateRead(outcome) => render_json(
+            &AggregateReadResponse {
+                status: "aggregate_read",
+                tool: &outcome.tool,
+                namespaces: &outcome.namespaces,
+                results: outcome
+                    .results
+                    .iter()
+                    .map(|result| AggregateReadResultResponse {
+                        namespace: &result.namespace,
+                        outcome: DispatchResponse::from(&result.outcome),
+                    })
+                    .collect(),
+            },
+            true,
+        ),
+    }
+}
+
 fn render_json_dispatch(outcome: &DispatchOutcome) -> std::result::Result<String, RunError> {
     match outcome {
-        DispatchOutcome::Planned(plan) => render_json(
-            &PlannedResponse {
-                status: "planned",
-                tool: &plan.tool,
-                namespace: &plan.namespace,
-                summary: &plan.summary,
-                backend: plan.backend,
-                approval_required: plan.approval_required,
-                approval_reason: plan.approval_reason.as_deref(),
-            },
-            true,
-        ),
-        DispatchOutcome::Executed(output) => render_json(
-            &ExecutedResponse {
-                status: "executed",
-                tool: &output.tool,
-                namespace: &output.namespace,
-                summary: &output.summary,
-                fields: &output.fields,
-            },
-            true,
-        ),
+        DispatchOutcome::Planned(plan) => render_json(&DispatchResponse::from_plan(plan), true),
+        DispatchOutcome::Executed(output) => render_json(&DispatchResponse::from_output(output), true),
     }
 }
 
@@ -377,24 +420,66 @@ struct NamespaceListResponse {
 }
 
 #[derive(Serialize)]
-struct PlannedResponse<'a> {
-    status: &'static str,
-    tool: &'a ToolName,
-    namespace: &'a NamespaceId,
-    summary: &'a str,
-    backend: BackendKind,
-    approval_required: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    approval_reason: Option<&'a str>,
+#[serde(tag = "status", rename_all = "snake_case")]
+enum DispatchResponse<'a> {
+    Planned {
+        tool: &'a ToolName,
+        namespace: &'a NamespaceId,
+        summary: &'a str,
+        backend: BackendKind,
+        approval_required: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        approval_reason: Option<&'a str>,
+    },
+    Executed {
+        tool: &'a ToolName,
+        namespace: &'a NamespaceId,
+        summary: &'a str,
+        fields: &'a BTreeMap<String, String>,
+    },
+}
+
+impl<'a> DispatchResponse<'a> {
+    fn from(outcome: &'a DispatchOutcome) -> Self {
+        match outcome {
+            DispatchOutcome::Planned(plan) => Self::from_plan(plan),
+            DispatchOutcome::Executed(output) => Self::from_output(output),
+        }
+    }
+
+    fn from_plan(plan: &'a switchboard_core::PlannedAction) -> Self {
+        Self::Planned {
+            tool: &plan.tool,
+            namespace: &plan.namespace,
+            summary: &plan.summary,
+            backend: plan.backend,
+            approval_required: plan.approval_required,
+            approval_reason: plan.approval_reason.as_deref(),
+        }
+    }
+
+    fn from_output(output: &'a ToolOutput) -> Self {
+        Self::Executed {
+            tool: &output.tool,
+            namespace: &output.namespace,
+            summary: &output.summary,
+            fields: &output.fields,
+        }
+    }
 }
 
 #[derive(Serialize)]
-struct ExecutedResponse<'a> {
+struct AggregateReadResponse<'a> {
     status: &'static str,
     tool: &'a ToolName,
+    namespaces: &'a [NamespaceId],
+    results: Vec<AggregateReadResultResponse<'a>>,
+}
+
+#[derive(Serialize)]
+struct AggregateReadResultResponse<'a> {
     namespace: &'a NamespaceId,
-    summary: &'a str,
-    fields: &'a BTreeMap<String, String>,
+    outcome: DispatchResponse<'a>,
 }
 
 #[derive(Serialize)]
@@ -408,7 +493,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use clap::Parser;
-    use switchboard_core::{DispatchOutcome, ExecutionMode, ToolRequest};
+    use switchboard_core::{
+        AggregateReadRequest, DispatchOutcome, ExecutionMode, OperationOutcome, OperationRequest, ToolRequest,
+    };
 
     use crate::{default_switchboard, run, Cli};
 
@@ -492,5 +579,93 @@ mod tests {
         assert_eq!(value["status"], "executed");
         assert_eq!(value["tool"], "google.mail.search");
         assert_eq!(value["namespace"], "google.work");
+    }
+
+    #[test]
+    fn repeated_namespace_flags_become_aggregate_reads() {
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "google.calendar.list",
+            "--ns",
+            "google.work",
+            "--ns",
+            "google.personal",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "aggregate_read");
+        assert_eq!(value["tool"], "google.calendar.list");
+        assert_eq!(value["namespaces"][0], "google.work");
+        assert_eq!(value["namespaces"][1], "google.personal");
+        assert_eq!(value["results"][0]["outcome"]["status"], "executed");
+        assert_eq!(value["results"][1]["outcome"]["status"], "executed");
+    }
+
+    #[test]
+    fn repeated_namespace_flags_reject_write_tools() {
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "google.calendar.create",
+            "--ns",
+            "google.work",
+            "--ns",
+            "google.personal",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let error = run(cli).expect_err("aggregate write should fail");
+        assert!(error.json);
+        assert!(error.message.contains("aggregate reads require a read tool"));
+    }
+
+    #[test]
+    fn aggregate_read_operations_can_fan_out_across_calendar_namespaces() {
+        let switchboard = default_switchboard().expect("switchboard should build");
+        let request = AggregateReadRequest::new(
+            "google.calendar.list",
+            ["google.work", "google.personal"],
+            ExecutionMode::Auto,
+            BTreeMap::new(),
+        )
+        .expect("aggregate request should parse");
+
+        let outcome = switchboard
+            .execute_operation(OperationRequest::aggregate_read(request))
+            .expect("aggregate read should succeed");
+
+        match outcome {
+            OperationOutcome::AggregateRead(outcome) => {
+                assert_eq!(outcome.namespaces.len(), 2);
+                assert_eq!(outcome.results.len(), 2);
+                assert_eq!(outcome.results[0].namespace.to_string(), "google.work");
+                assert_eq!(outcome.results[1].namespace.to_string(), "google.personal");
+            }
+            OperationOutcome::Single(_) => {
+                panic!("aggregate read should not collapse into a single operation");
+            }
+        }
+    }
+
+    #[test]
+    fn aggregate_reads_reject_write_tools() {
+        let switchboard = default_switchboard().expect("switchboard should build");
+        let request = AggregateReadRequest::new(
+            "google.calendar.create",
+            ["google.work", "google.personal"],
+            ExecutionMode::Auto,
+            BTreeMap::new(),
+        )
+        .expect("aggregate request should parse");
+
+        let error = switchboard
+            .execute_operation(OperationRequest::aggregate_read(request))
+            .expect_err("aggregate write should fail");
+
+        assert!(error.to_string().contains("aggregate reads require a read tool"));
     }
 }

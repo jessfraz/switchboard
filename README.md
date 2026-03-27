@@ -408,8 +408,8 @@ Fail-closed rule:
 
 Aggregate read rule:
 
-- one low-level tool invocation targets one namespace
-- one high-level user request may expand into multiple read invocations
+- one provider read executes against one namespace
+- one `switchboard` read request may declare multiple namespaces and fan out into isolated per-namespace reads
 
 Example user request:
 
@@ -419,7 +419,7 @@ That should mean:
 
 1. the model recognizes this as an aggregate calendar read
 1. the model resolves all allowed calendar namespaces, for example `google.work` and `google.personal`
-1. the model calls `google.calendar.list` once per namespace
+1. the model calls `switchboard` once with `google.calendar.list` and repeats `--ns` for each calendar namespace
 1. `switchboard` returns structured results for each namespace
 1. the model merges, sorts, and summarizes the events for the user
 
@@ -434,17 +434,19 @@ Model
   | - intent = aggregate calendar read
   | - namespaces = google.work + google.personal
   v
-switchboard call #1
+switchboard
   |
-  +--> google.calendar.list --ns google.work
+  | google.calendar.list \
+  |   --ns google.work \
+  |   --ns google.personal
   v
-work events
-
-switchboard call #2
+fan out inside switchboard
   |
-  +--> google.calendar.list --ns google.personal
+  +--> google.calendar.list (google.work)
+  |
+  +--> google.calendar.list (google.personal)
   v
-personal events
+structured per-namespace results
 
 Model
   |
@@ -453,6 +455,15 @@ Model
   +--> summarize for user
   v
 agenda for today
+```
+
+Example aggregate read call:
+
+```bash
+switchboard google.calendar.list \
+  --ns google.work \
+  --ns google.personal \
+  --json
 ```
 
 Important:
