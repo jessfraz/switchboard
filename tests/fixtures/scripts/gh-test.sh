@@ -9,6 +9,16 @@ if [ "$1" = "--help" ]; then
   exit 0
 fi
 
+if [ "$1" = "help" ] && [ "$2" = "pr" ] && [ "$3" = "view" ]; then
+  echo 'pr view help'
+  exit 0
+fi
+
+if [ "$1" = "help" ] && [ "$2" = "repo" ] && [ "$3" = "view" ]; then
+  echo 'repo view help'
+  exit 0
+fi
+
 if [ "$1" = "api" ] && [ "$2" = "--help" ]; then
   echo 'api help'
   exit 0

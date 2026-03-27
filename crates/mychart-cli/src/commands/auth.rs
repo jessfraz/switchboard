@@ -1,5 +1,13 @@
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    process::Command,
+    thread,
+    time::{Duration, Instant},
+};
+
 use clap::{Args, Subcommand};
-use reqwest::Method;
+use reqwest::{Method, Url};
 use serde_json::{json, Value};
 
 use crate::{
@@ -7,7 +15,7 @@ use crate::{
     ensure_json_success, expires_at_epoch_seconds, fetch_capability_summary, generate_nonce,
     parse_oauth_token_response, split_scopes,
     state::{ApiSessionState, ResolvedContext},
-    Result,
+    Error, Result,
 };
 
 #[derive(Debug, Args)]
@@ -18,6 +26,7 @@ pub(crate) struct AuthCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum AuthSubcommand {
+    Login(AuthLoginArgs),
     #[command(name = "authorize-url")]
     AuthorizeUrl(AuthAuthorizeUrlArgs),
     #[command(name = "exchange-code")]
@@ -27,8 +36,8 @@ pub(crate) enum AuthSubcommand {
     Logout,
 }
 
-#[derive(Debug, Args)]
-pub(crate) struct AuthAuthorizeUrlArgs {
+#[derive(Debug, Args, Clone)]
+struct AuthAuthorizeOptions {
     #[arg(long, value_name = "URL")]
     redirect_uri: Option<String>,
 
@@ -40,9 +49,27 @@ pub(crate) struct AuthAuthorizeUrlArgs {
 
     #[arg(long = "code-verifier", value_name = "VERIFIER")]
     code_verifier: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AuthAuthorizeUrlArgs {
+    #[command(flatten)]
+    options: AuthAuthorizeOptions,
 
     #[arg(long)]
     no_store: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AuthLoginArgs {
+    #[command(flatten)]
+    options: AuthAuthorizeOptions,
+
+    #[arg(long, default_value_t = 300)]
+    timeout_seconds: u64,
+
+    #[arg(long)]
+    no_open: bool,
 }
 
 #[derive(Debug, Args)]
@@ -71,61 +98,22 @@ pub(crate) struct AuthRefreshArgs {
 
 pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -> Result<Value> {
     match command {
+        AuthSubcommand::Login(args) => run_login(args, context),
         AuthSubcommand::AuthorizeUrl(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(args.redirect_uri)?;
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let authorize_endpoint = capability.require_authorize_url()?;
-            let token_endpoint = capability.require_token_url()?;
-            let oauth_state = match args.state {
-                Some(state) => state,
-                None => generate_nonce(24)?,
-            };
-            let code_verifier = match args.code_verifier {
-                Some(verifier) => ensure_code_verifier(verifier)?,
-                None => ensure_code_verifier(generate_nonce(48)?)?,
-            };
-            let scopes = if args.scopes.is_empty() {
-                default_patient_scopes()
-            } else {
-                dedupe_preserving_order(args.scopes)
-            };
-            let authorize_url = build_authorize_url(
-                &authorize_endpoint,
-                &client_id,
-                &redirect_uri,
-                &base_url,
-                &oauth_state,
-                &code_verifier,
-                &scopes,
-            )?;
-
-            if !args.no_store {
-                context.store_pending_oauth(
-                    base_url.clone(),
-                    client_id.clone(),
-                    context.client_secret.clone(),
-                    redirect_uri.clone(),
-                    oauth_state.clone(),
-                    code_verifier.clone(),
-                )?;
-            }
-
+            let prepared = prepare_authorization(context, args.options, !args.no_store)?;
             Ok(json!({
                 "status": "ok",
-                "base_url": base_url,
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "authorize_url": authorize_url.as_str(),
-                "authorize_endpoint": authorize_endpoint,
-                "token_endpoint": token_endpoint,
-                "state": oauth_state,
-                "scopes": scopes,
+                "base_url": prepared.base_url,
+                "client_id": prepared.client_id,
+                "redirect_uri": prepared.redirect_uri,
+                "authorize_url": prepared.authorize_url.as_str(),
+                "authorize_endpoint": prepared.authorize_endpoint,
+                "token_endpoint": prepared.token_endpoint,
+                "state": prepared.oauth_state,
+                "scopes": prepared.scopes,
                 "code_challenge_method": "S256",
                 "code_verifier": if args.no_store {
-                    Value::String(code_verifier)
+                    Value::String(prepared.code_verifier)
                 } else {
                     Value::Null
                 },
@@ -133,59 +121,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             }))
         }
         AuthSubcommand::ExchangeCode(args) => {
-            let base_url = context.require_api_base_url()?;
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(args.redirect_uri)?;
-            let code_verifier = context.require_code_verifier(args.code_verifier)?;
-            let client_secret = context.client_secret.clone();
-            let client = api_client(&base_url)?;
-            let capability = fetch_capability_summary(&client)?;
-            let token_endpoint = capability.require_token_url()?;
-            let mut form = vec![
-                ("grant_type".into(), "authorization_code".into()),
-                ("code".into(), args.code),
-                ("redirect_uri".into(), redirect_uri.clone()),
-                ("client_id".into(), client_id.clone()),
-                ("code_verifier".into(), code_verifier),
-            ];
-            if let Some(client_secret) = client_secret.clone() {
-                form.push(("client_secret".into(), client_secret));
-            }
-
-            let response = client.exchange_oauth_token(&token_endpoint, &form)?;
-            ensure_json_success(&response)?;
-            let token = parse_oauth_token_response(&response.body)?;
-            let refresh_token = token.refresh_token.clone().or_else(|| context.refresh_token.clone());
-            let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
-
-            if !args.no_store {
-                context.store_api_tokens(ApiSessionState {
-                    base_url: base_url.clone(),
-                    client_id: client_id.clone(),
-                    client_secret,
-                    redirect_uri: redirect_uri.clone(),
-                    access_token: token.access_token.clone(),
-                    refresh_token: refresh_token.clone(),
-                    token_type: token.token_type.clone(),
-                    scope: token.scope.clone(),
-                    patient_id: token.patient.clone(),
-                    expires_at_epoch_seconds,
-                })?;
-            }
-
-            Ok(json!({
-                "status": "authenticated",
-                "base_url": base_url,
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "token_endpoint": token_endpoint,
-                "patient_id": token.patient,
-                "scope": split_scopes(token.scope.as_deref()),
-                "token_type": token.token_type,
-                "expires_at_epoch_seconds": expires_at_epoch_seconds,
-                "refresh_token_available": refresh_token.is_some(),
-                "stored": !args.no_store,
-            }))
+            exchange_code(context, args.code, args.redirect_uri, args.code_verifier, args.no_store)
         }
         AuthSubcommand::Refresh(args) => {
             let base_url = context.require_api_base_url()?;
@@ -298,4 +234,407 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             }))
         }
     }
+}
+
+#[derive(Debug)]
+struct PreparedAuthorization {
+    base_url: String,
+    client_id: String,
+    redirect_uri: String,
+    authorize_endpoint: String,
+    token_endpoint: String,
+    authorize_url: Url,
+    oauth_state: String,
+    code_verifier: String,
+    scopes: Vec<String>,
+}
+
+fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value> {
+    let prepared = prepare_authorization(context, args.options, true)?;
+    let redirect_uri = Url::parse(&prepared.redirect_uri)
+        .map_err(|error| Error::Config(format!("invalid redirect URI {:?}: {error}", prepared.redirect_uri)))?;
+    let bind_address = loopback_bind_address(&redirect_uri)?;
+    let listener = TcpListener::bind(&bind_address).map_err(|error| {
+        Error::Io(format!(
+            "failed to bind OAuth callback listener on {bind_address}: {error}"
+        ))
+    })?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| Error::Io(format!("failed to configure OAuth callback listener: {error}")))?;
+
+    if args.no_open {
+        eprintln!("Open this URL in a browser: {}", prepared.authorize_url);
+    } else {
+        eprintln!("Opening browser for MyChart OAuth login...");
+        open_browser(prepared.authorize_url.as_str())?;
+    }
+    eprintln!("Waiting for OAuth callback on {}", prepared.redirect_uri);
+
+    let callback = wait_for_oauth_callback(
+        listener,
+        &redirect_uri,
+        &prepared.oauth_state,
+        Duration::from_secs(args.timeout_seconds),
+    )?;
+
+    exchange_code(
+        context,
+        callback.code,
+        Some(prepared.redirect_uri),
+        Some(prepared.code_verifier),
+        false,
+    )
+}
+
+fn prepare_authorization(
+    context: &mut ResolvedContext,
+    options: AuthAuthorizeOptions,
+    store_pending: bool,
+) -> Result<PreparedAuthorization> {
+    let base_url = context.require_api_base_url()?;
+    let client_id = context.require_client_id()?;
+    let redirect_uri = context.require_redirect_uri(options.redirect_uri)?;
+    let client = api_client(&base_url)?;
+    let capability = fetch_capability_summary(&client)?;
+    let authorize_endpoint = capability.require_authorize_url()?;
+    let token_endpoint = capability.require_token_url()?;
+    let oauth_state = match options.state {
+        Some(state) => state,
+        None => generate_nonce(24)?,
+    };
+    let code_verifier = match options.code_verifier {
+        Some(verifier) => ensure_code_verifier(verifier)?,
+        None => ensure_code_verifier(generate_nonce(48)?)?,
+    };
+    let scopes = if options.scopes.is_empty() {
+        default_patient_scopes()
+    } else {
+        dedupe_preserving_order(options.scopes)
+    };
+    let authorize_url = build_authorize_url(
+        &authorize_endpoint,
+        &client_id,
+        &redirect_uri,
+        &base_url,
+        &oauth_state,
+        &code_verifier,
+        &scopes,
+    )?;
+
+    if store_pending {
+        context.store_pending_oauth(
+            base_url.clone(),
+            client_id.clone(),
+            context.client_secret.clone(),
+            redirect_uri.clone(),
+            oauth_state.clone(),
+            code_verifier.clone(),
+        )?;
+    }
+
+    Ok(PreparedAuthorization {
+        base_url,
+        client_id,
+        redirect_uri,
+        authorize_endpoint,
+        token_endpoint,
+        authorize_url,
+        oauth_state,
+        code_verifier,
+        scopes,
+    })
+}
+
+fn exchange_code(
+    context: &mut ResolvedContext,
+    code: String,
+    redirect_uri_override: Option<String>,
+    code_verifier_override: Option<String>,
+    no_store: bool,
+) -> Result<Value> {
+    let base_url = context.require_api_base_url()?;
+    let client_id = context.require_client_id()?;
+    let redirect_uri = context.require_redirect_uri(redirect_uri_override)?;
+    let code_verifier = context.require_code_verifier(code_verifier_override)?;
+    let client_secret = context.client_secret.clone();
+    let client = api_client(&base_url)?;
+    let capability = fetch_capability_summary(&client)?;
+    let token_endpoint = capability.require_token_url()?;
+    let mut form = vec![
+        ("grant_type".into(), "authorization_code".into()),
+        ("code".into(), code),
+        ("redirect_uri".into(), redirect_uri.clone()),
+        ("client_id".into(), client_id.clone()),
+        ("code_verifier".into(), code_verifier),
+    ];
+    if let Some(client_secret) = client_secret.clone() {
+        form.push(("client_secret".into(), client_secret));
+    }
+
+    let response = client.exchange_oauth_token(&token_endpoint, &form)?;
+    ensure_json_success(&response)?;
+    let token = parse_oauth_token_response(&response.body)?;
+    let refresh_token = token.refresh_token.clone().or_else(|| context.refresh_token.clone());
+    let expires_at_epoch_seconds = token.expires_in.map(expires_at_epoch_seconds);
+
+    if !no_store {
+        context.store_api_tokens(ApiSessionState {
+            base_url: base_url.clone(),
+            client_id: client_id.clone(),
+            client_secret,
+            redirect_uri: redirect_uri.clone(),
+            access_token: token.access_token.clone(),
+            refresh_token: refresh_token.clone(),
+            token_type: token.token_type.clone(),
+            scope: token.scope.clone(),
+            patient_id: token.patient.clone(),
+            expires_at_epoch_seconds,
+        })?;
+    }
+
+    Ok(json!({
+        "status": "authenticated",
+        "base_url": base_url,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "token_endpoint": token_endpoint,
+        "patient_id": token.patient,
+        "scope": split_scopes(token.scope.as_deref()),
+        "token_type": token.token_type,
+        "expires_at_epoch_seconds": expires_at_epoch_seconds,
+        "refresh_token_available": refresh_token.is_some(),
+        "stored": !no_store,
+    }))
+}
+
+#[derive(Debug)]
+struct OAuthCallback {
+    code: String,
+}
+
+fn loopback_bind_address(redirect_uri: &Url) -> Result<String> {
+    let host = redirect_uri
+        .host_str()
+        .ok_or_else(|| Error::Arguments("auth login requires a redirect URI with an explicit host".into()))?;
+    if host != "127.0.0.1" && host != "localhost" {
+        return Err(Error::Arguments(
+            "auth login currently requires a loopback redirect URI like http://127.0.0.1:8910/callback".into(),
+        ));
+    }
+    let port = redirect_uri
+        .port_or_known_default()
+        .ok_or_else(|| Error::Arguments("auth login requires a redirect URI with an explicit port".into()))?;
+    Ok(format!("{host}:{port}"))
+}
+
+fn wait_for_oauth_callback(
+    listener: TcpListener,
+    redirect_uri: &Url,
+    expected_state: &str,
+    timeout: Duration,
+) -> Result<OAuthCallback> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                return read_oauth_callback(&mut stream, redirect_uri, expected_state);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(Error::Auth {
+                        message: format!("timed out waiting {} seconds for the OAuth callback", timeout.as_secs()),
+                        details: json!({
+                            "redirect_uri": redirect_uri.as_str(),
+                        }),
+                    });
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                return Err(Error::Io(format!("failed while waiting for OAuth callback: {error}")));
+            }
+        }
+    }
+}
+
+fn read_oauth_callback(stream: &mut TcpStream, redirect_uri: &Url, expected_state: &str) -> Result<OAuthCallback> {
+    let request = read_http_request(stream)?;
+    let request_target = request_target(&request)?;
+    let callback_url = redirect_uri.join(&request_target).map_err(|error| {
+        Error::Http(format!(
+            "failed to parse OAuth callback request target {request_target:?}: {error}"
+        ))
+    })?;
+
+    if callback_url.path() != redirect_uri.path() {
+        write_http_response(
+            stream,
+            404,
+            "Not Found",
+            callback_page_html("Wrong callback path. Return to the terminal and try again."),
+        )?;
+        return Err(Error::Auth {
+            message: "OAuth callback hit the wrong path".into(),
+            details: json!({
+                "expected_path": redirect_uri.path(),
+                "received_path": callback_url.path(),
+            }),
+        });
+    }
+
+    let params = callback_url.query_pairs().collect::<Vec<_>>();
+    if let Some(error) = params
+        .iter()
+        .find(|(key, _)| key == "error")
+        .map(|(_, value)| value.to_string())
+    {
+        let error_description = params
+            .iter()
+            .find(|(key, _)| key == "error_description")
+            .map(|(_, value)| value.to_string());
+        write_http_response(
+            stream,
+            400,
+            "Bad Request",
+            callback_page_html("OAuth authorization failed. Return to the terminal for details."),
+        )?;
+        return Err(Error::Auth {
+            message: format!("OAuth authorization failed with error {error}"),
+            details: json!({
+                "error": error,
+                "error_description": error_description,
+            }),
+        });
+    }
+
+    let Some(state) = params
+        .iter()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string())
+    else {
+        write_http_response(
+            stream,
+            400,
+            "Bad Request",
+            callback_page_html("OAuth callback was missing state. Return to the terminal and start over."),
+        )?;
+        return Err(Error::Auth {
+            message: "OAuth callback was missing the state parameter".into(),
+            details: json!({ "callback_url": callback_url.as_str() }),
+        });
+    };
+    if state != expected_state {
+        write_http_response(
+            stream,
+            400,
+            "Bad Request",
+            callback_page_html("OAuth state mismatch. Return to the terminal and start over."),
+        )?;
+        return Err(Error::Auth {
+            message: "OAuth callback state mismatch".into(),
+            details: json!({
+                "expected_state": expected_state,
+                "received_state": state,
+            }),
+        });
+    }
+
+    let Some(code) = params
+        .iter()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.to_string())
+    else {
+        write_http_response(
+            stream,
+            400,
+            "Bad Request",
+            callback_page_html("OAuth callback was missing a code. Return to the terminal and start over."),
+        )?;
+        return Err(Error::Auth {
+            message: "OAuth callback was missing the authorization code".into(),
+            details: json!({ "callback_url": callback_url.as_str() }),
+        });
+    };
+
+    write_http_response(
+        stream,
+        200,
+        "OK",
+        callback_page_html("MyChart authorization received. You can close this tab and go back to the terminal."),
+    )?;
+
+    Ok(OAuthCallback { code })
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<String> {
+    let mut buffer = Vec::new();
+    let mut temp = [0u8; 1024];
+    loop {
+        let bytes_read = stream
+            .read(&mut temp)
+            .map_err(|error| Error::Io(format!("failed to read OAuth callback request: {error}")))?;
+        if bytes_read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..bytes_read]);
+        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    String::from_utf8(buffer)
+        .map_err(|error| Error::Http(format!("OAuth callback request was not valid UTF-8: {error}")))
+}
+
+fn request_target(request: &str) -> Result<String> {
+    let first_line = request
+        .lines()
+        .next()
+        .ok_or_else(|| Error::Http("received an empty OAuth callback request".into()))?;
+    let mut parts = first_line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or_else(|| Error::Http("OAuth callback request line was missing the HTTP method".into()))?;
+    if method != "GET" {
+        return Err(Error::Http(format!(
+            "OAuth callback used unsupported HTTP method {method:?}, expected GET"
+        )));
+    }
+    parts
+        .next()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| Error::Http("OAuth callback request line was missing the request target".into()))
+}
+
+fn write_http_response(stream: &mut TcpStream, status_code: u16, reason: &str, body: String) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 {status_code} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|error| Error::Io(format!("failed to write OAuth callback response: {error}")))
+}
+
+fn callback_page_html(message: &str) -> String {
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>MyChart OAuth</title></head><body><p>{message}</p></body></html>"
+    )
+}
+
+fn open_browser(url: &str) -> Result<()> {
+    let (command, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("open", &[url])
+    } else if cfg!(target_os = "windows") {
+        ("cmd", &["/C", "start", "", url])
+    } else {
+        ("xdg-open", &[url])
+    };
+
+    Command::new(command)
+        .args(args)
+        .spawn()
+        .map_err(|error| Error::Io(format!("failed to launch browser with {command}: {error}")))?;
+
+    Ok(())
 }

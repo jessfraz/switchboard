@@ -7,6 +7,9 @@
       "command": "gh",
       "summary": "Work seamlessly with GitHub from the command line.",
       "usage": "gh <command> <subcommand> [flags]",
+      "help_args": [
+        "--help"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -54,6 +57,10 @@
       "command": "gh agent-task",
       "summary": "Working with agent tasks in the GitHub CLI is in preview and",
       "usage": "gh agent-task <command> [flags]",
+      "help_args": [
+        "help",
+        "agent-task"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -73,6 +80,11 @@
       "command": "gh agent-task create",
       "summary": "Create an agent task (preview)",
       "usage": "gh agent-task create [<task description>] [flags]",
+      "help_args": [
+        "help",
+        "agent-task",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -87,6 +99,11 @@
       "command": "gh agent-task list",
       "summary": "List agent tasks (preview)",
       "usage": "gh agent-task list [flags]",
+      "help_args": [
+        "help",
+        "agent-task",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -101,6 +118,11 @@
       "command": "gh agent-task view",
       "summary": "View an agent task session.",
       "usage": "gh agent-task view [<session-id> | <pr-number> | <pr-url> | <pr-branch>] [flags]",
+      "help_args": [
+        "help",
+        "agent-task",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -114,6 +136,10 @@
       "command": "gh alias",
       "summary": "Aliases can be used to make shortcuts for gh commands or to compose multiple commands.",
       "usage": "gh alias <command> [flags]",
+      "help_args": [
+        "help",
+        "alias"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -134,6 +160,11 @@
       "command": "gh alias delete",
       "summary": "Delete set aliases",
       "usage": "gh alias delete {<alias> | --all} [flags]",
+      "help_args": [
+        "help",
+        "alias",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -148,6 +179,11 @@
       "command": "gh alias import",
       "summary": "Import aliases from the contents of a YAML file.",
       "usage": "gh alias import [<filename> | -] [flags]",
+      "help_args": [
+        "help",
+        "alias",
+        "import"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -166,6 +202,11 @@
       "command": "gh alias list",
       "summary": "This command prints out all of the aliases gh is configured to use.",
       "usage": "gh alias list [flags]",
+      "help_args": [
+        "help",
+        "alias",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -180,6 +221,11 @@
       "command": "gh alias set",
       "summary": "Define a word that will expand to a full gh command when invoked.",
       "usage": "gh alias set <alias> <expansion> [flags]",
+      "help_args": [
+        "help",
+        "alias",
+        "set"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -193,6 +239,10 @@
       "command": "gh api",
       "summary": "Makes an authenticated HTTP request to the GitHub API and prints the response.",
       "usage": "gh api <endpoint> [flags]",
+      "help_args": [
+        "help",
+        "api"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -206,6 +256,10 @@
       "command": "gh attestation",
       "summary": "Download and verify artifact attestations.",
       "usage": "gh attestation [subcommand] [flags]",
+      "help_args": [
+        "help",
+        "attestation"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -225,6 +279,11 @@
       "command": "gh attestation download",
       "summary": "### NOTE: This feature is currently in public preview, and subject to change.",
       "usage": "gh attestation download [<file-path> | oci://<image-uri>] [--owner | --repo] [flags]",
+      "help_args": [
+        "help",
+        "attestation",
+        "download"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -239,6 +298,11 @@
       "command": "gh attestation trusted-root",
       "summary": "Output contents for a trusted_root.jsonl file, likely for offline verification.",
       "usage": "gh attestation trusted-root [--tuf-url <url> --tuf-root <file-path>] [--verify-only] [flags]",
+      "help_args": [
+        "help",
+        "attestation",
+        "trusted-root"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -253,6 +317,11 @@
       "command": "gh attestation verify",
       "summary": "Verify the integrity and provenance of an artifact using its associated",
       "usage": "gh attestation verify [<file-path> | oci://<image-uri>] [--owner | --repo] [flags]",
+      "help_args": [
+        "help",
+        "attestation",
+        "verify"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -266,6 +335,10 @@
       "command": "gh auth",
       "summary": "Authenticate gh and git with GitHub",
       "usage": "gh auth <command> [flags]",
+      "help_args": [
+        "help",
+        "auth"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -289,6 +362,11 @@
       "command": "gh auth login",
       "summary": "Authenticate with a GitHub host.",
       "usage": "gh auth login [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "login"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -303,6 +381,11 @@
       "command": "gh auth logout",
       "summary": "Remove authentication for a GitHub account.",
       "usage": "gh auth logout [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "logout"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -317,6 +400,11 @@
       "command": "gh auth refresh",
       "summary": "Expand or fix the permission scopes for stored credentials for active account.",
       "usage": "gh auth refresh [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "refresh"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -331,6 +419,11 @@
       "command": "gh auth setup-git",
       "summary": "This command configures `git` to use GitHub CLI as a credential helper.",
       "usage": "gh auth setup-git [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "setup-git"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -345,6 +438,11 @@
       "command": "gh auth status",
       "summary": "Display active account and authentication state on each known GitHub host.",
       "usage": "gh auth status [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "status"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -359,6 +457,11 @@
       "command": "gh auth switch",
       "summary": "Switch the active account for a GitHub host.",
       "usage": "gh auth switch [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "switch"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -373,6 +476,11 @@
       "command": "gh auth token",
       "summary": "This command outputs the authentication token for an account on a given GitHub host.",
       "usage": "gh auth token [flags]",
+      "help_args": [
+        "help",
+        "auth",
+        "token"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -386,6 +494,10 @@
       "command": "gh browse",
       "summary": "Transition from the terminal to the web browser to view and interact with:",
       "usage": "gh browse [<number> | <path> | <commit-sha>] [flags]",
+      "help_args": [
+        "help",
+        "browse"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -399,6 +511,10 @@
       "command": "gh cache",
       "summary": "Work with GitHub Actions caches.",
       "usage": "gh cache <command> [flags]",
+      "help_args": [
+        "help",
+        "cache"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -417,6 +533,11 @@
       "command": "gh cache delete",
       "summary": "Delete GitHub Actions caches.",
       "usage": "gh cache delete [<cache-id> | <cache-key> | --all] [flags]",
+      "help_args": [
+        "help",
+        "cache",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -431,6 +552,11 @@
       "command": "gh cache list",
       "summary": "List GitHub Actions caches",
       "usage": "gh cache list [flags]",
+      "help_args": [
+        "help",
+        "cache",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -444,6 +570,10 @@
       "command": "gh co",
       "summary": "Check out a pull request in git",
       "usage": "gh pr checkout [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "co"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -457,6 +587,10 @@
       "command": "gh codespace",
       "summary": "Connect to and manage codespaces",
       "usage": "gh codespace [flags]",
+      "help_args": [
+        "help",
+        "codespace"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -486,6 +620,11 @@
       "command": "gh codespace code",
       "summary": "Open a codespace in Visual Studio Code",
       "usage": "gh codespace code [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "code"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -500,6 +639,11 @@
       "command": "gh codespace cp",
       "summary": "The `cp` command copies files between the local and remote file systems.",
       "usage": "gh codespace cp [-e] [-r] [-- [<scp flags>...]] <sources>... <dest>",
+      "help_args": [
+        "help",
+        "codespace",
+        "cp"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -514,6 +658,11 @@
       "command": "gh codespace create",
       "summary": "Create a codespace",
       "usage": "gh codespace create [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -532,6 +681,11 @@
       "command": "gh codespace delete",
       "summary": "Delete codespaces based on selection criteria.",
       "usage": "gh codespace delete [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -546,6 +700,11 @@
       "command": "gh codespace edit",
       "summary": "Edit a codespace",
       "usage": "gh codespace edit [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -560,6 +719,11 @@
       "command": "gh codespace jupyter",
       "summary": "Open a codespace in JupyterLab",
       "usage": "gh codespace jupyter [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "jupyter"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -574,6 +738,11 @@
       "command": "gh codespace list",
       "summary": "List codespaces of the authenticated user.",
       "usage": "gh codespace list [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -588,6 +757,11 @@
       "command": "gh codespace logs",
       "summary": "Access codespace logs",
       "usage": "gh codespace logs [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "logs"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -602,6 +776,11 @@
       "command": "gh codespace ports",
       "summary": "List ports in a codespace",
       "usage": "gh codespace ports [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "ports"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -621,6 +800,12 @@
       "command": "gh codespace ports forward",
       "summary": "Forward ports",
       "usage": "gh codespace ports forward <remote-port>:<local-port>... [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "ports",
+        "forward"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -636,6 +821,12 @@
       "command": "gh codespace ports visibility",
       "summary": "Change the visibility of the forwarded port",
       "usage": "gh codespace ports visibility <port>:{public|private|org}... [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "ports",
+        "visibility"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -650,6 +841,11 @@
       "command": "gh codespace rebuild",
       "summary": "Rebuilding recreates your codespace.",
       "usage": "gh codespace rebuild [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "rebuild"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -664,6 +860,11 @@
       "command": "gh codespace ssh",
       "summary": "The `ssh` command is used to SSH into a codespace. In its simplest form, you can",
       "usage": "gh codespace ssh [<flags>...] [-- <ssh-flags>...] [<command>]",
+      "help_args": [
+        "help",
+        "codespace",
+        "ssh"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -678,6 +879,11 @@
       "command": "gh codespace stop",
       "summary": "Stop a running codespace",
       "usage": "gh codespace stop [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "stop"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -692,6 +898,11 @@
       "command": "gh codespace view",
       "summary": "View details about a codespace",
       "usage": "gh codespace view [flags]",
+      "help_args": [
+        "help",
+        "codespace",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -705,6 +916,10 @@
       "command": "gh completion",
       "summary": "Generate shell completion scripts for GitHub CLI commands.",
       "usage": "gh completion -s <shell>",
+      "help_args": [
+        "help",
+        "completion"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -718,6 +933,10 @@
       "command": "gh config",
       "summary": "Display or change configuration settings for gh.",
       "usage": "gh config <command> [flags]",
+      "help_args": [
+        "help",
+        "config"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -738,6 +957,11 @@
       "command": "gh config clear-cache",
       "summary": "Clear the cli cache",
       "usage": "gh config clear-cache [flags]",
+      "help_args": [
+        "help",
+        "config",
+        "clear-cache"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -752,6 +976,11 @@
       "command": "gh config get",
       "summary": "Print the value of a given configuration key",
       "usage": "gh config get <key> [flags]",
+      "help_args": [
+        "help",
+        "config",
+        "get"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -766,6 +995,11 @@
       "command": "gh config list",
       "summary": "Print a list of configuration keys and values",
       "usage": "gh config list [flags]",
+      "help_args": [
+        "help",
+        "config",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -780,6 +1014,11 @@
       "command": "gh config set",
       "summary": "Update configuration with a value for the given key",
       "usage": "gh config set <key> <value> [flags]",
+      "help_args": [
+        "help",
+        "config",
+        "set"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -793,6 +1032,10 @@
       "command": "gh copilot",
       "summary": "Runs the GitHub Copilot CLI.",
       "usage": "gh copilot [flags] [args]",
+      "help_args": [
+        "help",
+        "copilot"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -806,6 +1049,10 @@
       "command": "gh extension",
       "summary": "GitHub CLI extensions are repositories that provide additional gh commands.",
       "usage": "gh extension [flags]",
+      "help_args": [
+        "help",
+        "extension"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -830,6 +1077,11 @@
       "command": "gh extension browse",
       "summary": "This command will take over your terminal and run a fully interactive",
       "usage": "gh extension browse [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "browse"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -844,6 +1096,11 @@
       "command": "gh extension create",
       "summary": "Create a new extension",
       "usage": "gh extension create [<name>] [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -862,6 +1119,11 @@
       "command": "gh extension exec",
       "summary": "Execute an extension using the short name. For example, if the extension repository is",
       "usage": "gh extension exec <name> [args] [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "exec"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -876,6 +1138,11 @@
       "command": "gh extension install",
       "summary": "Install a GitHub CLI extension from a GitHub or local repository.",
       "usage": "gh extension install <repository> [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "install"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -890,6 +1157,11 @@
       "command": "gh extension list",
       "summary": "List installed extension commands",
       "usage": "gh extension list [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -904,6 +1176,11 @@
       "command": "gh extension remove",
       "summary": "Remove an installed extension",
       "usage": "gh extension remove <name> [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "remove"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -918,6 +1195,11 @@
       "command": "gh extension search",
       "summary": "Search for gh extensions.",
       "usage": "gh extension search [<query>] [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "search"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -932,6 +1214,11 @@
       "command": "gh extension upgrade",
       "summary": "Upgrade installed extensions",
       "usage": "gh extension upgrade {<name> | --all} [flags]",
+      "help_args": [
+        "help",
+        "extension",
+        "upgrade"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -945,6 +1232,10 @@
       "command": "gh gist",
       "summary": "Work with GitHub gists.",
       "usage": "gh gist <command> [flags]",
+      "help_args": [
+        "help",
+        "gist"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -968,6 +1259,11 @@
       "command": "gh gist clone",
       "summary": "Clone a GitHub gist locally.",
       "usage": "gh gist clone <gist> [<directory>] [-- <gitflags>...]",
+      "help_args": [
+        "help",
+        "gist",
+        "clone"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -982,6 +1278,11 @@
       "command": "gh gist create",
       "summary": "Create a new GitHub gist with given contents.",
       "usage": "gh gist create [<filename>... | <pattern>... | -] [flags]",
+      "help_args": [
+        "help",
+        "gist",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1000,6 +1301,11 @@
       "command": "gh gist delete",
       "summary": "Delete a GitHub gist.",
       "usage": "gh gist delete {<id> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "gist",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1014,6 +1320,11 @@
       "command": "gh gist edit",
       "summary": "Edit one of your gists",
       "usage": "gh gist edit {<id> | <url>} [<filename>] [flags]",
+      "help_args": [
+        "help",
+        "gist",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1028,6 +1339,11 @@
       "command": "gh gist list",
       "summary": "List gists from your user account.",
       "usage": "gh gist list [flags]",
+      "help_args": [
+        "help",
+        "gist",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1042,6 +1358,11 @@
       "command": "gh gist rename",
       "summary": "Rename a file in the given gist ID / URL.",
       "usage": "gh gist rename {<id> | <url>} <old-filename> <new-filename> [flags]",
+      "help_args": [
+        "help",
+        "gist",
+        "rename"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1056,6 +1377,11 @@
       "command": "gh gist view",
       "summary": "View the given gist or select from recent gists.",
       "usage": "gh gist view [<id> | <url>] [flags]",
+      "help_args": [
+        "help",
+        "gist",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1069,6 +1395,10 @@
       "command": "gh gpg-key",
       "summary": "Manage GPG keys registered with your GitHub account.",
       "usage": "gh gpg-key <command> [flags]",
+      "help_args": [
+        "help",
+        "gpg-key"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1088,6 +1418,11 @@
       "command": "gh gpg-key add",
       "summary": "Add a GPG key to your GitHub account",
       "usage": "gh gpg-key add [<key-file>] [flags]",
+      "help_args": [
+        "help",
+        "gpg-key",
+        "add"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1102,6 +1437,11 @@
       "command": "gh gpg-key delete",
       "summary": "Delete a GPG key from your GitHub account",
       "usage": "gh gpg-key delete <key-id> [flags]",
+      "help_args": [
+        "help",
+        "gpg-key",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1116,6 +1456,11 @@
       "command": "gh gpg-key list",
       "summary": "Lists GPG keys in your GitHub account",
       "usage": "gh gpg-key list [flags]",
+      "help_args": [
+        "help",
+        "gpg-key",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1129,6 +1474,10 @@
       "command": "gh issue",
       "summary": "Work with GitHub issues.",
       "usage": "gh issue <command> [flags]",
+      "help_args": [
+        "help",
+        "issue"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1160,6 +1509,11 @@
       "command": "gh issue close",
       "summary": "Close issue",
       "usage": "gh issue close {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "close"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1178,6 +1532,11 @@
       "command": "gh issue comment",
       "summary": "Add a comment to a GitHub issue.",
       "usage": "gh issue comment {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "comment"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1192,6 +1551,11 @@
       "command": "gh issue create",
       "summary": "Create an issue on GitHub.",
       "usage": "gh issue create [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1210,6 +1574,11 @@
       "command": "gh issue delete",
       "summary": "Delete issue",
       "usage": "gh issue delete {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1224,6 +1593,11 @@
       "command": "gh issue develop",
       "summary": "Manage linked branches for an issue.",
       "usage": "gh issue develop {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "develop"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1238,6 +1612,11 @@
       "command": "gh issue edit",
       "summary": "Edit one or more issues within the same repository.",
       "usage": "gh issue edit {<numbers> | <urls>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1252,6 +1631,11 @@
       "command": "gh issue list",
       "summary": "List issues in a GitHub repository. By default, this only lists open issues.",
       "usage": "gh issue list [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1266,6 +1650,11 @@
       "command": "gh issue lock",
       "summary": "Lock issue conversation",
       "usage": "gh issue lock {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "lock"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1284,6 +1673,11 @@
       "command": "gh issue pin",
       "summary": "Pin an issue to a repository.",
       "usage": "gh issue pin {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "pin"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1298,6 +1692,11 @@
       "command": "gh issue reopen",
       "summary": "Reopen issue",
       "usage": "gh issue reopen {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "reopen"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1312,6 +1711,11 @@
       "command": "gh issue status",
       "summary": "Show status of relevant issues",
       "usage": "gh issue status [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "status"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1326,6 +1730,11 @@
       "command": "gh issue transfer",
       "summary": "Transfer issue to another repository",
       "usage": "gh issue transfer {<number> | <url>} <destination-repo> [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "transfer"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1340,6 +1749,11 @@
       "command": "gh issue unlock",
       "summary": "Unlock issue conversation",
       "usage": "gh issue unlock {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "unlock"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1354,6 +1768,11 @@
       "command": "gh issue unpin",
       "summary": "Unpin an issue from a repository.",
       "usage": "gh issue unpin {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "unpin"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1368,6 +1787,11 @@
       "command": "gh issue view",
       "summary": "Display the title, body, and other information about an issue.",
       "usage": "gh issue view {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "issue",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1381,6 +1805,10 @@
       "command": "gh label",
       "summary": "Work with GitHub labels.",
       "usage": "gh label <command> [flags]",
+      "help_args": [
+        "help",
+        "label"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1402,6 +1830,11 @@
       "command": "gh label clone",
       "summary": "Clones labels from a source repository to a destination repository on GitHub.",
       "usage": "gh label clone <source-repository> [flags]",
+      "help_args": [
+        "help",
+        "label",
+        "clone"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1416,6 +1849,11 @@
       "command": "gh label create",
       "summary": "Create a new label on GitHub, or update an existing one with `--force`.",
       "usage": "gh label create <name> [flags]",
+      "help_args": [
+        "help",
+        "label",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1434,6 +1872,11 @@
       "command": "gh label delete",
       "summary": "Delete a label from a repository",
       "usage": "gh label delete <name> [flags]",
+      "help_args": [
+        "help",
+        "label",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1448,6 +1891,11 @@
       "command": "gh label edit",
       "summary": "Update a label on GitHub.",
       "usage": "gh label edit <name> [flags]",
+      "help_args": [
+        "help",
+        "label",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1462,6 +1910,11 @@
       "command": "gh label list",
       "summary": "Display labels in a GitHub repository.",
       "usage": "gh label list [flags]",
+      "help_args": [
+        "help",
+        "label",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1475,6 +1928,10 @@
       "command": "gh licenses",
       "summary": "View license information for third-party libraries used in this build of the GitHub CLI.",
       "usage": "gh licenses [flags]",
+      "help_args": [
+        "help",
+        "licenses"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1488,6 +1945,10 @@
       "command": "gh org",
       "summary": "Work with GitHub organizations.",
       "usage": "gh org <command> [flags]",
+      "help_args": [
+        "help",
+        "org"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1505,6 +1966,11 @@
       "command": "gh org list",
       "summary": "List organizations for the authenticated user.",
       "usage": "gh org list [flags]",
+      "help_args": [
+        "help",
+        "org",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1518,6 +1984,10 @@
       "command": "gh pr",
       "summary": "Work with GitHub pull requests.",
       "usage": "gh pr <command> [flags]",
+      "help_args": [
+        "help",
+        "pr"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1552,6 +2022,11 @@
       "command": "gh pr checkout",
       "summary": "Check out a pull request in git",
       "usage": "gh pr checkout [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "checkout"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1566,6 +2041,11 @@
       "command": "gh pr checks",
       "summary": "Show CI status for a single pull request.",
       "usage": "gh pr checks [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "checks"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1580,6 +2060,11 @@
       "command": "gh pr close",
       "summary": "Close a pull request",
       "usage": "gh pr close {<number> | <url> | <branch>} [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "close"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1598,6 +2083,11 @@
       "command": "gh pr comment",
       "summary": "Add a comment to a GitHub pull request.",
       "usage": "gh pr comment [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "comment"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1612,6 +2102,11 @@
       "command": "gh pr create",
       "summary": "Create a pull request on GitHub.",
       "usage": "gh pr create [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1626,6 +2121,11 @@
       "command": "gh pr diff",
       "summary": "View changes in a pull request.",
       "usage": "gh pr diff [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "diff"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1640,6 +2140,11 @@
       "command": "gh pr edit",
       "summary": "Edit a pull request.",
       "usage": "gh pr edit [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1654,6 +2159,11 @@
       "command": "gh pr list",
       "summary": "List pull requests in a GitHub repository. By default, this only lists open PRs.",
       "usage": "gh pr list [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1668,6 +2178,11 @@
       "command": "gh pr lock",
       "summary": "Lock pull request conversation",
       "usage": "gh pr lock {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "lock"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1686,6 +2201,11 @@
       "command": "gh pr merge",
       "summary": "Merge a pull request on GitHub.",
       "usage": "gh pr merge [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "merge"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1704,6 +2224,11 @@
       "command": "gh pr ready",
       "summary": "Mark a pull request as ready for review.",
       "usage": "gh pr ready [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "ready"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1718,6 +2243,11 @@
       "command": "gh pr reopen",
       "summary": "Reopen a pull request",
       "usage": "gh pr reopen {<number> | <url> | <branch>} [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "reopen"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1732,6 +2262,11 @@
       "command": "gh pr revert",
       "summary": "Revert a pull request",
       "usage": "gh pr revert {<number> | <url> | <branch>} [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "revert"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1746,6 +2281,11 @@
       "command": "gh pr review",
       "summary": "Add a review to a pull request.",
       "usage": "gh pr review [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "review"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1760,6 +2300,11 @@
       "command": "gh pr status",
       "summary": "Show status of relevant pull requests.",
       "usage": "gh pr status [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "status"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1774,6 +2319,11 @@
       "command": "gh pr unlock",
       "summary": "Unlock pull request conversation",
       "usage": "gh pr unlock {<number> | <url>} [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "unlock"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1788,6 +2338,11 @@
       "command": "gh pr update-branch",
       "summary": "Update a pull request branch with latest changes of the base branch.",
       "usage": "gh pr update-branch [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "update-branch"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1802,6 +2357,11 @@
       "command": "gh pr view",
       "summary": "Display the title, body, and other information about a pull request.",
       "usage": "gh pr view [<number> | <url> | <branch>] [flags]",
+      "help_args": [
+        "help",
+        "pr",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1815,6 +2375,10 @@
       "command": "gh preview",
       "summary": "Preview commands are for testing, demonstrative, and development purposes only.",
       "usage": "gh preview <command> [flags]",
+      "help_args": [
+        "help",
+        "preview"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1832,6 +2396,11 @@
       "command": "gh preview prompter",
       "summary": "Execute a test program to preview the prompter.",
       "usage": "gh preview prompter [prompt type] [flags]",
+      "help_args": [
+        "help",
+        "preview",
+        "prompter"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1845,6 +2414,10 @@
       "command": "gh project",
       "summary": "Work with GitHub Projects.",
       "usage": "gh project <command> [flags]",
+      "help_args": [
+        "help",
+        "project"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1880,6 +2453,11 @@
       "command": "gh project close",
       "summary": "Close a project",
       "usage": "gh project close [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "close"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1894,6 +2472,11 @@
       "command": "gh project copy",
       "summary": "Copy a project",
       "usage": "gh project copy [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "copy"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -1908,6 +2491,11 @@
       "command": "gh project create",
       "summary": "Create a project",
       "usage": "gh project create [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1926,6 +2514,11 @@
       "command": "gh project delete",
       "summary": "Delete a project",
       "usage": "gh project delete [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1940,6 +2533,11 @@
       "command": "gh project edit",
       "summary": "Edit a project",
       "usage": "gh project edit [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1954,6 +2552,11 @@
       "command": "gh project field-create",
       "summary": "Create a field in a project",
       "usage": "gh project field-create [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "field-create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1968,6 +2571,11 @@
       "command": "gh project field-delete",
       "summary": "Delete a field in a project",
       "usage": "gh project field-delete [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "field-delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -1982,6 +2590,11 @@
       "command": "gh project field-list",
       "summary": "List the fields in a project",
       "usage": "gh project field-list [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "field-list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -1996,6 +2609,11 @@
       "command": "gh project item-add",
       "summary": "Add a pull request or an issue to a project",
       "usage": "gh project item-add [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "item-add"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2010,6 +2628,11 @@
       "command": "gh project item-archive",
       "summary": "Archive an item in a project",
       "usage": "gh project item-archive [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "item-archive"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2024,6 +2647,11 @@
       "command": "gh project item-create",
       "summary": "Create a draft issue item in a project",
       "usage": "gh project item-create [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "item-create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2038,6 +2666,11 @@
       "command": "gh project item-delete",
       "summary": "Delete an item from a project by ID",
       "usage": "gh project item-delete [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "item-delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2052,6 +2685,11 @@
       "command": "gh project item-edit",
       "summary": "Edit either a draft issue or a project item. Both usages require the ID of the item to edit.",
       "usage": "gh project item-edit [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "item-edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2066,6 +2704,11 @@
       "command": "gh project item-list",
       "summary": "List the items in a project.",
       "usage": "gh project item-list [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "item-list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2080,6 +2723,11 @@
       "command": "gh project link",
       "summary": "Link a project to a repository or a team",
       "usage": "gh project link [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "link"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2094,6 +2742,11 @@
       "command": "gh project list",
       "summary": "List the projects for an owner",
       "usage": "gh project list [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2108,6 +2761,11 @@
       "command": "gh project mark-template",
       "summary": "Mark a project as a template",
       "usage": "gh project mark-template [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "mark-template"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2122,6 +2780,11 @@
       "command": "gh project unlink",
       "summary": "Unlink a project from a repository or a team",
       "usage": "gh project unlink [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "unlink"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2136,6 +2799,11 @@
       "command": "gh project view",
       "summary": "View a project",
       "usage": "gh project view [<number>] [flags]",
+      "help_args": [
+        "help",
+        "project",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2149,6 +2817,10 @@
       "command": "gh release",
       "summary": "Manage releases",
       "usage": "gh release <command> [flags]",
+      "help_args": [
+        "help",
+        "release"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2175,6 +2847,11 @@
       "command": "gh release create",
       "summary": "Create a new GitHub Release for a repository.",
       "usage": "gh release create [<tag>] [<filename>... | <pattern>...]",
+      "help_args": [
+        "help",
+        "release",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2193,6 +2870,11 @@
       "command": "gh release delete",
       "summary": "Delete a release",
       "usage": "gh release delete <tag> [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2207,6 +2889,11 @@
       "command": "gh release delete-asset",
       "summary": "Delete an asset from a release",
       "usage": "gh release delete-asset <tag> <asset-name> [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "delete-asset"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2221,6 +2908,11 @@
       "command": "gh release download",
       "summary": "Download assets from a GitHub release.",
       "usage": "gh release download [<tag>] [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "download"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2235,6 +2927,11 @@
       "command": "gh release edit",
       "summary": "Edit a release",
       "usage": "gh release edit <tag>",
+      "help_args": [
+        "help",
+        "release",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2249,6 +2946,11 @@
       "command": "gh release list",
       "summary": "List releases in a repository",
       "usage": "gh release list [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2263,6 +2965,11 @@
       "command": "gh release upload",
       "summary": "Upload asset files to a GitHub Release.",
       "usage": "gh release upload <tag> <files>... [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "upload"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2277,6 +2984,11 @@
       "command": "gh release verify",
       "summary": "Verify that a GitHub Release is accompanied by a valid cryptographically signed attestation.",
       "usage": "gh release verify [<tag>] [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "verify"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2291,6 +3003,11 @@
       "command": "gh release verify-asset",
       "summary": "Verify that a given asset file originated from a specific GitHub Release using cryptographically signed attestations.",
       "usage": "gh release verify-asset [<tag>] <file-path> [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "verify-asset"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2305,6 +3022,11 @@
       "command": "gh release view",
       "summary": "View information about a GitHub Release.",
       "usage": "gh release view [<tag>] [flags]",
+      "help_args": [
+        "help",
+        "release",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2318,6 +3040,10 @@
       "command": "gh repo",
       "summary": "Work with GitHub repositories.",
       "usage": "gh repo <command> [flags]",
+      "help_args": [
+        "help",
+        "repo"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2350,6 +3076,11 @@
       "command": "gh repo archive",
       "summary": "Archive a GitHub repository.",
       "usage": "gh repo archive [<repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "archive"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2364,6 +3095,11 @@
       "command": "gh repo autolink",
       "summary": "Autolinks link issues, pull requests, commit messages, and release descriptions to external third-party services.",
       "usage": "gh repo autolink <command> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "autolink"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2385,6 +3121,12 @@
       "command": "gh repo autolink create",
       "summary": "Create a new autolink reference for a repository.",
       "usage": "gh repo autolink create <keyPrefix> <urlTemplate> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "autolink",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2405,6 +3147,12 @@
       "command": "gh repo autolink delete",
       "summary": "Delete an autolink reference for a repository.",
       "usage": "gh repo autolink delete <id> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "autolink",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2420,6 +3168,12 @@
       "command": "gh repo autolink list",
       "summary": "Gets all autolink references that are configured for a repository.",
       "usage": "gh repo autolink list [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "autolink",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2435,6 +3189,12 @@
       "command": "gh repo autolink view",
       "summary": "View an autolink reference for a repository.",
       "usage": "gh repo autolink view <id> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "autolink",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2449,6 +3209,11 @@
       "command": "gh repo clone",
       "summary": "Clone a GitHub repository locally. Pass additional `git clone` flags by listing",
       "usage": "gh repo clone <repository> [<directory>] [-- <gitflags>...]",
+      "help_args": [
+        "help",
+        "repo",
+        "clone"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2463,6 +3228,11 @@
       "command": "gh repo create",
       "summary": "Create a new GitHub repository.",
       "usage": "gh repo create [<name>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "create"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2481,6 +3251,11 @@
       "command": "gh repo delete",
       "summary": "Delete a GitHub repository.",
       "usage": "gh repo delete [<repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2495,6 +3270,11 @@
       "command": "gh repo deploy-key",
       "summary": "Manage deploy keys in a repository",
       "usage": "gh repo deploy-key <command> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "deploy-key"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2515,6 +3295,12 @@
       "command": "gh repo deploy-key add",
       "summary": "Add a deploy key to a GitHub repository.",
       "usage": "gh repo deploy-key add <key-file> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "deploy-key",
+        "add"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2530,6 +3316,12 @@
       "command": "gh repo deploy-key delete",
       "summary": "Delete a deploy key from a GitHub repository",
       "usage": "gh repo deploy-key delete <key-id> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "deploy-key",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2545,6 +3337,12 @@
       "command": "gh repo deploy-key list",
       "summary": "List deploy keys in a GitHub repository",
       "usage": "gh repo deploy-key list [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "deploy-key",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2559,6 +3357,11 @@
       "command": "gh repo edit",
       "summary": "Edit repository settings.",
       "usage": "gh repo edit [<repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "edit"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2573,6 +3376,11 @@
       "command": "gh repo fork",
       "summary": "Create a fork of a repository.",
       "usage": "gh repo fork [<repository>] [-- <gitflags>...] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "fork"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2587,6 +3395,11 @@
       "command": "gh repo gitignore",
       "summary": "List and view available repository gitignore templates",
       "usage": "gh repo gitignore <command> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "gitignore"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2606,6 +3419,12 @@
       "command": "gh repo gitignore list",
       "summary": "List available repository gitignore templates",
       "usage": "gh repo gitignore list [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "gitignore",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2621,6 +3440,12 @@
       "command": "gh repo gitignore view",
       "summary": "View an available repository `.gitignore` template.",
       "usage": "gh repo gitignore view <template> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "gitignore",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2635,6 +3460,11 @@
       "command": "gh repo license",
       "summary": "Explore repository licenses",
       "usage": "gh repo license <command> [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "license"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2654,6 +3484,12 @@
       "command": "gh repo license list",
       "summary": "List common repository licenses.",
       "usage": "gh repo license list [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "license",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2669,6 +3505,12 @@
       "command": "gh repo license view",
       "summary": "View a specific repository license by license key or SPDX ID.",
       "usage": "gh repo license view {<license-key> | <spdx-id>} [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "license",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2683,6 +3525,11 @@
       "command": "gh repo list",
       "summary": "List repositories owned by a user or organization.",
       "usage": "gh repo list [<owner>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2697,6 +3544,11 @@
       "command": "gh repo rename",
       "summary": "Rename a GitHub repository.",
       "usage": "gh repo rename [<new-name>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "rename"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2711,6 +3563,11 @@
       "command": "gh repo set-default",
       "summary": "This command sets the default remote repository to use when querying the",
       "usage": "gh repo set-default [<repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "set-default"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2725,6 +3582,11 @@
       "command": "gh repo sync",
       "summary": "Sync destination repository from source repository. Syncing uses the default branch",
       "usage": "gh repo sync [<destination-repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "sync"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2739,6 +3601,11 @@
       "command": "gh repo unarchive",
       "summary": "Unarchive a GitHub repository.",
       "usage": "gh repo unarchive [<repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "unarchive"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2753,6 +3620,11 @@
       "command": "gh repo view",
       "summary": "Display the description and the README of a GitHub repository.",
       "usage": "gh repo view [<repository>] [flags]",
+      "help_args": [
+        "help",
+        "repo",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2766,6 +3638,10 @@
       "command": "gh ruleset",
       "summary": "Repository rulesets are a way to define a set of rules that apply to a repository.",
       "usage": "gh ruleset <command> [flags]",
+      "help_args": [
+        "help",
+        "ruleset"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2785,6 +3661,11 @@
       "command": "gh ruleset check",
       "summary": "View information about GitHub rules that apply to a given branch.",
       "usage": "gh ruleset check [<branch>] [flags]",
+      "help_args": [
+        "help",
+        "ruleset",
+        "check"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2799,6 +3680,11 @@
       "command": "gh ruleset list",
       "summary": "List GitHub rulesets for a repository or organization.",
       "usage": "gh ruleset list [flags]",
+      "help_args": [
+        "help",
+        "ruleset",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2813,6 +3699,11 @@
       "command": "gh ruleset view",
       "summary": "View information about a GitHub ruleset.",
       "usage": "gh ruleset view [<ruleset-id>] [flags]",
+      "help_args": [
+        "help",
+        "ruleset",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2826,6 +3717,10 @@
       "command": "gh run",
       "summary": "List, view, and watch recent workflow runs from GitHub Actions.",
       "usage": "gh run <command> [flags]",
+      "help_args": [
+        "help",
+        "run"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2849,6 +3744,11 @@
       "command": "gh run cancel",
       "summary": "Cancel a workflow run",
       "usage": "gh run cancel [<run-id>] [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "cancel"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2863,6 +3763,11 @@
       "command": "gh run delete",
       "summary": "Delete a workflow run",
       "usage": "gh run delete [<run-id>] [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2877,6 +3782,11 @@
       "command": "gh run download",
       "summary": "Download artifacts generated by a GitHub Actions workflow run.",
       "usage": "gh run download [<run-id>] [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "download"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2891,6 +3801,11 @@
       "command": "gh run list",
       "summary": "List recent workflow runs.",
       "usage": "gh run list [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2905,6 +3820,11 @@
       "command": "gh run rerun",
       "summary": "Rerun an entire run, only failed jobs, or a specific job from a run.",
       "usage": "gh run rerun [<run-id>] [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "rerun"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2919,6 +3839,11 @@
       "command": "gh run view",
       "summary": "View a summary of a workflow run.",
       "usage": "gh run view [<run-id>] [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2933,6 +3858,11 @@
       "command": "gh run watch",
       "summary": "Watch a run until it completes, showing its progress.",
       "usage": "gh run watch <run-id> [flags]",
+      "help_args": [
+        "help",
+        "run",
+        "watch"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -2950,6 +3880,10 @@
       "command": "gh search",
       "summary": "Search across all of GitHub.",
       "usage": "gh search <command> [flags]",
+      "help_args": [
+        "help",
+        "search"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -2971,6 +3905,11 @@
       "command": "gh search code",
       "summary": "Search within code in GitHub repositories.",
       "usage": "gh search code <query> [flags]",
+      "help_args": [
+        "help",
+        "search",
+        "code"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2985,6 +3924,11 @@
       "command": "gh search commits",
       "summary": "Search for commits on GitHub.",
       "usage": "gh search commits [<query>] [flags]",
+      "help_args": [
+        "help",
+        "search",
+        "commits"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -2999,6 +3943,11 @@
       "command": "gh search issues",
       "summary": "Search for issues on GitHub.",
       "usage": "gh search issues [<query>] [flags]",
+      "help_args": [
+        "help",
+        "search",
+        "issues"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3013,6 +3962,11 @@
       "command": "gh search prs",
       "summary": "Search for pull requests on GitHub.",
       "usage": "gh search prs [<query>] [flags]",
+      "help_args": [
+        "help",
+        "search",
+        "prs"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3027,6 +3981,11 @@
       "command": "gh search repos",
       "summary": "Search for repositories on GitHub.",
       "usage": "gh search repos [<query>] [flags]",
+      "help_args": [
+        "help",
+        "search",
+        "repos"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3040,6 +3999,10 @@
       "command": "gh secret",
       "summary": "Secrets can be set at the repository, or organization level for use in",
       "usage": "gh secret <command> [flags]",
+      "help_args": [
+        "help",
+        "secret"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3059,6 +4022,11 @@
       "command": "gh secret delete",
       "summary": "Delete a secret on one of the following levels:",
       "usage": "gh secret delete <secret-name> [flags]",
+      "help_args": [
+        "help",
+        "secret",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -3073,6 +4041,11 @@
       "command": "gh secret list",
       "summary": "List secrets on one of the following levels:",
       "usage": "gh secret list [flags]",
+      "help_args": [
+        "help",
+        "secret",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3087,6 +4060,11 @@
       "command": "gh secret set",
       "summary": "Set a value for a secret on one of the following levels:",
       "usage": "gh secret set <secret-name> [flags]",
+      "help_args": [
+        "help",
+        "secret",
+        "set"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3100,6 +4078,10 @@
       "command": "gh ssh-key",
       "summary": "Manage SSH keys registered with your GitHub account.",
       "usage": "gh ssh-key <command> [flags]",
+      "help_args": [
+        "help",
+        "ssh-key"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3119,6 +4101,11 @@
       "command": "gh ssh-key add",
       "summary": "Add an SSH key to your GitHub account",
       "usage": "gh ssh-key add [<key-file>] [flags]",
+      "help_args": [
+        "help",
+        "ssh-key",
+        "add"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -3133,6 +4120,11 @@
       "command": "gh ssh-key delete",
       "summary": "Delete an SSH key from your GitHub account",
       "usage": "gh ssh-key delete <id> [flags]",
+      "help_args": [
+        "help",
+        "ssh-key",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -3147,6 +4139,11 @@
       "command": "gh ssh-key list",
       "summary": "Lists SSH keys in your GitHub account",
       "usage": "gh ssh-key list [flags]",
+      "help_args": [
+        "help",
+        "ssh-key",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3160,6 +4157,10 @@
       "command": "gh status",
       "summary": "The status command prints information about your work on GitHub across all the repositories you're subscribed to, including:",
       "usage": "gh status [flags]",
+      "help_args": [
+        "help",
+        "status"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3173,6 +4174,10 @@
       "command": "gh variable",
       "summary": "Variables can be set at the repository, environment or organization level for use in",
       "usage": "gh variable <command> [flags]",
+      "help_args": [
+        "help",
+        "variable"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3193,6 +4198,11 @@
       "command": "gh variable delete",
       "summary": "Delete a variable on one of the following levels:",
       "usage": "gh variable delete <variable-name> [flags]",
+      "help_args": [
+        "help",
+        "variable",
+        "delete"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -3207,6 +4217,11 @@
       "command": "gh variable get",
       "summary": "Get a variable on one of the following levels:",
       "usage": "gh variable get <variable-name> [flags]",
+      "help_args": [
+        "help",
+        "variable",
+        "get"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3221,6 +4236,11 @@
       "command": "gh variable list",
       "summary": "List variables on one of the following levels:",
       "usage": "gh variable list [flags]",
+      "help_args": [
+        "help",
+        "variable",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3235,6 +4255,11 @@
       "command": "gh variable set",
       "summary": "Set a value for a variable on one of the following levels:",
       "usage": "gh variable set <variable-name> [flags]",
+      "help_args": [
+        "help",
+        "variable",
+        "set"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3248,6 +4273,10 @@
       "command": "gh workflow",
       "summary": "List, view, and run workflows in GitHub Actions.",
       "usage": "gh workflow <command> [flags]",
+      "help_args": [
+        "help",
+        "workflow"
+      ],
       "node_kind": "group",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3269,6 +4298,11 @@
       "command": "gh workflow disable",
       "summary": "Disable a workflow, preventing it from running or showing up when listing workflows.",
       "usage": "gh workflow disable [<workflow-id> | <workflow-name>] [flags]",
+      "help_args": [
+        "help",
+        "workflow",
+        "disable"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3283,6 +4317,11 @@
       "command": "gh workflow enable",
       "summary": "Enable a workflow, allowing it to be run and show up when listing workflows.",
       "usage": "gh workflow enable [<workflow-id> | <workflow-name>] [flags]",
+      "help_args": [
+        "help",
+        "workflow",
+        "enable"
+      ],
       "node_kind": "operation",
       "operation_kind": "unknown",
       "undo_support": {
@@ -3297,6 +4336,11 @@
       "command": "gh workflow list",
       "summary": "List workflow files, hiding disabled workflows by default.",
       "usage": "gh workflow list [flags]",
+      "help_args": [
+        "help",
+        "workflow",
+        "list"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {
@@ -3311,6 +4355,11 @@
       "command": "gh workflow run",
       "summary": "Create a `workflow_dispatch` event for a given workflow.",
       "usage": "gh workflow run [<workflow-id> | <workflow-name>] [flags]",
+      "help_args": [
+        "help",
+        "workflow",
+        "run"
+      ],
       "node_kind": "operation",
       "operation_kind": "write",
       "undo_support": {
@@ -3325,6 +4374,11 @@
       "command": "gh workflow view",
       "summary": "View the summary of a workflow",
       "usage": "gh workflow view [<workflow-id> | <workflow-name> | <filename>] [flags]",
+      "help_args": [
+        "help",
+        "workflow",
+        "view"
+      ],
       "node_kind": "operation",
       "operation_kind": "read",
       "undo_support": {

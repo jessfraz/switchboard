@@ -358,6 +358,8 @@ Examples:
 - `google.calendar.list`
 - `google.calendar.create`
 - `google.drive.search`
+- `github.cli.pr.view`
+- `google.cli.calendar.+agenda`
 - `github.cli.read`
 - `github.cli.write`
 - `google.cli.read`
@@ -366,10 +368,15 @@ Examples:
 All write tools should support `--plan`, `--draft`, or both.
 
 Curated tools are the nice normalized layer.
-Raw `*.cli.read` and `*.cli.write` tools are the coverage layer, they let the model reach the full underlying CLI surface immediately while still staying inside namespace resolution, auth isolation, policy, and audit.
+Generated raw `provider.cli.<subcommand...>` tools are the broad coverage layer, every operation leaf from the committed CLI inventory becomes a real switchboard tool.
+Generic `*.cli.read` and `*.cli.write` tools still exist as escape hatches when you want to shove arbitrary argv through without pretending it deserves a lovingly typed wrapper first.
 
-The command catalog should come from embedded manifests, one per underlying CLI.
-Those manifests describe the boring truth:
+The command catalog should come from two boring inputs:
+
+- a generated committed inventory for the whole CLI
+- a small handwritten manifest for the curated layer and any special cases
+
+The handwritten manifest should only describe the stuff that actually needs judgment:
 
 - tool name
 - read vs write
@@ -378,13 +385,19 @@ Those manifests describe the boring truth:
 - whether undo is supported honestly through a compensating action
 
 Rust still owns the smart parts, auth materialization, codecs, effect extraction, and compensation logic.
-The manifest is the stable inventory, not a replacement for typed code.
-Full CLI inventories should also be generated and committed, so adding a new provider is mostly about crawling its help tree once, then curating the parts worth normalizing.
+The generated inventory is the broad map, the handwritten manifest is the semantic overlay, and neither is a replacement for typed code where it actually matters.
+Adding a new provider should mostly be:
+
+1. implement the runtime/materializer trait
+1. generate and commit the full CLI inventory
+1. write the small curated manifest
+1. optionally add a few custom codecs if the CLI output is especially cursed
 
 You should be able to discover that surface without reading the source:
 
 ```text
 switchboard tools list
+switchboard tools describe google.cli.calendar.+agenda
 switchboard tools describe google.cli.write
 ```
 
@@ -393,6 +406,8 @@ Put `switchboard` flags before `--`.
 Everything after `--` is forwarded to the provider CLI unchanged.
 
 ```text
+switchboard google.cli.calendar.+agenda --ns google.work      --json -- --format json --today
+switchboard github.cli.pr.view        --ns github.personal --json -- 1382 --repo openai/codex --json title,state
 switchboard google.cli.read  --ns google.work      --json -- calendar +agenda --format json --today
 switchboard github.cli.write --ns github.personal --draft -- pr comment 123 --body "needs tests"
 ```

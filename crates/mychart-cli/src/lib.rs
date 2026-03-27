@@ -23,7 +23,7 @@ pub(crate) use crate::error::{Error, Result};
 #[cfg(test)]
 use crate::state::{MyChartState, StateStore};
 use crate::{
-    client::{JsonResponse, MyChartClient, ResolvedResponse},
+    client::{normalize_api_base_url, JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
         run_api, run_appointments, run_auth, run_claims, run_connect, run_labs, run_meds, run_notes, run_pack,
         run_portal, run_timeline, ApiCommand, AppointmentsCommand, AuthCommand, ClaimsCommand, ConnectCommand,
@@ -40,6 +40,8 @@ const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  mychart connect search ucla\n",
     "  mychart connect ucla medical center\n",
+    "  mychart auth login --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
+    "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback --scope patient/*.read\n",
     "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
     "  mychart timeline --limit 25\n",
@@ -211,7 +213,7 @@ fn build_authorize_url(
         pairs.append_pair("redirect_uri", redirect_uri);
         pairs.append_pair("scope", &scopes.join(" "));
         pairs.append_pair("state", oauth_state);
-        pairs.append_pair("aud", base_url);
+        pairs.append_pair("aud", &normalize_api_base_url(base_url)?);
         pairs.append_pair("code_challenge", &code_challenge);
         pairs.append_pair("code_challenge_method", "S256");
     }
@@ -1172,7 +1174,7 @@ mod tests {
             "--config",
             config_path.to_str().expect("config path should be utf-8"),
             "--base-url",
-            &server.base_url(),
+            &format!("{}/", server.base_url()),
             "--client-id",
             "client-123",
             "--redirect-uri",
@@ -1187,6 +1189,19 @@ mod tests {
             .as_str()
             .expect("authorize url should be string")
             .contains("response_type=code"));
+        let authorize_url = reqwest::Url::parse(
+            output["authorize_url"]
+                .as_str()
+                .expect("authorize url should be string"),
+        )
+        .expect("authorize url should parse");
+        let expected_base_url = server.base_url();
+        let aud = authorize_url
+            .query_pairs()
+            .find(|(key, _)| key == "aud")
+            .map(|(_, value)| value.to_string())
+            .expect("aud query param should be present");
+        assert_eq!(aud, expected_base_url);
 
         let state = StateStore::new(config_path).load().expect("state should load");
         let account = state
@@ -1194,6 +1209,7 @@ mod tests {
             .get("default")
             .expect("default account should be persisted");
         assert_eq!(state.current_account.as_deref(), Some("default"));
+        assert_eq!(account.api_base_url.as_deref(), Some(expected_base_url.as_str()));
         assert_eq!(account.client_id.as_deref(), Some("client-123"));
         assert!(account.pending_code_verifier.is_some());
     }
@@ -1239,6 +1255,79 @@ mod tests {
         ]);
 
         assert_eq!(output["status"], "authenticated");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("access-token"));
+        assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
+    }
+
+    #[test]
+    fn auth_login_receives_loopback_callback_and_exchanges_code() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-auth-login");
+        let config_path = temp_dir.join("config.json");
+        let callback_listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
+        let callback_port = callback_listener
+            .local_addr()
+            .expect("listener should have local addr")
+            .port();
+        drop(callback_listener);
+        let redirect_uri = format!("http://127.0.0.1:{callback_port}/callback");
+        let config_path_for_thread = config_path.clone();
+        let server_base_url = format!("{}/", server.base_url());
+
+        let handle = thread::spawn(move || {
+            run_command(&[
+                "mychart",
+                "--config",
+                config_path_for_thread.to_str().expect("config path should be utf-8"),
+                "--base-url",
+                &server_base_url,
+                "--client-id",
+                "client-123",
+                "--redirect-uri",
+                &redirect_uri,
+                "--compact",
+                "auth",
+                "login",
+                "--no-open",
+                "--scope",
+                "patient/*.read",
+                "--state",
+                "test-state",
+                "--code-verifier",
+                "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK",
+            ])
+        });
+
+        let callback_sent = wait_for_callback_response(
+            callback_port,
+            "GET /callback?code=oauth-code&state=test-state HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        );
+        assert!(callback_sent.contains("You can close this tab"));
+
+        let output = handle.join().expect("auth login thread should finish");
+        assert_eq!(output["status"], "authenticated");
+        assert_eq!(output["patient_id"], "patient-123");
 
         let state = StateStore::new(config_path).load().expect("state should load");
         let account = state
@@ -2341,6 +2430,27 @@ mod tests {
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+    }
+
+    fn wait_for_callback_response(port: u16, request: &str) -> String {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            match std::net::TcpStream::connect(("127.0.0.1", port)) {
+                Ok(mut stream) => {
+                    stream
+                        .write_all(request.as_bytes())
+                        .expect("callback request should write");
+                    return read_request(&mut stream);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                    if std::time::Instant::now() >= deadline {
+                        panic!("callback listener did not start in time");
+                    }
+                    thread::sleep(std::time::Duration::from_millis(25));
+                }
+                Err(error) => panic!("failed to connect to callback listener: {error}"),
+            }
+        }
     }
 
     fn write_brands_cache(path: &std::path::Path, value: Value) {

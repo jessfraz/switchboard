@@ -65,11 +65,16 @@ pub(crate) struct MyChartClient {
     http: Client,
 }
 
+pub(crate) fn normalize_api_base_url(base_url: &str) -> Result<String> {
+    let trimmed = base_url.trim().trim_end_matches('/').to_owned();
+    Url::parse(&format!("{trimmed}/"))
+        .map_err(|error| Error::Config(format!("invalid base URL {trimmed:?}: {error}")))?;
+    Ok(trimmed)
+}
+
 impl MyChartClient {
     pub(crate) fn new(base_url: String) -> Result<Self> {
-        let trimmed = base_url.trim().trim_end_matches('/').to_owned();
-        Url::parse(&format!("{trimmed}/"))
-            .map_err(|error| Error::Config(format!("invalid base URL {trimmed:?}: {error}")))?;
+        let trimmed = normalize_api_base_url(&base_url)?;
 
         let http = Client::builder()
             .redirect(Policy::none())

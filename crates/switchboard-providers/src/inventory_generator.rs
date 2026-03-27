@@ -144,6 +144,7 @@ fn walk_inventory(
         command: render_command(&target.program, &path),
         summary: parsed.summary,
         usage: parsed.usage,
+        help_args: build_help_args(target, &path),
         node_kind,
         operation_kind,
         undo_support: CliUndoSupport::Unknown,
@@ -165,6 +166,24 @@ fn render_command(program: &str, path: &[String]) -> String {
     }
 
     format!("{program} {}", path.join(" "))
+}
+
+fn build_help_args(target: &CliInventoryTarget, path: &[String]) -> Vec<String> {
+    match &target.help_strategy {
+        CliHelpStrategy::AppendFlag { fallback_subcommand } => {
+            let mut args = path.to_vec();
+            args.push("--help".to_owned());
+
+            if fallback_subcommand.is_none() || path.is_empty() {
+                return args;
+            }
+
+            let mut fallback = Vec::with_capacity(path.len() + 1);
+            fallback.push(fallback_subcommand.clone().expect("checked above"));
+            fallback.extend(path.iter().cloned());
+            fallback
+        }
+    }
 }
 
 fn infer_undo_support(

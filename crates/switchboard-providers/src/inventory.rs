@@ -31,6 +31,8 @@ pub struct CliInventoryCommand {
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub help_args: Vec<String>,
     pub node_kind: CliInventoryNodeKind,
     pub operation_kind: CliOperationKind,
     pub undo_support: CliUndoSupport,

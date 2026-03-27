@@ -11,6 +11,7 @@ use switchboard_core::{
 use crate::{
     cli::{CliProviderBackend, CliProviderCatalog},
     github::{commands::HANDLERS, materializer::DefaultGitHubCliMaterializer},
+    inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/github.json"));
 static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
@@ -30,7 +31,8 @@ impl Default for GitHubAdapter {
 impl GitHubAdapter {
     fn catalog() -> &'static CliProviderCatalog {
         CATALOG.get_or_init(|| {
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, HANDLERS)
+            let inventory = embedded_inventory(ProviderKind::GitHub).expect("github inventory should be valid");
+            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory, HANDLERS)
                 .expect("github provider manifest should be valid")
         })
     }
@@ -69,7 +71,7 @@ impl Adapter for GitHubAdapter {
     ) -> Result<PlannedAction> {
         let command = Self::find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
-        let summary = (command.summarize)(&target.namespace, request)?;
+        let summary = command.summarize.summarize(&target.namespace, request)?;
         Ok(PlannedAction::new(
             request,
             target,
@@ -379,6 +381,46 @@ mod tests {
     }
 
     #[test]
+    fn generated_raw_pr_view_tool_executes_with_fixed_cli_prefix() {
+        let _env_guard = lock_env();
+        let script = TempScript::new("gh-test", &render_github_script());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
+
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.cli.pr.view",
+            "github.personal",
+            ExecutionMode::Auto,
+            vec![ToolArgument::option(
+                "argv-json",
+                serde_json::json!(["1382", "--repo", "openai/codex", "--json", "id,title"]).to_string(),
+            )
+            .expect("option should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output
+                .fields
+                .get("response")
+                .and_then(|response| response.get("title"))
+                .and_then(Value::as_str),
+            Some("Tighten agenda aggregation for personal + work calendars")
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=pr view 1382 --repo openai/codex --json id,title"));
+    }
+
+    #[test]
     fn manifest_catalog_marks_raw_and_planning_only_metadata() {
         let adapter = GitHubAdapter::default();
         let notifications = adapter
@@ -396,6 +438,12 @@ mod tests {
             .find_tool(&ToolName::new("github.cli.read").expect("tool should build"))
             .expect("tool should exist");
         assert_eq!(raw_read.surface, ToolSurface::Raw);
+
+        let inventory_raw = adapter
+            .find_tool(&ToolName::new("github.cli.pr.view").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(inventory_raw.surface, ToolSurface::Raw);
+        assert_eq!(inventory_raw.execution_support, ToolExecutionSupport::Executable);
     }
 
     fn render_github_script() -> String {

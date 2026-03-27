@@ -10,7 +10,16 @@ pub(crate) fn summarize_passthrough(
     request: &ToolRequest,
     program: &str,
 ) -> Result<String> {
-    let argv = parse_passthrough_argv(&request.args)?;
+    summarize_prefixed_passthrough(namespace, request, program, &[])
+}
+
+pub(crate) fn summarize_prefixed_passthrough(
+    namespace: &ResolvedNamespace,
+    request: &ToolRequest,
+    program: &str,
+    prefix: &[String],
+) -> Result<String> {
+    let argv = merge_prefixed_argv(prefix, parse_passthrough_argv(&request.args)?);
     Ok(format!(
         "Run raw {program} command for {}: {}",
         namespace.id,
@@ -19,7 +28,11 @@ pub(crate) fn summarize_passthrough(
 }
 
 pub(crate) fn build_passthrough_args(action: &PlannedAction) -> Result<Vec<String>> {
-    parse_passthrough_argv(&action.args)
+    build_prefixed_passthrough_args(action, &[])
+}
+
+pub(crate) fn build_prefixed_passthrough_args(action: &PlannedAction, prefix: &[String]) -> Result<Vec<String>> {
+    Ok(merge_prefixed_argv(prefix, parse_passthrough_argv(&action.args)?))
 }
 
 pub(crate) fn decode_passthrough(
@@ -28,13 +41,23 @@ pub(crate) fn decode_passthrough(
     response: CliResponse,
     program: &str,
 ) -> Result<ToolOutput> {
+    decode_prefixed_passthrough(target, action, response, program, &[])
+}
+
+pub(crate) fn decode_prefixed_passthrough(
+    target: &ExecutionTarget,
+    action: &PlannedAction,
+    response: CliResponse,
+    program: &str,
+    prefix: &[String],
+) -> Result<ToolOutput> {
     let CliResponse {
         version,
         stdout,
         stderr,
         ..
     } = response;
-    let argv = parse_passthrough_argv(&action.args)?;
+    let argv = merge_prefixed_argv(prefix, parse_passthrough_argv(&action.args)?);
     let mut output = ToolOutput::new(
         action.tool.clone(),
         action.namespace.clone(),
@@ -115,4 +138,8 @@ fn summarize_argv(argv: &[String]) -> String {
         summary.push_str(" ...");
     }
     summary
+}
+
+fn merge_prefixed_argv(prefix: &[String], argv: Vec<String>) -> Vec<String> {
+    prefix.iter().cloned().chain(argv).collect()
 }

@@ -11,6 +11,7 @@ use switchboard_core::{
 use crate::{
     cli::{CliProviderBackend, CliProviderCatalog},
     google::{commands::HANDLERS, materializer::DefaultGoogleWorkspaceCliMaterializer},
+    inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
 static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
@@ -30,7 +31,9 @@ impl Default for GoogleWorkspaceAdapter {
 impl GoogleWorkspaceAdapter {
     fn catalog() -> &'static CliProviderCatalog {
         CATALOG.get_or_init(|| {
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, HANDLERS)
+            let inventory =
+                embedded_inventory(ProviderKind::GoogleWorkspace).expect("google inventory should be valid");
+            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory, HANDLERS)
                 .expect("google provider manifest should be valid")
         })
     }
@@ -69,7 +72,7 @@ impl Adapter for GoogleWorkspaceAdapter {
     ) -> Result<PlannedAction> {
         let command = Self::find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
-        let summary = (command.summarize)(&target.namespace, request)?;
+        let summary = command.summarize.summarize(&target.namespace, request)?;
         Ok(PlannedAction::new(
             request,
             target,
@@ -502,6 +505,46 @@ mod tests {
     }
 
     #[test]
+    fn generated_raw_calendar_tool_executes_with_fixed_cli_prefix() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.cli.calendar.+agenda",
+            "google.work",
+            ExecutionMode::Auto,
+            vec![ToolArgument::option(
+                "argv-json",
+                serde_json::json!(["--format", "json", "--today"]).to_string(),
+            )
+            .expect("option should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output
+                .fields
+                .get("response")
+                .and_then(|response| response.get("count"))
+                .and_then(Value::as_u64),
+            Some(2)
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=calendar +agenda --format json --today"));
+    }
+
+    #[test]
     fn compensation_request_for_calendar_create_targets_calendar_delete() {
         let adapter = GoogleWorkspaceAdapter::default();
         let request = adapter
@@ -569,6 +612,12 @@ mod tests {
             .find_tool(&ToolName::new("google.cli.write").expect("tool should build"))
             .expect("tool should exist");
         assert_eq!(raw_write.surface, ToolSurface::Raw);
+
+        let inventory_raw = adapter
+            .find_tool(&ToolName::new("google.cli.calendar.events.delete").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(inventory_raw.surface, ToolSurface::Raw);
+        assert_eq!(inventory_raw.execution_support, ToolExecutionSupport::Executable);
     }
 
     fn google_test_script() -> TempScript {

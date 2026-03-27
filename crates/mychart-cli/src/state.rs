@@ -9,7 +9,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::{cookie_names, StoredCookie},
+    client::{cookie_names, normalize_api_base_url, StoredCookie},
     Error, GlobalArgs, Result,
 };
 
@@ -399,12 +399,13 @@ impl ResolvedContext {
     }
 
     pub(crate) fn require_api_base_url(&self) -> Result<String> {
-        self.api_base_url.clone().ok_or_else(|| {
+        let base_url = self.api_base_url.clone().ok_or_else(|| {
             Error::Config(
                 "missing MyChart FHIR base URL, pass --base-url, set MYCHART_BASE_URL, use `mychart connect`, or store it during auth authorize-url"
                     .into(),
             )
-        })
+        })?;
+        normalize_api_base_url(&base_url)
     }
 
     pub(crate) fn require_portal_base_url(&self) -> Result<String> {

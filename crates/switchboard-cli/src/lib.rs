@@ -825,7 +825,7 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<OperationRequ
 
     if let Some(argv) = passthrough_tail {
         if !is_raw_cli_tool_name(&tool) {
-            bail!("-- passthrough is only supported for raw *.cli.read and *.cli.write tools");
+            bail!("-- passthrough is only supported for raw *.cli.* tools");
         }
         if argv.is_empty() {
             bail!("raw CLI passthrough requires at least one argv token after --");
@@ -864,7 +864,7 @@ fn split_inline_argument(argument: &str) -> Option<(&str, &str)> {
 }
 
 fn is_raw_cli_tool_name(tool: &str) -> bool {
-    tool.ends_with(".cli.read") || tool.ends_with(".cli.write")
+    tool.split('.').nth(1) == Some("cli")
 }
 
 fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
@@ -1235,6 +1235,31 @@ fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> 
 }
 
 fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
+    if let Some(path) = inventory_raw_tool_path(&tool.name) {
+        let command = path.join(" ");
+        return match tool.kind {
+            ToolKind::Read => vec![
+                format!("switchboard {} --ns {namespace} --json -- --format json", tool.name),
+                format!(
+                    "switchboard {} --ns {namespace} --argv-json '[\"--format\",\"json\"]' --json",
+                    tool.name
+                ),
+                format!("# fixed CLI path: {command}"),
+            ],
+            ToolKind::Write => vec![
+                format!(
+                    "switchboard {} --ns {namespace} --draft -- --format json ...",
+                    tool.name
+                ),
+                format!(
+                    "switchboard {} --ns {namespace} --argv-json '[\"--format\",\"json\",...]' --apply --json",
+                    tool.name
+                ),
+                format!("# fixed CLI path: {command}"),
+            ],
+        };
+    }
+
     match (tool.provider.clone(), tool.kind) {
         (ProviderKind::GoogleWorkspace, ToolKind::Read) => vec![
             format!(
@@ -1278,6 +1303,18 @@ fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
         ],
         (_, _) => vec![format!("switchboard {} --ns {namespace} -- ...", tool.name)],
     }
+}
+
+fn inventory_raw_tool_path(tool: &ToolName) -> Option<Vec<String>> {
+    let segments = tool.as_str().split('.').collect::<Vec<_>>();
+    if segments.get(1).copied() != Some("cli") {
+        return None;
+    }
+    if matches!(segments.get(2).copied(), Some("read" | "write")) && segments.len() == 3 {
+        return None;
+    }
+
+    Some(segments.into_iter().skip(2).map(ToOwned::to_owned).collect())
 }
 
 fn render_approval_state(state: ApprovalState) -> &'static str {
@@ -2680,6 +2717,13 @@ mod tests {
         );
         assert!(
             value.tools.iter().any(|tool| {
+                tool.name == ToolName::new("google.cli.calendar.+agenda").expect("tool should build")
+                    && tool.surface == ToolSurface::Raw
+            }),
+            "expected generated raw google agenda tool in catalog"
+        );
+        assert!(
+            value.tools.iter().any(|tool| {
                 tool.name == ToolName::new("google.calendar.create").expect("tool should build")
                     && tool.undo_support == ToolUndoSupport::CompensatingAction
             }),
@@ -2787,6 +2831,41 @@ mod tests {
                 .gws_capture_contents()
                 .contains("ARGV=calendar +agenda --format json --today"),
             "expected raw passthrough argv to reach gws unchanged"
+        );
+    }
+
+    #[test]
+    fn generated_raw_google_calendar_tool_supports_double_dash_passthrough() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.cli.calendar.+agenda",
+            "--ns",
+            "google.work",
+            "--json",
+            "--",
+            "--format",
+            "json",
+            "--today",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("raw cli read should execute");
+        let value: JsonExecutedResponse<RawGoogleReadFields> = parse_json(&output);
+
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.cli.calendar.+agenda").expect("tool should build")
+        );
+        assert_eq!(value.fields.response.count, 2);
+        assert!(
+            environment
+                .gws_capture_contents()
+                .contains("ARGV=calendar +agenda --format json --today"),
+            "expected generated raw tool to prepend the fixed agenda command"
         );
     }
 

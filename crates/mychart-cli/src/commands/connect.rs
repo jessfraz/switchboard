@@ -4,6 +4,7 @@ use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 
 use crate::{
+    client::normalize_api_base_url,
     discovery::{load_catalog, slugify, DiscoveryBrand, DiscoveryMatch},
     state::{AccountDiscoveryState, MyChartAccountState, ResolvedContext},
     Error, Result,
@@ -124,11 +125,12 @@ fn run_search(args: ConnectSearchArgs, context: &mut ResolvedContext) -> Result<
 
 fn run_add(args: ConnectAddArgs, context: &mut ResolvedContext) -> Result<Value> {
     let name = slugify(&args.name);
+    let normalized_base_url = normalize_api_base_url(&args.base_url)?;
     let mut account = context
         .describe_account(Some(&name))
         .map(|(_, account)| account)
         .unwrap_or_default();
-    account.api_base_url = Some(args.base_url.clone());
+    account.api_base_url = Some(normalized_base_url);
     account.portal_base_url = args.portal_base_url.clone().or(account.portal_base_url);
     account.client_id = args.client_id.clone().or(account.client_id);
     account.client_secret = args.client_secret.clone().or(account.client_secret);

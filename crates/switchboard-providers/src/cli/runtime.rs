@@ -41,7 +41,7 @@ impl CliProviderBackend {
         let version = self
             .probe
             .inspect(&spec.binary, &program, &spec.capability, self.executor.as_ref())?;
-        let args = (spec.build_args)(action)?;
+        let args = spec.args.build_args(action)?;
         let runtime = self.materializer.prepare(target)?;
         let output = self.executor.execute(CliInvocation {
             program: program.clone(),
@@ -49,7 +49,7 @@ impl CliProviderBackend {
             runtime,
         })?;
 
-        (spec.decode)(
+        spec.decode.decode(
             target,
             action,
             CliResponse {
