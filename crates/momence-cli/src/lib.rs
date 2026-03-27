@@ -1174,7 +1174,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        run,
+        render_cli_error, run,
         state::{MomenceState, StateStore},
         Cli,
     };
