@@ -11,6 +11,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     Audit(String),
     Config(String),
+    Execution(String),
     MissingAuth(String),
     MissingSecret(String),
     AuthProviderMismatch {
@@ -42,6 +43,7 @@ impl Display for Error {
         match self {
             Self::Audit(message) => write!(f, "audit failure: {message}"),
             Self::Config(message) => write!(f, "config error: {message}"),
+            Self::Execution(message) => write!(f, "execution failure: {message}"),
             Self::MissingAuth(auth_ref) => write!(f, "missing auth configuration: {auth_ref}"),
             Self::MissingSecret(secret_ref) => write!(f, "missing secret configuration: {secret_ref}"),
             Self::AuthProviderMismatch {

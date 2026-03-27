@@ -1,57 +1,73 @@
+mod backend;
+mod materializer;
+
 use switchboard_core::{
     Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedNamespace,
-    Result, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Result, ToolDescriptor, ToolRequest,
 };
+
+use crate::google::backend::{GoogleWorkspaceBackend, GoogleWorkspaceCliBackend};
 
 const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "google.mail.search",
-        kind: ToolKind::Read,
+        kind: switchboard_core::ToolKind::Read,
         summary: "Search Gmail",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.mail.read",
-        kind: ToolKind::Read,
+        kind: switchboard_core::ToolKind::Read,
         summary: "Read a Gmail message",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.mail.draft",
-        kind: ToolKind::Write,
+        kind: switchboard_core::ToolKind::Write,
         summary: "Draft an email",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.mail.send",
-        kind: ToolKind::Write,
+        kind: switchboard_core::ToolKind::Write,
         summary: "Send an email",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.calendar.list",
-        kind: ToolKind::Read,
+        kind: switchboard_core::ToolKind::Read,
         summary: "List calendar events",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.calendar.create",
-        kind: ToolKind::Write,
+        kind: switchboard_core::ToolKind::Write,
         summary: "Draft or create a calendar event",
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
         name: "google.drive.search",
-        kind: ToolKind::Read,
+        kind: switchboard_core::ToolKind::Read,
         summary: "Search Drive files",
         backend: BackendKind::Cli,
     },
 ];
 
-#[derive(Default)]
-pub struct GoogleWorkspaceAdapter;
+pub struct GoogleWorkspaceAdapter {
+    backend: Box<dyn GoogleWorkspaceBackend>,
+}
+
+impl Default for GoogleWorkspaceAdapter {
+    fn default() -> Self {
+        Self::new(Box::new(GoogleWorkspaceCliBackend::default()))
+    }
+}
 
 impl GoogleWorkspaceAdapter {
+    fn new(backend: Box<dyn GoogleWorkspaceBackend>) -> Self {
+        Self { backend }
+    }
+
     fn arg<'a>(request: &'a ToolRequest, key: &str) -> Option<&'a str> {
         request.args.get(key).map(String::as_str)
     }
@@ -119,22 +135,7 @@ impl Adapter for GoogleWorkspaceAdapter {
         ))
     }
 
-    fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
-        if matches!(action.kind, ToolKind::Write) {
-            return Err(Error::NotImplemented(format!(
-                "{} apply path is not wired to Google Workspace yet",
-                action.tool
-            )));
-        }
-
-        Ok(ToolOutput::new(
-            action.tool.clone(),
-            action.namespace.clone(),
-            format!("{} via {} (stub)", action.summary, action.backend),
-        )
-        .with_field("status", "stub")
-        .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id.to_string())
-        .with_field("note", "remote Google Workspace execution is not wired yet"))
+    fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<switchboard_core::ToolOutput> {
+        self.backend.execute(target, action)
     }
 }

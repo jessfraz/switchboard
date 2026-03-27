@@ -27,11 +27,15 @@ impl ProcessContext {
     }
 
     pub(crate) fn set_env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.env.insert(key.into(), value.into());
+        let key = key.into();
+        self.cleared_env.remove(&key);
+        self.env.insert(key, value.into());
     }
 
     pub(crate) fn clear_env(&mut self, key: impl Into<String>) {
-        self.cleared_env.insert(key.into());
+        let key = key.into();
+        self.env.remove(&key);
+        self.cleared_env.insert(key);
     }
 
     pub(crate) fn write_temp_file(
@@ -51,7 +55,7 @@ impl ProcessContext {
             extension
         ));
         fs::write(&path, contents)
-            .map_err(|error| Error::Audit(format!("failed to write temp file {}: {error}", path.display())))?;
+            .map_err(|error| Error::Execution(format!("failed to write temp file {}: {error}", path.display())))?;
         self.temp_files.push(TempFileArtifact { path: path.clone() });
 
         Ok(path)
