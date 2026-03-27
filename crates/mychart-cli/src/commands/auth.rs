@@ -452,7 +452,7 @@ fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: b
     })?;
     let redirect_uri = context.require_redirect_uri(None)?;
     let expected_redirect_uri = Url::parse(&redirect_uri)
-        .map_err(|error| Error::Config(format!("invalid stored redirect URI {:?}: {error}", redirect_uri)))?;
+        .map_err(|error| Error::Config(format!("invalid stored redirect URI {redirect_uri:?}: {error}")))?;
     let mut normalized_callback = parsed_url.clone();
     normalized_callback.set_query(None);
     normalized_callback.set_fragment(None);
