@@ -360,7 +360,7 @@ fn prepare_authorization(
             "scope_count": scopes.len(),
             "scopes": scopes,
             "client_secret_present": context.client_secret.is_some(),
-            "token_authentication": token_exchange_auth_label(token_auth),
+            "token_authentication": token_exchange_auth_label(token_auth, context.client_secret.is_some()),
         }),
     );
 
@@ -542,7 +542,7 @@ fn exchange_code_token(
                 .map(|_| "Basic <redacted>")
                 .unwrap_or("none"),
             "client_secret_present": client_secret.is_some(),
-            "token_authentication": token_exchange_auth_label(token_auth),
+            "token_authentication": token_exchange_auth_label(token_auth, client_secret.is_some()),
         }),
     );
 
@@ -781,8 +781,11 @@ fn exchange_dynamic_client_token(
     let client = api_client(&base_url)?;
     let capability = fetch_capability_summary(&client, Some(&client_id))?;
     let token_endpoint = capability.require_token_url()?;
-    let assertion =
-        sign_dynamic_client_assertion(&dynamic_client.client_id, &token_endpoint, &dynamic_client.private_key_pem)?;
+    let assertion = sign_dynamic_client_assertion(
+        &dynamic_client.client_id,
+        &token_endpoint,
+        &dynamic_client.private_key_pem,
+    )?;
     let form = vec![
         ("grant_type".into(), JWT_BEARER_GRANT_TYPE.into()),
         ("client_id".into(), dynamic_client.client_id.clone()),
@@ -829,9 +832,10 @@ fn renewal_method(context: &ResolvedContext) -> &'static str {
     }
 }
 
-fn token_exchange_auth_label(token_auth: TokenExchangeAuth) -> &'static str {
+fn token_exchange_auth_label(token_auth: TokenExchangeAuth, client_secret_present: bool) -> &'static str {
     match token_auth {
-        TokenExchangeAuth::StoredClientStrategy => "stored_client_strategy",
+        TokenExchangeAuth::StoredClientStrategy if client_secret_present => "basic",
+        TokenExchangeAuth::StoredClientStrategy => "public_pkce",
         TokenExchangeAuth::ForcePublic => "public_pkce",
     }
 }

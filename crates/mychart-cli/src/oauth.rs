@@ -114,10 +114,7 @@ pub(crate) fn dynamic_client_registration_request(
     software_id: String,
     jwks: DynamicJwkSet,
 ) -> DynamicClientRegistrationRequest {
-    DynamicClientRegistrationRequest {
-        software_id,
-        jwks,
-    }
+    DynamicClientRegistrationRequest { software_id, jwks }
 }
 
 pub(crate) fn sign_dynamic_client_assertion(

@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 
 use clap::{Args, Subcommand};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{
@@ -55,6 +56,9 @@ pub(crate) struct ConnectAddArgs {
     #[arg(long)]
     client_secret: Option<String>,
 
+    #[arg(long)]
+    clear_client_secret: bool,
+
     #[arg(long, value_name = "URL")]
     redirect_uri: Option<String>,
 
@@ -72,10 +76,67 @@ pub(crate) struct ConnectUseArgs {
     account: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) struct RenderedAccount {
+    pub(crate) name: String,
+    pub(crate) selected: bool,
+    pub(crate) base_url: Option<String>,
+    pub(crate) portal_base_url: Option<String>,
+    pub(crate) client_id: Option<String>,
+    pub(crate) patient_id: Option<String>,
+    pub(crate) authenticated: bool,
+    pub(crate) portal_authenticated: bool,
+    pub(crate) expires_at_epoch_seconds: Option<u64>,
+    pub(crate) discovery: Option<AccountDiscoveryState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) struct DiscoveryBrandOutput {
+    pub(crate) brand_name: String,
+    pub(crate) account_name: String,
+    pub(crate) base_url: String,
+    pub(crate) endpoint_id: String,
+    pub(crate) endpoint_name: Option<String>,
+    pub(crate) managing_organization_name: Option<String>,
+    pub(crate) managing_organization_id: Option<String>,
+    pub(crate) state: Option<String>,
+    pub(crate) country: Option<String>,
+    pub(crate) facility_count: usize,
+    pub(crate) facilities: Vec<crate::discovery::DiscoveryFacility>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub(crate) struct DiscoveryMatchOutput {
+    pub(crate) score: f64,
+    pub(crate) exact: bool,
+    pub(crate) brand: DiscoveryBrandOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) struct ConnectAddOutput {
+    pub(crate) status: String,
+    pub(crate) selected_account: Option<String>,
+    pub(crate) account: RenderedAccount,
+    pub(crate) manual: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub(crate) struct ConnectResolveOutput {
+    pub(crate) status: String,
+    pub(crate) query: String,
+    pub(crate) selected_account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account: Option<RenderedAccount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) r#match: Option<DiscoveryBrandOutput>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) matches: Vec<DiscoveryMatchOutput>,
+}
+
 pub(crate) fn run_connect(command: ConnectSubcommand, context: &mut ResolvedContext) -> Result<Value> {
     match command {
         ConnectSubcommand::Search(args) => run_search(args, context),
-        ConnectSubcommand::Add(args) => run_add(args, context),
+        ConnectSubcommand::Add(args) => render_output(run_add_output(args, context)?),
         ConnectSubcommand::List => Ok(json!({
             "status": "ok",
             "selected_account": context.active_account_name(),
@@ -123,7 +184,12 @@ fn run_search(args: ConnectSearchArgs, context: &mut ResolvedContext) -> Result<
     }))
 }
 
-fn run_add(args: ConnectAddArgs, context: &mut ResolvedContext) -> Result<Value> {
+fn run_add_output(args: ConnectAddArgs, context: &mut ResolvedContext) -> Result<ConnectAddOutput> {
+    if args.client_secret.is_some() && args.clear_client_secret {
+        return Err(Error::Arguments(
+            "pass either --client-secret or --clear-client-secret, not both".into(),
+        ));
+    }
     let name = slugify(&args.name);
     let normalized_base_url = normalize_api_base_url(&args.base_url)?;
     let mut account = context
@@ -133,19 +199,31 @@ fn run_add(args: ConnectAddArgs, context: &mut ResolvedContext) -> Result<Value>
     account.api_base_url = Some(normalized_base_url);
     account.portal_base_url = args.portal_base_url.clone().or(account.portal_base_url);
     account.client_id = args.client_id.clone().or(account.client_id);
-    account.client_secret = args.client_secret.clone().or(account.client_secret);
+    if args.clear_client_secret {
+        account.client_secret = None;
+    } else {
+        account.client_secret = args.client_secret.clone().or(account.client_secret);
+    }
     account.redirect_uri = args.redirect_uri.clone().or(account.redirect_uri);
     context.upsert_account(name.clone(), account.clone(), !args.no_use)?;
 
-    Ok(json!({
-        "status": "connected",
-        "selected_account": if args.no_use { context.active_account_name() } else { Some(name.as_str()) },
-        "account": render_account(name, &account, context.active_account_name()),
-        "manual": true,
-    }))
+    Ok(ConnectAddOutput {
+        status: "connected".into(),
+        selected_account: if args.no_use {
+            context.active_account_name().map(ToOwned::to_owned)
+        } else {
+            Some(name.clone())
+        },
+        account: render_account(name, &account, context.active_account_name()),
+        manual: true,
+    })
 }
 
 fn run_resolve(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Result<Value> {
+    render_output(run_resolve_output(tokens, context)?)
+}
+
+pub(crate) fn run_resolve_output(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Result<ConnectResolveOutput> {
     let query = tokens
         .into_iter()
         .map(|token| token.to_string_lossy().into_owned())
@@ -161,30 +239,39 @@ fn run_resolve(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Result<V
 
     if let Some((name, account)) = context.describe_account(Some(&query)) {
         context.set_current_account(name.clone())?;
-        return Ok(json!({
-            "status": "selected",
-            "selected_account": name,
-            "account": render_account(name, &account, context.active_account_name()),
-        }));
+        return Ok(ConnectResolveOutput {
+            status: "selected".into(),
+            query,
+            selected_account: Some(name.clone()),
+            account: Some(render_account(name, &account, context.active_account_name())),
+            r#match: None,
+            matches: Vec::new(),
+        });
     }
 
     let cache_path = context.discovery_cache_path()?;
     let catalog = load_catalog(&cache_path, false)?;
     let matches = catalog.search(&query, 10);
     if matches.is_empty() {
-        return Ok(json!({
-            "status": "not_found",
-            "query": query,
-            "matches": [],
-        }));
+        return Ok(ConnectResolveOutput {
+            status: "not_found".into(),
+            query,
+            selected_account: None,
+            account: None,
+            r#match: None,
+            matches: Vec::new(),
+        });
     }
 
     let Some(brand) = catalog.resolve_unique(&query) else {
-        return Ok(json!({
-            "status": "ambiguous",
-            "query": query,
-            "matches": matches.iter().map(render_match).collect::<Vec<_>>(),
-        }));
+        return Ok(ConnectResolveOutput {
+            status: "ambiguous".into(),
+            query,
+            selected_account: None,
+            account: None,
+            r#match: None,
+            matches: matches.iter().map(render_match).collect(),
+        });
     };
 
     let account_name = allocate_account_name(context, &brand);
@@ -205,13 +292,14 @@ fn run_resolve(tokens: Vec<OsString>, context: &mut ResolvedContext) -> Result<V
     });
     context.upsert_account(account_name.clone(), account.clone(), true)?;
 
-    Ok(json!({
-        "status": "connected",
-        "query": query,
-        "selected_account": account_name,
-        "account": render_account(account_name, &account, context.active_account_name()),
-        "match": render_brand(&brand),
-    }))
+    Ok(ConnectResolveOutput {
+        status: "connected".into(),
+        query,
+        selected_account: Some(account_name.clone()),
+        account: Some(render_account(account_name, &account, context.active_account_name())),
+        r#match: Some(render_brand(&brand)),
+        matches: Vec::new(),
+    })
 }
 
 fn allocate_account_name(context: &ResolvedContext, brand: &DiscoveryBrand) -> String {
@@ -238,41 +326,52 @@ fn allocate_account_name(context: &ResolvedContext, brand: &DiscoveryBrand) -> S
     preferred
 }
 
-fn render_match(candidate: &DiscoveryMatch) -> Value {
-    json!({
-        "score": candidate.score,
-        "exact": candidate.exact,
-        "brand": render_brand(&candidate.brand),
-    })
+fn render_match(candidate: &DiscoveryMatch) -> DiscoveryMatchOutput {
+    DiscoveryMatchOutput {
+        score: candidate.score,
+        exact: candidate.exact,
+        brand: render_brand(&candidate.brand),
+    }
 }
 
-fn render_brand(brand: &DiscoveryBrand) -> Value {
-    json!({
-        "brand_name": brand.brand_name,
-        "account_name": brand.account_slug,
-        "base_url": brand.fhir_base_url,
-        "endpoint_id": brand.endpoint_id,
-        "endpoint_name": brand.endpoint_name,
-        "managing_organization_name": brand.managing_organization_name,
-        "managing_organization_id": brand.managing_organization_id,
-        "state": brand.state,
-        "country": brand.country,
-        "facility_count": brand.facilities.len(),
-        "facilities": brand.facilities.iter().take(5).collect::<Vec<_>>(),
-    })
+fn render_brand(brand: &DiscoveryBrand) -> DiscoveryBrandOutput {
+    DiscoveryBrandOutput {
+        brand_name: brand.brand_name.clone(),
+        account_name: brand.account_slug.clone(),
+        base_url: brand.fhir_base_url.clone(),
+        endpoint_id: brand.endpoint_id.clone(),
+        endpoint_name: brand.endpoint_name.clone(),
+        managing_organization_name: brand.managing_organization_name.clone(),
+        managing_organization_id: brand.managing_organization_id.clone(),
+        state: brand.state.clone(),
+        country: brand.country.clone(),
+        facility_count: brand.facilities.len(),
+        facilities: brand.facilities.iter().take(5).cloned().collect(),
+    }
 }
 
-fn render_account(name: String, account: &MyChartAccountState, active_account: Option<&str>) -> Value {
-    json!({
-        "name": name,
-        "selected": active_account == Some(name.as_str()),
-        "base_url": account.api_base_url,
-        "portal_base_url": account.portal_base_url,
-        "client_id": account.client_id,
-        "patient_id": account.patient_id,
-        "authenticated": account.access_token.is_some(),
-        "portal_authenticated": !account.cookies.is_empty(),
-        "expires_at_epoch_seconds": account.expires_at_epoch_seconds,
-        "discovery": account.discovery,
+fn render_account(name: String, account: &MyChartAccountState, active_account: Option<&str>) -> RenderedAccount {
+    RenderedAccount {
+        selected: active_account == Some(name.as_str()),
+        name,
+        base_url: account.api_base_url.clone(),
+        portal_base_url: account.portal_base_url.clone(),
+        client_id: account.client_id.clone(),
+        patient_id: account.patient_id.clone(),
+        authenticated: account.access_token.is_some(),
+        portal_authenticated: !account.cookies.is_empty(),
+        expires_at_epoch_seconds: account.expires_at_epoch_seconds,
+        discovery: account.discovery.clone(),
+    }
+}
+
+fn render_output<T>(output: T) -> Result<Value>
+where
+    T: Serialize,
+{
+    serde_json::to_value(output).map_err(|error| {
+        Error::Config(format!(
+            "failed to serialize MyChart connect output: {error}"
+        ))
     })
 }

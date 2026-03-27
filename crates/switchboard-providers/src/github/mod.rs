@@ -210,6 +210,8 @@ mod tests {
                 ToolArgument::option("query", "is:open review-requested:@me").expect("query should build"),
                 ToolArgument::option("limit", "10").expect("limit should build"),
                 ToolArgument::option("repo", "openai/codex").expect("repo should build"),
+                ToolArgument::option("draft", "true").expect("draft should build"),
+                ToolArgument::option("merged", "false").expect("merged should build"),
             ],
         )
         .expect("request should build");
@@ -241,6 +243,8 @@ mod tests {
         assert!(captured.contains("ARGV=search prs is:open review-requested:@me --json"));
         assert!(captured.contains("--limit 10"));
         assert!(captured.contains("--repo openai/codex"));
+        assert!(captured.contains("--draft"));
+        assert!(!captured.contains("--merged"));
     }
 
     #[test]
@@ -283,6 +287,25 @@ mod tests {
                 .and_then(|pull_request| pull_request.get("number"))
                 .and_then(Value::as_u64),
             Some(1382)
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("pull_request")
+                .and_then(|pull_request| pull_request.get("assignees"))
+                .and_then(Value::as_array)
+                .and_then(|assignees| assignees.first())
+                .and_then(Value::as_str),
+            Some("jessfraz")
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("pull_request")
+                .and_then(|pull_request| pull_request.get("labels"))
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
         );
 
         let captured = script.capture_contents();
@@ -329,6 +352,16 @@ mod tests {
                 .and_then(|issue| issue.get("number"))
                 .and_then(Value::as_u64),
             Some(77)
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("issue")
+                .and_then(|issue| issue.get("labels"))
+                .and_then(Value::as_array)
+                .and_then(|labels| labels.first())
+                .and_then(Value::as_str),
+            Some("enhancement")
         );
 
         let captured = script.capture_contents();

@@ -405,6 +405,8 @@ struct CliManifestJsonField {
     #[serde(default)]
     pointer: Option<String>,
     #[serde(default)]
+    item_pointer: Option<String>,
+    #[serde(default)]
     arg: Option<Vec<String>>,
     #[serde(default)]
     default: Option<String>,
@@ -639,15 +641,18 @@ fn build_manifest_json_field_mapping(field: CliManifestJsonField) -> Result<CliJ
     let CliManifestJsonField {
         name,
         pointer,
+        item_pointer,
         arg,
         default,
         literal,
     } = field;
 
-    match (pointer, arg, literal) {
-        (Some(pointer), None, None) => CliJsonFieldMapping::from_pointer(name, pointer),
-        (None, Some(aliases), None) => CliJsonFieldMapping::from_argument(name, aliases, default),
-        (None, None, Some(value)) => {
+    match (pointer, item_pointer, arg, literal) {
+        (Some(pointer), item_pointer, None, None) => {
+            CliJsonFieldMapping::from_pointer_with_items(name, pointer, item_pointer)
+        }
+        (None, None, Some(aliases), None) => CliJsonFieldMapping::from_argument(name, aliases, default),
+        (None, None, None, Some(value)) => {
             if default.is_some() {
                 return Err(Error::Config(format!(
                     "json projection field {name} cannot define both literal and default"
@@ -655,7 +660,7 @@ fn build_manifest_json_field_mapping(field: CliManifestJsonField) -> Result<CliJ
             }
             CliJsonFieldMapping::from_literal(name, value)
         }
-        (None, None, None) => Err(Error::Config(format!(
+        (None, None, None, None) => Err(Error::Config(format!(
             "json projection field {name} must define exactly one of pointer, arg, or literal"
         ))),
         _ => Err(Error::Config(format!(

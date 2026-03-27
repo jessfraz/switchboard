@@ -222,7 +222,7 @@ impl CliArgsTemplate {
                     }
                 }
                 CliArgsSegment::Flag { flag, aliases } => {
-                    if aliases.iter().any(|alias| action.args.has_flag(alias)) {
+                    if flag_enabled(action, aliases)? {
                         args.push(flag.clone());
                     }
                 }
@@ -489,7 +489,11 @@ pub(crate) struct CliJsonFieldMapping {
 }
 
 impl CliJsonFieldMapping {
-    pub(crate) fn from_pointer(name: impl Into<String>, pointer: impl Into<String>) -> Result<Self> {
+    pub(crate) fn from_pointer_with_items(
+        name: impl Into<String>,
+        pointer: impl Into<String>,
+        item_pointer: Option<String>,
+    ) -> Result<Self> {
         let name = name.into();
         let pointer = pointer.into();
         validate_non_empty("json projection field name", &name)?;
@@ -498,10 +502,17 @@ impl CliJsonFieldMapping {
                 "json projection pointer for field {name} must be empty or start with '/'"
             )));
         }
+        if let Some(item_pointer) = item_pointer.as_ref() {
+            if !item_pointer.is_empty() && !item_pointer.starts_with('/') {
+                return Err(Error::Config(format!(
+                    "json projection item_pointer for field {name} must be empty or start with '/'"
+                )));
+            }
+        }
 
         Ok(Self {
             name,
-            source: CliJsonFieldSource::Pointer(pointer),
+            source: CliJsonFieldSource::Pointer { pointer, item_pointer },
         })
     }
 
@@ -533,7 +544,10 @@ impl CliJsonFieldMapping {
 
 #[derive(Clone, Debug)]
 enum CliJsonFieldSource {
-    Pointer(String),
+    Pointer {
+        pointer: String,
+        item_pointer: Option<String>,
+    },
     Argument {
         aliases: Vec<String>,
         default: Option<String>,
@@ -743,12 +757,8 @@ fn project_object(action: &PlannedAction, value: &Value, fields: &[CliJsonFieldM
         .iter()
         .map(|field| {
             let value = match &field.source {
-                CliJsonFieldSource::Pointer(pointer) => {
-                    if pointer.is_empty() {
-                        value.clone()
-                    } else {
-                        value.pointer(pointer).cloned().unwrap_or(Value::Null)
-                    }
+                CliJsonFieldSource::Pointer { pointer, item_pointer } => {
+                    project_pointer_value(value, pointer, item_pointer)
                 }
                 CliJsonFieldSource::Argument { aliases, default } => first_action_value(action, aliases)
                     .map(Value::String)
@@ -759,6 +769,35 @@ fn project_object(action: &PlannedAction, value: &Value, fields: &[CliJsonFieldM
             (field.name.clone(), value)
         })
         .collect()
+}
+
+fn project_pointer_value(value: &Value, pointer: &str, item_pointer: &Option<String>) -> Value {
+    let projected = if pointer.is_empty() {
+        value
+    } else {
+        value.pointer(pointer).unwrap_or(&Value::Null)
+    };
+
+    let Some(item_pointer) = item_pointer.as_ref() else {
+        return projected.clone();
+    };
+
+    match projected {
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .filter_map(|item| {
+                    let selected = if item_pointer.is_empty() {
+                        Some(item)
+                    } else {
+                        item.pointer(item_pointer)
+                    }?;
+                    (!selected.is_null()).then_some(selected.clone())
+                })
+                .collect(),
+        ),
+        _ => Value::Array(Vec::new()),
+    }
 }
 
 fn required_action_value(action: &PlannedAction, aliases: &[String]) -> Result<String> {
@@ -775,6 +814,17 @@ fn first_action_value(action: &PlannedAction, aliases: &[String]) -> Option<Stri
     aliases
         .iter()
         .find_map(|alias| action.args.value(alias).map(ToOwned::to_owned))
+}
+
+fn flag_enabled(action: &PlannedAction, aliases: &[String]) -> Result<bool> {
+    if aliases.iter().any(|alias| action.args.has_flag(alias)) {
+        return Ok(true);
+    }
+
+    match first_action_value(action, aliases) {
+        Some(value) => parse_boolish(aliases, &value),
+        None => Ok(false),
+    }
 }
 
 fn render_aliases(aliases: &[String]) -> String {
@@ -809,6 +859,17 @@ fn validate_non_empty(context: &str, value: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_boolish(aliases: &[String], value: &str) -> Result<bool> {
+    match value {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        _ => Err(Error::InvalidArguments(format!(
+            "{} expects a boolean value, got {value:?}",
+            render_aliases(aliases)
+        ))),
+    }
 }
 
 fn extract_field_string(object: &Map<String, Value>, field: &str) -> Option<String> {
@@ -911,13 +972,46 @@ mod tests {
     }
 
     #[test]
+    fn args_template_treats_boolean_option_values_as_flags() {
+        let template = CliArgsTemplate::new(vec![
+            CliArgsSegment::literal("search").expect("segment should build"),
+            CliArgsSegment::literal("prs").expect("segment should build"),
+            CliArgsSegment::required_positional(vec!["query".into()]).expect("segment should build"),
+            CliArgsSegment::flag("--draft", vec!["draft".into()]).expect("segment should build"),
+            CliArgsSegment::flag("--merged", vec!["merged".into()]).expect("segment should build"),
+        ])
+        .expect("template should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "github.pull_request.search",
+                "github.personal",
+                ExecutionMode::Auto,
+                vec![
+                    ToolArgument::option("query", "is:open").expect("argument should build"),
+                    ToolArgument::option("draft", "true").expect("argument should build"),
+                    ToolArgument::option("merged", "false").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &planning_target(),
+            ToolKind::Read,
+            "Search pull requests",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let args = template.build_args(&action).expect("args should build");
+        assert_eq!(args, vec!["search", "prs", "is:open", "--draft"]);
+    }
+
+    #[test]
     fn json_projection_decodes_array_response_and_refs() {
         let projection = CliJsonProjection::new(
             "repositories",
             CliJsonProjectionShape::array(vec![
-                CliJsonFieldMapping::from_pointer("name", "/name").expect("field should build"),
-                CliJsonFieldMapping::from_pointer("full_name", "/fullName").expect("field should build"),
-                CliJsonFieldMapping::from_pointer("url", "/url").expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("name", "/name", None).expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("full_name", "/fullName", None)
+                    .expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("url", "/url", None).expect("field should build"),
             ])
             .expect("shape should build"),
             Some("count".into()),
@@ -985,8 +1079,8 @@ mod tests {
         let projection = CliJsonProjection::new(
             "event",
             CliJsonProjectionShape::object(vec![
-                CliJsonFieldMapping::from_pointer("event_id", "/id").expect("field should build"),
-                CliJsonFieldMapping::from_pointer("title", "/summary").expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("event_id", "/id", None).expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("title", "/summary", None).expect("field should build"),
                 CliJsonFieldMapping::from_argument("calendar", vec!["calendar".into()], Some("primary".into()))
                     .expect("field should build"),
             ])
@@ -1053,6 +1147,73 @@ mod tests {
         assert_eq!(
             output.effect.as_ref().and_then(|effect| effect.undo_summary.as_deref()),
             Some("Delete calendar event \"Budget review\" from google.work")
+        );
+    }
+
+    #[test]
+    fn json_projection_supports_array_field_extraction() {
+        let projection = CliJsonProjection::new(
+            "pull_request",
+            CliJsonProjectionShape::object(vec![
+                CliJsonFieldMapping::from_pointer_with_items("title", "/title", None).expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("assignees", "/assignees", Some("/login".into()))
+                    .expect("field should build"),
+                CliJsonFieldMapping::from_pointer_with_items("labels", "/labels", Some("/name".into()))
+                    .expect("field should build"),
+            ])
+            .expect("shape should build"),
+            None,
+            Some(CliProjectionTemplate::parse("Read {field:title} for {namespace}").expect("template should build")),
+            None,
+            None,
+        )
+        .expect("projection should build");
+        let action = PlannedAction::new(
+            &ToolRequest::new(
+                "github.pull_request.read",
+                "github.personal",
+                ExecutionMode::Auto,
+                vec![
+                    ToolArgument::option("repo", "openai/codex").expect("argument should build"),
+                    ToolArgument::option("number", "1382").expect("argument should build"),
+                ],
+            )
+            .expect("request should build"),
+            &planning_target(),
+            ToolKind::Read,
+            "Read GitHub pull request openai/codex#1382 in github.personal",
+            switchboard_core::BackendKind::Cli,
+        );
+
+        let output = projection
+            .decode(
+                &execution_target(),
+                &action,
+                CliResponse {
+                    program: PathBuf::from("gh"),
+                    version: "gh version 9.9.9-test".into(),
+                    stdout: r#"{"title":"Fix the thing","assignees":[{"login":"jessfraz"}],"labels":[{"name":"infra"},{"name":"tooling"}]}"#
+                        .into(),
+                    stderr: String::new(),
+                },
+            )
+            .expect("projection should decode");
+
+        assert_eq!(
+            output
+                .fields
+                .get("pull_request")
+                .and_then(|pull_request| pull_request.get("assignees"))
+                .and_then(Value::as_array),
+            Some(&vec![json!("jessfraz")])
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("pull_request")
+                .and_then(|pull_request| pull_request.get("labels"))
+                .and_then(Value::as_array),
+            Some(&vec![json!("infra"), json!("tooling")])
         );
     }
 

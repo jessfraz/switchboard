@@ -50,22 +50,126 @@
       "name": "github.pull_request.read",
       "kind": "read",
       "summary": "Read a pull request",
-      "strategy": { "kind": "handler", "id": "pull_request_read" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read GitHub pull request {arg:repo}#{arg:number} in {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gh",
         "capability": "gh_pr_view"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "pr" },
+          { "kind": "literal", "value": "view" },
+          { "kind": "required_positional", "aliases": ["number"] },
+          { "kind": "option", "flag": "--repo", "aliases": ["repo"], "required": true },
+          { "kind": "literal", "value": "--json" },
+          {
+            "kind": "literal",
+            "value": "id,number,title,body,state,isDraft,author,assignees,labels,baseRefName,headRefName,reviewDecision,mergeStateStatus,createdAt,updatedAt,url"
+          }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "pull_request",
+        "shape": "object",
+        "summary_template": "Read GitHub pull request \"{field:title}\" for {namespace}",
+        "fields": [
+          { "name": "id", "pointer": "/id" },
+          { "name": "number", "pointer": "/number" },
+          { "name": "repository", "arg": ["repo"] },
+          { "name": "title", "pointer": "/title" },
+          { "name": "body", "pointer": "/body" },
+          { "name": "state", "pointer": "/state" },
+          { "name": "is_draft", "pointer": "/isDraft" },
+          { "name": "author", "pointer": "/author/login" },
+          { "name": "assignees", "pointer": "/assignees", "item_pointer": "/login" },
+          { "name": "labels", "pointer": "/labels", "item_pointer": "/name" },
+          { "name": "base_ref_name", "pointer": "/baseRefName" },
+          { "name": "head_ref_name", "pointer": "/headRefName" },
+          { "name": "review_decision", "pointer": "/reviewDecision" },
+          { "name": "merge_state_status", "pointer": "/mergeStateStatus" },
+          { "name": "created_at", "pointer": "/createdAt" },
+          { "name": "updated_at", "pointer": "/updatedAt" },
+          { "name": "url", "pointer": "/url" }
+        ],
+        "refs": {
+          "kind": "pull_request",
+          "id_field": "number",
+          "parent_id_field": "repository",
+          "label_field": "title",
+          "url_field": "url"
+        }
       }
     },
     {
       "name": "github.pull_request.search",
       "kind": "read",
       "summary": "Search pull requests",
-      "strategy": { "kind": "handler", "id": "pull_request_search" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Search GitHub pull requests in {namespace} for {arg:query}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gh",
         "capability": "gh_search_prs"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "search" },
+          { "kind": "literal", "value": "prs" },
+          { "kind": "required_positional", "aliases": ["query"] },
+          { "kind": "literal", "value": "--json" },
+          {
+            "kind": "literal",
+            "value": "id,number,title,state,isDraft,repository,author,createdAt,updatedAt,url"
+          },
+          { "kind": "option", "flag": "--limit", "aliases": ["limit"] },
+          { "kind": "option", "flag": "--state", "aliases": ["state"] },
+          { "kind": "option", "flag": "--repo", "aliases": ["repo"] },
+          { "kind": "option", "flag": "--owner", "aliases": ["owner"] },
+          { "kind": "option", "flag": "--author", "aliases": ["author"] },
+          { "kind": "option", "flag": "--assignee", "aliases": ["assignee"] },
+          { "kind": "option", "flag": "--review-requested", "aliases": ["review-requested"] },
+          { "kind": "option", "flag": "--sort", "aliases": ["sort"] },
+          { "kind": "option", "flag": "--order", "aliases": ["order"] },
+          { "kind": "option", "flag": "--base", "aliases": ["base"] },
+          { "kind": "option", "flag": "--head", "aliases": ["head"] },
+          { "kind": "flag", "flag": "--draft", "aliases": ["draft"] },
+          { "kind": "flag", "flag": "--merged", "aliases": ["merged"] }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "pull_requests",
+        "shape": "array",
+        "count_field": "count",
+        "summary_template": "Found {count} GitHub pull requests for {namespace}",
+        "fields": [
+          { "name": "id", "pointer": "/id" },
+          { "name": "number", "pointer": "/number" },
+          { "name": "title", "pointer": "/title" },
+          { "name": "state", "pointer": "/state" },
+          { "name": "is_draft", "pointer": "/isDraft" },
+          { "name": "repository", "pointer": "/repository/nameWithOwner" },
+          { "name": "author", "pointer": "/author/login" },
+          { "name": "created_at", "pointer": "/createdAt" },
+          { "name": "updated_at", "pointer": "/updatedAt" },
+          { "name": "url", "pointer": "/url" }
+        ],
+        "refs": {
+          "kind": "pull_request",
+          "id_field": "number",
+          "parent_id_field": "repository",
+          "label_field": "title",
+          "url_field": "url"
+        }
       }
     },
     {
@@ -84,11 +188,56 @@
       "name": "github.issue.read",
       "kind": "read",
       "summary": "Read an issue",
-      "strategy": { "kind": "handler", "id": "issue_read" },
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read GitHub issue {arg:repo}#{arg:number} in {namespace}"
+      },
       "execution": {
         "kind": "executable",
         "binary": "gh",
         "capability": "gh_issue_view"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "literal", "value": "issue" },
+          { "kind": "literal", "value": "view" },
+          { "kind": "required_positional", "aliases": ["number"] },
+          { "kind": "option", "flag": "--repo", "aliases": ["repo"], "required": true },
+          { "kind": "literal", "value": "--json" },
+          {
+            "kind": "literal",
+            "value": "id,number,title,body,state,stateReason,author,assignees,labels,createdAt,updatedAt,url"
+          }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "issue",
+        "shape": "object",
+        "summary_template": "Read GitHub issue \"{field:title}\" for {namespace}",
+        "fields": [
+          { "name": "id", "pointer": "/id" },
+          { "name": "number", "pointer": "/number" },
+          { "name": "repository", "arg": ["repo"] },
+          { "name": "title", "pointer": "/title" },
+          { "name": "body", "pointer": "/body" },
+          { "name": "state", "pointer": "/state" },
+          { "name": "state_reason", "pointer": "/stateReason" },
+          { "name": "author", "pointer": "/author/login" },
+          { "name": "assignees", "pointer": "/assignees", "item_pointer": "/login" },
+          { "name": "labels", "pointer": "/labels", "item_pointer": "/name" },
+          { "name": "created_at", "pointer": "/createdAt" },
+          { "name": "updated_at", "pointer": "/updatedAt" },
+          { "name": "url", "pointer": "/url" }
+        ],
+        "refs": {
+          "kind": "issue",
+          "id_field": "number",
+          "parent_id_field": "repository",
+          "label_field": "title",
+          "url_field": "url"
+        }
       }
     },
     {

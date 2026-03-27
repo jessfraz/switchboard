@@ -1998,6 +1998,11 @@ mod tests {
     }
 
     #[derive(Debug, Deserialize)]
+    struct GitHubPullRequestReadFields {
+        pull_request: GitHubPullRequestPayload,
+    }
+
+    #[derive(Debug, Deserialize)]
     struct GitHubIssueReadFields {
         issue: GitHubIssuePayload,
     }
@@ -2017,6 +2022,14 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct GitHubIssuePayload {
         number: usize,
+        labels: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GitHubPullRequestPayload {
+        number: usize,
+        assignees: Vec<String>,
+        labels: Vec<String>,
     }
 
     fn parse_json<T: DeserializeOwned>(output: &str) -> T {
@@ -3052,6 +3065,44 @@ mod tests {
     }
 
     #[test]
+    fn github_pull_request_read_returns_typed_payload() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "github.pull_request.read",
+            "--ns",
+            "github.personal",
+            "--repo",
+            "openai/codex",
+            "--number",
+            "1382",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: JsonExecutedResponse<GitHubPullRequestReadFields> = parse_json(&output);
+
+        assert_eq!(value.status, "executed");
+        assert_eq!(
+            value.tool,
+            ToolName::new("github.pull_request.read").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("github.personal").expect("namespace should build")
+        );
+        assert_eq!(value.fields.pull_request.number, 1382);
+        assert_eq!(value.fields.pull_request.assignees, vec!["jessfraz"]);
+        assert_eq!(value.fields.pull_request.labels, vec!["infra", "tooling"]);
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::PullRequest);
+        assert_eq!(value.refs[0].parent_id.as_deref(), Some("openai/codex"));
+    }
+
+    #[test]
     fn github_issue_read_returns_stable_issue_refs() {
         let environment = TestEnvironment::new();
         let config_path = environment.path_string();
@@ -3084,6 +3135,7 @@ mod tests {
         );
         assert!(value.summary.contains("GitHub"));
         assert_eq!(value.fields.issue.number, 77);
+        assert_eq!(value.fields.issue.labels, vec!["enhancement"]);
         assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Issue);
         assert_eq!(value.refs[0].parent_id.as_deref(), Some("openai/codex"));
     }

@@ -1614,7 +1614,10 @@ mod tests {
             .expect("default account should be persisted");
         assert_eq!(account.access_token.as_deref(), Some("persistent-access-token"));
         assert_eq!(
-            account.dynamic_client.as_ref().map(|dynamic_client| dynamic_client.client_id.as_str()),
+            account
+                .dynamic_client
+                .as_ref()
+                .map(|dynamic_client| dynamic_client.client_id.as_str()),
             Some("dynamic-client-123")
         );
 
@@ -1882,6 +1885,50 @@ mod tests {
 
         assert_eq!(output["status"], "ambiguous");
         assert_eq!(output["matches"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn connect_add_can_clear_a_stored_client_secret() {
+        let temp_dir = temp_dir("mychart-connect-clear-client-secret");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                current_account: Some("epic-sandbox".into()),
+                accounts: BTreeMap::from([(
+                    "epic-sandbox".into(),
+                    crate::state::MyChartAccountState {
+                        api_base_url: Some("https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4".into()),
+                        client_id: Some("client-123".into()),
+                        client_secret: Some("stale-secret".into()),
+                        redirect_uri: Some("http://127.0.0.1:8910/callback".into()),
+                        ..crate::state::MyChartAccountState::default()
+                    },
+                )]),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "connect",
+            "add",
+            "--name",
+            "epic-sandbox",
+            "--base-url",
+            "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4",
+            "--clear-client-secret",
+        ]);
+
+        assert_eq!(output["status"], "connected");
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("epic-sandbox")
+            .expect("epic-sandbox account should be stored");
+        assert!(account.client_secret.is_none());
     }
 
     #[test]
