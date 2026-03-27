@@ -1138,7 +1138,7 @@ fn prompt_for_callback_url() -> Option<String> {
     }
 
     eprintln!(
-        "Finish the browser login. When the callback page loads, paste the copied callback payload here, or paste the full callback URL if you insist."
+        "Finish the browser login. When the callback page loads, paste the copied login code here, or paste the full callback URL if you insist."
     );
     eprint!("Callback> ");
     let _ = io::stderr().flush();
@@ -1154,7 +1154,7 @@ fn prompt_for_callback_url() -> Option<String> {
 fn parse_callback_input(input: &str, expected_redirect_uri: &Url, expected_state: Option<&str>) -> Result<Url> {
     let candidate = extract_callback_input(input).ok_or_else(|| {
         Error::Arguments(
-            "callback input must include either the redirected URL or the callback payload copied from the page".into(),
+            "callback input must include either the redirected URL, the copied login code, or the callback payload copied from the page".into(),
         )
     })?;
 
