@@ -27,11 +27,11 @@ use crate::state::{MyChartState, StateStore};
 use crate::{
     client::{normalize_api_base_url, JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
-        run_api, run_appointments, run_auth, run_authorize_url_command, run_claims, run_connect,
-        run_exchange_url_command, run_labs, run_login_command, run_meds, run_notes, run_pack, run_portal,
-        run_timeline, ApiCommand, AppointmentsCommand, AuthAuthorizeOptions, AuthAuthorizeUrlArgs, AuthCommand,
-        AuthExchangeUrlArgs, AuthLoginArgs, ClaimsCommand, ConnectCommand, LabsCommand, MedsCommand, NotesCommand,
-        PackCommand, PortalCommand, TimelineCommand,
+        ensure_api_session, redirect_uri_uses_loopback, run_api, run_appointments, run_auth, run_authorize_url_command,
+        run_claims, run_connect, run_exchange_url_command, run_labs, run_login_command, run_meds, run_notes, run_pack,
+        run_portal, run_timeline, ApiCommand, ApiSessionBootstrap, ApiSubcommand, AppointmentsCommand,
+        AuthAuthorizeOptions, AuthAuthorizeUrlArgs, AuthCommand, AuthExchangeUrlArgs, AuthLoginArgs, ClaimsCommand,
+        ConnectCommand, LabsCommand, MedsCommand, NotesCommand, PackCommand, PortalCommand, TimelineCommand,
     },
     state::{
         ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
@@ -110,14 +110,34 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
         Commands::Finish(command) => run_easy_finish(command, &mut context),
         Commands::Connect(command) => run_connect(command.command, &mut context),
         Commands::Auth(command) => run_auth(command.command, &mut context),
-        Commands::Api(command) => run_api(command.command, &mut context),
-        Commands::Timeline(command) => run_timeline(command, &context),
-        Commands::Labs(command) => run_labs(command.command, &context),
-        Commands::Notes(command) => run_notes(command.command, &context),
-        Commands::Meds(command) => run_meds(command.command, &context),
-        Commands::Appointments(command) => run_appointments(command.command, &context),
-        Commands::Claims(command) => run_claims(command.command, &context),
-        Commands::Pack(command) => run_pack(command.command, &context),
+        Commands::Api(command) => {
+            if matches!(&command.command, ApiSubcommand::Resource(_)) {
+                run_with_api_session(&mut context, move |context| run_api(command.command, context))
+            } else {
+                run_api(command.command, &mut context)
+            }
+        }
+        Commands::Timeline(command) => {
+            run_with_api_session(&mut context, move |context| run_timeline(command, context))
+        }
+        Commands::Labs(command) => {
+            run_with_api_session(&mut context, move |context| run_labs(command.command, context))
+        }
+        Commands::Notes(command) => {
+            run_with_api_session(&mut context, move |context| run_notes(command.command, context))
+        }
+        Commands::Meds(command) => {
+            run_with_api_session(&mut context, move |context| run_meds(command.command, context))
+        }
+        Commands::Appointments(command) => {
+            run_with_api_session(&mut context, move |context| run_appointments(command.command, context))
+        }
+        Commands::Claims(command) => {
+            run_with_api_session(&mut context, move |context| run_claims(command.command, context))
+        }
+        Commands::Pack(command) => {
+            run_with_api_session(&mut context, move |context| run_pack(command.command, context))
+        }
         Commands::Portal(command) => run_portal(command.command, &mut context),
     }
     .map_err(|error| (error, compact))?;
@@ -281,6 +301,16 @@ fn run_easy_finish(command: FinishCommand, context: &mut ResolvedContext) -> Res
     )
 }
 
+fn run_with_api_session<F>(context: &mut ResolvedContext, operation: F) -> Result<Value>
+where
+    F: FnOnce(&mut ResolvedContext) -> Result<Value>,
+{
+    match ensure_api_session(context)? {
+        ApiSessionBootstrap::Ready => operation(context),
+        ApiSessionBootstrap::Pending(output) => Ok(output),
+    }
+}
+
 fn api_client(base_url: &str) -> Result<MyChartClient> {
     MyChartClient::new(base_url.to_owned())
 }
@@ -322,12 +352,7 @@ fn build_authorize_url(
 }
 
 fn default_patient_scopes() -> Vec<String> {
-    vec![
-        "openid".into(),
-        "fhirUser".into(),
-        "offline_access".into(),
-        "patient/*.read".into(),
-    ]
+    vec!["openid".into(), "fhirUser".into(), "patient/*.read".into()]
 }
 
 fn dedupe_preserving_order(values: Vec<String>) -> Vec<String> {
@@ -1224,9 +1249,11 @@ mod tests {
             "--compact",
             "auth",
             "authorize-url",
+            "--no-open",
         ]);
 
         assert_eq!(output["status"], "ok");
+        assert_eq!(output["opened_browser"], false);
         assert!(output["authorize_url"]
             .as_str()
             .expect("authorize url should be string")
@@ -1363,6 +1390,57 @@ mod tests {
         assert!(
             token_request.contains("redirect_uri=https%3A%2F%2Fjessfraz.github.io%2Fswitchboard%2Fmychart-callback%2F")
         );
+    }
+
+    #[test]
+    fn top_level_finish_parses_callback_and_stores_tokens_for_api_use() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-finish");
+        let config_path = temp_dir.join("config.json");
+        let redirect_uri = "https://jessfraz.github.io/switchboard/mychart-callback/";
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("client-123".into()),
+                redirect_uri: Some(redirect_uri.into()),
+                pending_oauth_state: Some("test-state".into()),
+                pending_code_verifier: Some("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "finish",
+            "https://jessfraz.github.io/switchboard/mychart-callback/?code=oauth-code&state=test-state",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("access-token"));
+        assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
     }
 
     #[test]
@@ -1601,6 +1679,47 @@ mod tests {
     }
 
     #[test]
+    fn top_level_login_with_hosted_redirect_starts_authorization_flow() {
+        let server = TestServer::spawn(vec![ResponseSpec::json(
+            200,
+            capability_statement_json("http://placeholder", &[]),
+            Vec::new(),
+        )]);
+        let temp_dir = temp_dir("mychart-easy-login-hosted");
+        let config_path = temp_dir.join("config.json");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--base-url",
+            &format!("{}/", server.base_url()),
+            "--client-id",
+            "client-123",
+            "--redirect-uri",
+            "https://jessfraz.github.io/switchboard/mychart-callback/",
+            "--compact",
+            "login",
+            "--no-open",
+        ]);
+
+        assert_eq!(output["status"], "authorization_pending");
+        assert_eq!(output["opened_browser"], false);
+        assert!(output["next_step"]
+            .as_str()
+            .expect("next step should be a string")
+            .contains("mychart finish"));
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert!(account.pending_oauth_state.is_some());
+        assert!(account.pending_code_verifier.is_some());
+    }
+
+    #[test]
     fn auth_login_dynamic_client_registers_and_uses_jwt_bearer() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
@@ -1748,6 +1867,83 @@ mod tests {
         assert_eq!(output["resource_count"], 2);
         assert_eq!(output["resources"][0]["resource"], "Observation");
         assert_eq!(output["resources"][1]["resource"], "Patient");
+    }
+
+    #[test]
+    fn api_resource_auto_refreshes_before_fetch_when_token_is_expired() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "fresh-access-token",
+                    "refresh_token": "next-refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("Patient", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Patient",
+                    "id": "patient-123"
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-api-auto-refresh");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("client-123".into()),
+                redirect_uri: Some("http://127.0.0.1:8910/callback".into()),
+                access_token: Some("expired-access-token".into()),
+                refresh_token: Some("refresh-token".into()),
+                expires_at_epoch_seconds: Some(1),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "api",
+            "patient",
+            "get",
+            "patient-123",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["resource"], "Patient");
+        assert_eq!(output["body"]["id"], "patient-123");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("fresh-access-token"));
+        assert_eq!(account.refresh_token.as_deref(), Some("next-refresh-token"));
+
+        let requests = server.requests();
+        assert!(requests[1].contains("POST /oauth2/token"));
+        assert!(requests[3].contains("GET /Patient/patient-123"));
+        assert!(requests[3].contains("authorization: Bearer fresh-access-token"));
     }
 
     #[test]

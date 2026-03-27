@@ -11,11 +11,12 @@ mod portal;
 mod shared;
 mod timeline;
 
-pub(crate) use api::{run_api, ApiCommand};
+pub(crate) use api::{run_api, ApiCommand, ApiSubcommand};
 pub(crate) use appointments::{run_appointments, AppointmentsCommand};
 pub(crate) use auth::{
-    run_auth, run_authorize_url_command, run_exchange_url_command, run_login_command, AuthAuthorizeOptions,
-    AuthAuthorizeUrlArgs, AuthCommand, AuthExchangeUrlArgs, AuthLoginArgs,
+    ensure_api_session, redirect_uri_uses_loopback, run_auth, run_authorize_url_command, run_exchange_url_command,
+    run_login_command, ApiSessionBootstrap, AuthAuthorizeOptions, AuthAuthorizeUrlArgs, AuthCommand,
+    AuthExchangeUrlArgs, AuthLoginArgs,
 };
 pub(crate) use claims::{run_claims, ClaimsCommand};
 pub(crate) use connect::{run_connect, ConnectCommand};

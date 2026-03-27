@@ -1097,19 +1097,18 @@ That page only does three things:
 
 1. reads the OAuth callback URL
 1. scrubs the code from the browser address bar
-1. gives you a copyable `mychart auth exchange-url 'https://...'` command
+1. gives you a copyable `mychart finish 'https://...'` command
 
 Typical MyChart production flow:
 
 ```text
-mychart connect ucla
-mychart --account ucla auth authorize-url --scope openid --scope fhirUser --scope patient/*.read
+mychart login ucla
 ```
 
 Finish the browser login, let Epic redirect to the GitHub Pages callback, then run the command the page gives you:
 
 ```text
-mychart --account ucla auth exchange-url 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'
+mychart --account ucla finish 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'
 ```
 
 Built-in presets currently include:

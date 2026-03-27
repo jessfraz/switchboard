@@ -311,7 +311,7 @@
             lead.textContent =
               "Open this page only through the OAuth redirect, otherwise there is nothing useful to extract.";
             exchangeCommand.value =
-              "Run `mychart auth authorize-url`, finish the browser login, then come back here from the redirect.";
+              "Run `mychart login ucla` or `mychart auth authorize-url`, finish the browser login, then come back here from the redirect.";
             redirectUri.textContent = window.location.origin + window.location.pathname;
             codeStatus.textContent = "Missing";
             stateStatus.textContent = "Missing";
@@ -349,7 +349,7 @@
               "The redirect landed here, but it did not contain the usual code and state parameters. That usually means OAuth died upstream.";
           }
 
-          exchangeCommand.value = "mychart " + accountPrefix + "auth exchange-url " + shellQuote(callbackUrl);
+          exchangeCommand.value = "mychart " + accountPrefix + "finish " + shellQuote(callbackUrl);
         }
 
         async function copyText(text, button, successLabel) {

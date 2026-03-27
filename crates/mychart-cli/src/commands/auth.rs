@@ -3,7 +3,7 @@ use std::{
     net::{TcpListener, TcpStream},
     process::Command,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use clap::{Args, Subcommand};
@@ -202,18 +202,50 @@ pub(crate) fn run_login_command(args: AuthLoginArgs, context: &mut ResolvedConte
     run_login(args, context)
 }
 
-pub(crate) fn run_authorize_url_command(
-    args: AuthAuthorizeUrlArgs,
-    context: &mut ResolvedContext,
-) -> Result<Value> {
+pub(crate) fn run_authorize_url_command(args: AuthAuthorizeUrlArgs, context: &mut ResolvedContext) -> Result<Value> {
     run_authorize_url(args, context)
 }
 
-pub(crate) fn run_exchange_url_command(
-    args: AuthExchangeUrlArgs,
-    context: &mut ResolvedContext,
-) -> Result<Value> {
+pub(crate) fn run_exchange_url_command(args: AuthExchangeUrlArgs, context: &mut ResolvedContext) -> Result<Value> {
     exchange_url(args, context)
+}
+
+pub(crate) enum ApiSessionBootstrap {
+    Ready,
+    Pending(Value),
+}
+
+const ACCESS_TOKEN_REFRESH_SKEW_SECONDS: u64 = 60;
+const AUTO_LOGIN_TIMEOUT_SECONDS: u64 = 300;
+
+pub(crate) fn ensure_api_session(context: &mut ResolvedContext) -> Result<ApiSessionBootstrap> {
+    if access_token_is_fresh(context) {
+        return Ok(ApiSessionBootstrap::Ready);
+    }
+
+    if context.dynamic_client().is_some() {
+        match refresh_with_dynamic_client(context, false) {
+            Ok(_) => return Ok(ApiSessionBootstrap::Ready),
+            Err(error) if can_fallback_to_interactive_auth(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    if context.refresh_token.is_some() {
+        match refresh_with_refresh_token(
+            context,
+            AuthRefreshArgs {
+                refresh_token: None,
+                no_store: false,
+            },
+        ) {
+            Ok(_) => return Ok(ApiSessionBootstrap::Ready),
+            Err(error) if can_fallback_to_interactive_auth(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    interactive_auth_bootstrap(context)
 }
 
 #[derive(Debug)]
@@ -419,6 +451,59 @@ fn prepare_authorization(
     })
 }
 
+fn interactive_auth_bootstrap(context: &mut ResolvedContext) -> Result<ApiSessionBootstrap> {
+    let redirect_uri = context.require_redirect_uri(None)?;
+    if redirect_uri_uses_loopback(&redirect_uri)? {
+        run_login(
+            AuthLoginArgs {
+                options: AuthAuthorizeOptions {
+                    redirect_uri: None,
+                    scopes: Vec::new(),
+                    state: None,
+                    code_verifier: None,
+                },
+                timeout_seconds: AUTO_LOGIN_TIMEOUT_SECONDS,
+                no_open: false,
+                dynamic_client: false,
+            },
+            context,
+        )?;
+        return Ok(ApiSessionBootstrap::Ready);
+    }
+
+    let mut output = run_authorize_url(
+        AuthAuthorizeUrlArgs {
+            options: AuthAuthorizeOptions {
+                redirect_uri: None,
+                scopes: Vec::new(),
+                state: None,
+                code_verifier: None,
+            },
+            no_store: false,
+            no_open: false,
+        },
+        context,
+    )?;
+    if let Some(object) = output.as_object_mut() {
+        object.insert("status".into(), Value::String("authorization_pending".into()));
+        object.insert(
+            "selected_account".into(),
+            context
+                .active_account_name()
+                .map(|name| Value::String(name.to_owned()))
+                .unwrap_or(Value::Null),
+        );
+        object.insert(
+            "next_step".into(),
+            Value::String(
+                "Finish the browser login, run `mychart finish '<callback-url>'`, then rerun the original command."
+                    .into(),
+            ),
+        );
+    }
+    Ok(ApiSessionBootstrap::Pending(output))
+}
+
 fn exchange_code(
     context: &mut ResolvedContext,
     code: String,
@@ -552,7 +637,13 @@ fn exchange_url(args: AuthExchangeUrlArgs, context: &mut ResolvedContext) -> Res
             }),
         })?;
 
-    exchange_code(context, code, Some(normalized_expected.to_string()), None, args.no_store)
+    exchange_code(
+        context,
+        code,
+        Some(normalized_expected.to_string()),
+        None,
+        args.no_store,
+    )
 }
 
 #[derive(Debug)]
@@ -1001,6 +1092,35 @@ fn renewal_method(context: &ResolvedContext) -> &'static str {
     }
 }
 
+fn access_token_is_fresh(context: &ResolvedContext) -> bool {
+    if context.access_token.is_none() {
+        return false;
+    }
+
+    let Some(expires_at_epoch_seconds) = context.expires_at_epoch_seconds else {
+        return true;
+    };
+
+    current_epoch_seconds().saturating_add(ACCESS_TOKEN_REFRESH_SKEW_SECONDS) < expires_at_epoch_seconds
+}
+
+fn current_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn can_fallback_to_interactive_auth(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::Api {
+            status_code: 400 | 401 | 403,
+            ..
+        } | Error::Auth { .. }
+    )
+}
+
 fn token_exchange_auth_label(token_auth: TokenExchangeAuth, client_secret_present: bool) -> &'static str {
     match token_auth {
         TokenExchangeAuth::StoredClientStrategy if client_secret_present => "basic",
@@ -1027,6 +1147,15 @@ fn loopback_bind_address(redirect_uri: &Url) -> Result<String> {
         .port_or_known_default()
         .ok_or_else(|| Error::Arguments("auth login requires a redirect URI with an explicit port".into()))?;
     Ok(format!("{host}:{port}"))
+}
+
+pub(crate) fn redirect_uri_uses_loopback(redirect_uri: &str) -> Result<bool> {
+    let parsed = Url::parse(redirect_uri)
+        .map_err(|error| Error::Config(format!("invalid redirect URI {redirect_uri:?}: {error}")))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| Error::Arguments("auth login requires a redirect URI with an explicit host".into()))?;
+    Ok(host == "127.0.0.1" || host == "localhost")
 }
 
 fn wait_for_oauth_callback(
