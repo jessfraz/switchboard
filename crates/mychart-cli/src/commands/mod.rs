@@ -1,6 +1,6 @@
 mod api;
 pub(crate) mod appointments;
-mod auth;
+pub(crate) mod auth;
 mod claims;
 pub(crate) mod connect;
 mod labs;
@@ -13,7 +13,10 @@ mod timeline;
 
 pub(crate) use api::{run_api, ApiCommand};
 pub(crate) use appointments::{run_appointments, AppointmentsCommand};
-pub(crate) use auth::{run_auth, AuthCommand};
+pub(crate) use auth::{
+    run_auth, run_authorize_url_command, run_exchange_url_command, run_login_command, AuthAuthorizeOptions,
+    AuthAuthorizeUrlArgs, AuthCommand, AuthExchangeUrlArgs, AuthLoginArgs,
+};
 pub(crate) use claims::{run_claims, ClaimsCommand};
 pub(crate) use connect::{run_connect, ConnectCommand};
 pub(crate) use labs::{run_labs, LabsCommand};

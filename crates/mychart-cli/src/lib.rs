@@ -27,9 +27,11 @@ use crate::state::{MyChartState, StateStore};
 use crate::{
     client::{normalize_api_base_url, JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
-        run_api, run_appointments, run_auth, run_claims, run_connect, run_labs, run_meds, run_notes, run_pack,
-        run_portal, run_timeline, ApiCommand, AppointmentsCommand, AuthCommand, ClaimsCommand, ConnectCommand,
-        LabsCommand, MedsCommand, NotesCommand, PackCommand, PortalCommand, TimelineCommand,
+        run_api, run_appointments, run_auth, run_authorize_url_command, run_claims, run_connect,
+        run_exchange_url_command, run_labs, run_login_command, run_meds, run_notes, run_pack, run_portal,
+        run_timeline, ApiCommand, AppointmentsCommand, AuthAuthorizeOptions, AuthAuthorizeUrlArgs, AuthCommand,
+        AuthExchangeUrlArgs, AuthLoginArgs, ClaimsCommand, ConnectCommand, LabsCommand, MedsCommand, NotesCommand,
+        PackCommand, PortalCommand, TimelineCommand,
     },
     state::{
         ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
@@ -40,6 +42,8 @@ use crate::{
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
+    "  mychart login ucla\n",
+    "  mychart finish 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'\n",
     "  mychart connect search ucla\n",
     "  mychart connect ucla\n",
     "  mychart connect epic-sandbox\n",
@@ -102,6 +106,8 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
     let mut context = ResolvedContext::from_global(&cli.global).map_err(|error| (error, compact))?;
 
     let output = match cli.command {
+        Commands::Login(command) => run_easy_login(command, &mut context),
+        Commands::Finish(command) => run_easy_finish(command, &mut context),
         Commands::Connect(command) => run_connect(command.command, &mut context),
         Commands::Auth(command) => run_auth(command.command, &mut context),
         Commands::Api(command) => run_api(command.command, &mut context),
@@ -176,6 +182,8 @@ pub(crate) struct GlobalArgs {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    Login(LoginCommand),
+    Finish(FinishCommand),
     Connect(ConnectCommand),
     Auth(AuthCommand),
     Api(ApiCommand),
@@ -187,6 +195,90 @@ enum Commands {
     Claims(ClaimsCommand),
     Pack(PackCommand),
     Portal(PortalCommand),
+}
+
+#[derive(Debug, Args)]
+struct LoginCommand {
+    #[arg(value_name = "ACCOUNT_OR_PROVIDER")]
+    target: Vec<String>,
+
+    #[command(flatten)]
+    options: AuthAuthorizeOptions,
+
+    #[arg(long, default_value_t = 300)]
+    timeout_seconds: u64,
+
+    #[arg(long)]
+    no_open: bool,
+
+    #[arg(long)]
+    dynamic_client: bool,
+}
+
+#[derive(Debug, Args)]
+struct FinishCommand {
+    callback_url: String,
+
+    #[arg(long)]
+    no_store: bool,
+}
+
+fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Result<Value> {
+    if !command.target.is_empty() {
+        let tokens = command
+            .target
+            .iter()
+            .map(|token| OsString::from(token.as_str()))
+            .collect::<Vec<_>>();
+        crate::commands::connect::run_resolve_output(tokens, context)?;
+    }
+
+    let redirect_uri = context.require_redirect_uri(command.options.redirect_uri.clone())?;
+    if command.dynamic_client || redirect_uri_uses_loopback(&redirect_uri)? {
+        return run_login_command(
+            AuthLoginArgs {
+                options: command.options,
+                timeout_seconds: command.timeout_seconds,
+                no_open: command.no_open,
+                dynamic_client: command.dynamic_client,
+            },
+            context,
+        );
+    }
+
+    let mut output = run_authorize_url_command(
+        AuthAuthorizeUrlArgs {
+            options: command.options,
+            no_store: false,
+            no_open: command.no_open,
+        },
+        context,
+    )?;
+    if let Some(object) = output.as_object_mut() {
+        object.insert("status".into(), Value::String("authorization_pending".into()));
+        object.insert(
+            "selected_account".into(),
+            context
+                .active_account_name()
+                .map(|name| Value::String(name.to_owned()))
+                .unwrap_or(Value::Null),
+        );
+        object.insert(
+            "next_step".into(),
+            Value::String("After the browser finishes, run `mychart finish '<callback-url>'` in this repo.".into()),
+        );
+    }
+    Ok(output)
+}
+
+fn run_easy_finish(command: FinishCommand, context: &mut ResolvedContext) -> Result<Value> {
+    run_exchange_url_command(
+        AuthExchangeUrlArgs {
+            callback_url: command.callback_url,
+            no_store: command.no_store,
+        },
+        context,
+    )
 }
 
 fn api_client(base_url: &str) -> Result<MyChartClient> {
