@@ -1697,7 +1697,8 @@ mod tests {
     use serde_json::json;
     use switchboard_core::{
         AggregateReadRequest, ApprovalState, DispatchOutcome, ExecutionMode, NamespaceId, OperationEffect,
-        OperationOutcome, OperationRequest, StoredAuditEvent, ToolName, ToolOutput, ToolRequest,
+        OperationOutcome, OperationRequest, StoredAuditEvent, ToolExecutionSupport, ToolName, ToolOutput, ToolRequest,
+        ToolSurface, ToolUndoSupport,
     };
 
     use crate::{
@@ -2656,44 +2657,32 @@ mod tests {
 
         assert_eq!(value.status, "ok");
         assert!(
-            value
-                .tools
-                .iter()
-                .any(|tool| {
-                    tool.name == ToolName::new("google.mail.search").expect("tool should build")
-                        && tool.surface == ToolSurface::Curated
-                        && tool.execution_support == ToolExecutionSupport::Executable
-                }),
+            value.tools.iter().any(|tool| {
+                tool.name == ToolName::new("google.mail.search").expect("tool should build")
+                    && tool.surface == ToolSurface::Curated
+                    && tool.execution_support == ToolExecutionSupport::Executable
+            }),
             "expected curated google tool in catalog"
         );
         assert!(
-            value
-                .tools
-                .iter()
-                .any(|tool| {
-                    tool.name == ToolName::new("google.cli.write").expect("tool should build")
-                        && tool.surface == ToolSurface::Raw
-                }),
+            value.tools.iter().any(|tool| {
+                tool.name == ToolName::new("google.cli.write").expect("tool should build")
+                    && tool.surface == ToolSurface::Raw
+            }),
             "expected raw google write tool in catalog"
         );
         assert!(
-            value
-                .tools
-                .iter()
-                .any(|tool| {
-                    tool.name == ToolName::new("github.cli.read").expect("tool should build")
-                        && tool.surface == ToolSurface::Raw
-                }),
+            value.tools.iter().any(|tool| {
+                tool.name == ToolName::new("github.cli.read").expect("tool should build")
+                    && tool.surface == ToolSurface::Raw
+            }),
             "expected raw github read tool in catalog"
         );
         assert!(
-            value
-                .tools
-                .iter()
-                .any(|tool| {
-                    tool.name == ToolName::new("google.calendar.create").expect("tool should build")
-                        && tool.undo_support == ToolUndoSupport::CompensatingAction
-                }),
+            value.tools.iter().any(|tool| {
+                tool.name == ToolName::new("google.calendar.create").expect("tool should build")
+                    && tool.undo_support == ToolUndoSupport::CompensatingAction
+            }),
             "expected undoable calendar create tool in catalog"
         );
     }

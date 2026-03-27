@@ -106,7 +106,8 @@ mod tests {
     use serde_json::Value;
     use switchboard_core::{
         Adapter, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
-        ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument, ToolRequest,
+        ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest,
+        ToolSurface,
     };
 
     use crate::{
@@ -375,6 +376,26 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=repo view openai/codex --json name,owner,isPrivate"));
+    }
+
+    #[test]
+    fn manifest_catalog_marks_raw_and_planning_only_metadata() {
+        let adapter = GitHubAdapter::default();
+        let notifications = adapter
+            .find_tool(&ToolName::new("github.notifications.list").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(notifications.surface, ToolSurface::Curated);
+        assert_eq!(notifications.execution_support, ToolExecutionSupport::Executable);
+
+        let repository_search = adapter
+            .find_tool(&ToolName::new("github.repository.search").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(repository_search.execution_support, ToolExecutionSupport::PlanningOnly);
+
+        let raw_read = adapter
+            .find_tool(&ToolName::new("github.cli.read").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(raw_read.surface, ToolSurface::Raw);
     }
 
     fn render_github_script() -> String {

@@ -4,16 +4,13 @@ mod materializer;
 use std::sync::OnceLock;
 
 use switchboard_core::{
-    Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolArgument,
-    ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolArgument, ToolDescriptor,
+    ToolKind, ToolOutput, ToolRequest,
 };
 
 use crate::{
     cli::{CliProviderBackend, CliProviderCatalog},
-    google::{
-        commands::HANDLERS,
-        materializer::DefaultGoogleWorkspaceCliMaterializer,
-    },
+    google::{commands::HANDLERS, materializer::DefaultGoogleWorkspaceCliMaterializer},
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
 static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
@@ -142,7 +139,7 @@ mod tests {
     use switchboard_core::{
         Adapter, ApprovalState, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationApproval,
         PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument,
-        ToolRequest,
+        ToolExecutionSupport, ToolName, ToolRequest, ToolSurface, ToolUndoSupport,
     };
 
     use crate::{
@@ -551,6 +548,27 @@ mod tests {
         assert_eq!(request.namespace.to_string(), "google.work");
         assert_eq!(request.args.value("event-id"), Some("event-1960budgetwork"));
         assert_eq!(request.args.value("calendar"), Some("primary"));
+    }
+
+    #[test]
+    fn manifest_catalog_marks_raw_planning_and_undo_metadata() {
+        let adapter = GoogleWorkspaceAdapter::default();
+        let calendar_create = adapter
+            .find_tool(&ToolName::new("google.calendar.create").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(calendar_create.surface, ToolSurface::Curated);
+        assert_eq!(calendar_create.execution_support, ToolExecutionSupport::Executable);
+        assert_eq!(calendar_create.undo_support, ToolUndoSupport::CompensatingAction);
+
+        let mail_send = adapter
+            .find_tool(&ToolName::new("google.mail.send").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(mail_send.execution_support, ToolExecutionSupport::PlanningOnly);
+
+        let raw_write = adapter
+            .find_tool(&ToolName::new("google.cli.write").expect("tool should build"))
+            .expect("tool should exist");
+        assert_eq!(raw_write.surface, ToolSurface::Raw);
     }
 
     fn google_test_script() -> TempScript {

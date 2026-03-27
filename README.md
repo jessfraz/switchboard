@@ -368,6 +368,18 @@ All write tools should support `--plan`, `--draft`, or both.
 Curated tools are the nice normalized layer.
 Raw `*.cli.read` and `*.cli.write` tools are the coverage layer, they let the model reach the full underlying CLI surface immediately while still staying inside namespace resolution, auth isolation, policy, and audit.
 
+The command catalog should come from embedded manifests, one per underlying CLI.
+Those manifests describe the boring truth:
+
+- tool name
+- read vs write
+- raw vs curated
+- executable today vs planning-only
+- whether undo is supported honestly through a compensating action
+
+Rust still owns the smart parts, auth materialization, codecs, effect extraction, and compensation logic.
+The manifest is the stable inventory, not a replacement for typed code.
+
 You should be able to discover that surface without reading the source:
 
 ```text

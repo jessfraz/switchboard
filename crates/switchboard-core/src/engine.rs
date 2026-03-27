@@ -625,12 +625,16 @@ mod tests {
         }
 
         fn tools(&self) -> &'static [ToolDescriptor] {
-            &[ToolDescriptor {
-                name: "github.issue.comment",
-                kind: ToolKind::Write,
-                summary: "Comment on a GitHub issue",
-                backend: BackendKind::Cli,
-            }]
+            static TOOLS: std::sync::OnceLock<Vec<ToolDescriptor>> = std::sync::OnceLock::new();
+            TOOLS.get_or_init(|| {
+                vec![ToolDescriptor::new(
+                    "github.issue.comment",
+                    ToolKind::Write,
+                    "Comment on a GitHub issue",
+                    BackendKind::Cli,
+                )
+                .expect("test tool descriptor should build")]
+            })
         }
 
         fn plan(

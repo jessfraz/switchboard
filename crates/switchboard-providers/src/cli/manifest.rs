@@ -8,12 +8,16 @@ use switchboard_core::{
 
 use crate::cli::command::{CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliExecutableSpec, CliResponse};
 
+type CliSummarizeFn = fn(&ResolvedNamespace, &ToolRequest) -> Result<String>;
+type CliBuildArgsFn = fn(&PlannedAction) -> Result<Vec<String>>;
+type CliDecodeFn = fn(&ExecutionTarget, &PlannedAction, CliResponse) -> Result<ToolOutput>;
+
 #[derive(Clone, Copy)]
 pub(crate) struct CliCommandHandler {
     pub id: &'static str,
-    pub summarize: fn(&ResolvedNamespace, &ToolRequest) -> Result<String>,
-    pub build_args: Option<fn(&PlannedAction) -> Result<Vec<String>>>,
-    pub decode: Option<fn(&ExecutionTarget, &PlannedAction, CliResponse) -> Result<ToolOutput>>,
+    pub summarize: CliSummarizeFn,
+    pub build_args: Option<CliBuildArgsFn>,
+    pub decode: Option<CliDecodeFn>,
 }
 
 pub(crate) struct CliProviderCatalog {
@@ -22,12 +26,9 @@ pub(crate) struct CliProviderCatalog {
 }
 
 impl CliProviderCatalog {
-    pub(crate) fn from_embedded(
-        manifest_json: &'static str,
-        handlers: &'static [CliCommandHandler],
-    ) -> Result<Self> {
-        let manifest: CliManifest =
-            serde_json::from_str(manifest_json).map_err(|error| Error::Config(format!("invalid CLI manifest: {error}")))?;
+    pub(crate) fn from_embedded(manifest_json: &'static str, handlers: &'static [CliCommandHandler]) -> Result<Self> {
+        let manifest: CliManifest = serde_json::from_str(manifest_json)
+            .map_err(|error| Error::Config(format!("invalid CLI manifest: {error}")))?;
 
         let binaries = manifest
             .binaries
@@ -108,10 +109,7 @@ impl CliProviderCatalog {
             let executable = match command.execution {
                 CliManifestExecution::Executable { binary, capability } => {
                     let binary = binaries.get(&binary).cloned().ok_or_else(|| {
-                        Error::Config(format!(
-                            "tool {} references unknown binary {binary}",
-                            descriptor.name
-                        ))
+                        Error::Config(format!("tool {} references unknown binary {binary}", descriptor.name))
                     })?;
                     let capability = capabilities.get(&capability).cloned().ok_or_else(|| {
                         Error::Config(format!(

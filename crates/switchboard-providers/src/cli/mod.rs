@@ -7,7 +7,7 @@ mod probe;
 mod runtime;
 
 pub(crate) use crate::cli::{
-    command::{CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliExecutableSpec, CliResponse},
+    command::{CliCommandSpec, CliResponse},
     manifest::{CliCommandHandler, CliProviderCatalog},
     runtime::{CliProviderBackend, CliRuntimeMaterializer},
 };
