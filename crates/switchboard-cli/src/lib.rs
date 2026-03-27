@@ -12,14 +12,14 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
-    AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuthStore, BackendKind, DispatchOutcome, ExecutionMode,
-    NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest, ProviderKind,
-    RegisteredTool, ResolvedNamespace, SecretResolver, SecretStore, StoredOperation, Switchboard, SwitchboardServices,
-    ToolArgument, ToolKind, ToolName, ToolOutput, ToolRef, ToolRequest,
+    AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuditEventId, AuthStore, BackendKind, DispatchOutcome,
+    ExecutionMode, NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest,
+    ProviderKind, RegisteredTool, ResolvedNamespace, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
+    Switchboard, SwitchboardServices, ToolArgument, ToolKind, ToolName, ToolOutput, ToolRef, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
-    resolve_operation_store_path, LocalSecretResolver, MemoryAuditSink, SqliteOperationStore, SwitchboardConfig,
+    resolve_operation_store_path, LocalSecretResolver, SqliteAuditStore, SqliteOperationStore, SwitchboardConfig,
 };
 
 #[cfg(test)]
@@ -30,6 +30,7 @@ const AFTER_HELP: &str = concat!(
     "  switchboard ns list\n",
     "  switchboard tools list\n",
     "  switchboard tools describe google.cli.write\n",
+    "  switchboard audit list\n",
     "  switchboard op list\n",
     "  switchboard github.notifications.list --ns github.personal --json\n",
     "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
@@ -37,6 +38,7 @@ const AFTER_HELP: &str = concat!(
     "  switchboard google.cli.read --ns google.work --json -- calendar +agenda --format json --today\n",
     "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n",
     "  switchboard op approve op_1234abcd --actor codex --note 'ship it'\n",
+    "  switchboard op undo op_1234abcd --apply --json\n",
     "  switchboard op apply op_1234abcd --json\n"
 );
 
@@ -45,8 +47,9 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config = SwitchboardConfig::from_file(&config_path).context("failed to load switchboard config")?;
     let policy = config.policy_engine();
     let (namespaces, auth, secrets) = config.into_stores();
-    let operations = SqliteOperationStore::open(resolve_operation_store_path(&config_path))
-        .context("failed to open operation store")?;
+    let state_db_path = resolve_operation_store_path(&config_path);
+    let operations = SqliteOperationStore::open(&state_db_path).context("failed to open operation store")?;
+    let audit = SqliteAuditStore::open(&state_db_path).context("failed to open audit store")?;
 
     Ok(build_switchboard(
         Arc::new(namespaces),
@@ -54,6 +57,7 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
         Arc::new(secrets),
         Arc::new(LocalSecretResolver::default()),
         Arc::new(policy),
+        Arc::new(audit),
         Arc::new(operations),
     ))
 }
@@ -64,9 +68,9 @@ fn build_switchboard(
     secrets: Arc<dyn SecretStore>,
     secret_resolver: Arc<dyn SecretResolver>,
     policy: Arc<dyn switchboard_core::PolicyEngine>,
+    audit: Arc<dyn switchboard_core::AuditStore>,
     operations: Arc<dyn switchboard_core::OperationStore>,
 ) -> Switchboard {
-    let audit = Arc::new(MemoryAuditSink::default());
     let adapters = default_registry();
 
     Switchboard::new(
@@ -132,6 +136,7 @@ fn run(cli: Cli) -> Result<String> {
             }
         }
         CommandKind::ToolCatalog(command) => run_tool_catalog_command(&switchboard, command),
+        CommandKind::Audit(command) => run_audit_command(&switchboard, command),
         CommandKind::Operation(request) => {
             let outcome = switchboard.execute_operation(request)?;
 
@@ -142,6 +147,57 @@ fn run(cli: Cli) -> Result<String> {
             }
         }
         CommandKind::StoredOperation(command) => run_stored_operation_command(&switchboard, command),
+    }
+}
+
+fn run_audit_command(switchboard: &Switchboard, command: AuditRuntimeCommand) -> Result<String> {
+    match command {
+        AuditRuntimeCommand::List { operation_id, json } => {
+            let events = match operation_id.as_ref() {
+                Some(operation_id) => switchboard.list_audit_events_for_operation(operation_id),
+                None => switchboard.list_audit_events(),
+            };
+
+            if json {
+                render_json(
+                    &AuditListResponse {
+                        status: "ok",
+                        events: &events,
+                    },
+                    true,
+                )
+            } else {
+                Ok(render_audit_events_human(&events))
+            }
+        }
+        AuditRuntimeCommand::Show { selector, json } => {
+            let selection = match selector {
+                AuditSelector::EventId(id) => AuditSelection::Single(
+                    switchboard
+                        .get_audit_event(&id)
+                        .ok_or_else(|| anyhow!(switchboard_core::Error::UnknownAuditEvent(id.clone())))?,
+                ),
+                AuditSelector::OperationId(id) => {
+                    AuditSelection::Operation(id.clone(), switchboard.list_audit_events_for_operation(&id))
+                }
+            };
+
+            if json {
+                match &selection {
+                    AuditSelection::Single(event) => render_json(&AuditEventResponse { status: "ok", event }, true),
+                    AuditSelection::Operation(operation_id, events) => render_json(
+                        &AuditOperationResponse {
+                            status: "ok",
+                            operation_id,
+                            events,
+                        },
+                        true,
+                    ),
+                }
+            } else {
+                Ok(render_audit_selection_human(&selection))
+            }
+        }
     }
 }
 
@@ -256,6 +312,14 @@ fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperat
                 Ok(render_output_human(&output))
             }
         }
+        StoredOperationCommand::Undo { id, mode, json } => {
+            let outcome = switchboard.undo_operation(&id, mode)?;
+            if json {
+                render_json_dispatch(&outcome)
+            } else {
+                Ok(render_dispatch_human(&outcome))
+            }
+        }
     }
 }
 
@@ -280,6 +344,7 @@ impl Cli {
         match &self.command {
             Commands::Ns(namespace) => namespace.json_requested(),
             Commands::Tools(tools) => tools.json_requested(),
+            Commands::Audit(audit) => audit.json_requested(),
             Commands::Op(operation) => operation.json_requested(),
             Commands::Tool(tokens) => contains_json_os_tokens(tokens),
         }
@@ -290,6 +355,7 @@ impl Cli {
 enum Commands {
     Ns(NamespaceCommand),
     Tools(ToolCatalogCommand),
+    Audit(AuditCommand),
     Op(OperationCommand),
     #[command(external_subcommand)]
     Tool(Vec<OsString>),
@@ -300,6 +366,7 @@ impl Commands {
         match self {
             Self::Ns(namespace) => Ok(namespace.into_runtime_command()),
             Self::Tools(tools) => tools.into_runtime_command(),
+            Self::Audit(audit) => audit.into_runtime_command(),
             Self::Op(operation) => operation.into_runtime_command(),
             Self::Tool(tokens) => parse_external_tool_invocation(tokens).map(CommandKind::Operation),
         }
@@ -373,6 +440,57 @@ struct ToolCatalogDescribeArgs {
 }
 
 #[derive(Debug, Args)]
+struct AuditCommand {
+    #[command(subcommand)]
+    command: AuditSubcommand,
+}
+
+impl AuditCommand {
+    fn json_requested(&self) -> bool {
+        match &self.command {
+            AuditSubcommand::List(arguments) => arguments.json,
+            AuditSubcommand::Show(arguments) => arguments.json,
+        }
+    }
+
+    fn into_runtime_command(self) -> Result<CommandKind> {
+        let command = match self.command {
+            AuditSubcommand::List(arguments) => AuditRuntimeCommand::List {
+                operation_id: arguments.operation_id.map(OperationId::new).transpose()?,
+                json: arguments.json,
+            },
+            AuditSubcommand::Show(arguments) => AuditRuntimeCommand::Show {
+                selector: parse_audit_selector(&arguments.selector)?,
+                json: arguments.json,
+            },
+        };
+
+        Ok(CommandKind::Audit(command))
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum AuditSubcommand {
+    List(AuditListArgs),
+    Show(AuditShowArgs),
+}
+
+#[derive(Debug, Args)]
+struct AuditListArgs {
+    #[arg(long = "operation-id")]
+    operation_id: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct AuditShowArgs {
+    selector: String,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
 struct OperationCommand {
     #[command(subcommand)]
     command: OperationSubcommand,
@@ -386,6 +504,7 @@ impl OperationCommand {
             OperationSubcommand::Approve(arguments) => arguments.json,
             OperationSubcommand::Reject(arguments) => arguments.json,
             OperationSubcommand::Apply(arguments) => arguments.json,
+            OperationSubcommand::Undo(arguments) => arguments.json,
         }
     }
 
@@ -412,6 +531,11 @@ impl OperationCommand {
                 id: OperationId::new(arguments.id)?,
                 json: arguments.json,
             },
+            OperationSubcommand::Undo(arguments) => StoredOperationCommand::Undo {
+                id: OperationId::new(arguments.id)?,
+                mode: operation_write_mode(arguments.apply),
+                json: arguments.json,
+            },
         };
 
         Ok(CommandKind::StoredOperation(command))
@@ -425,6 +549,7 @@ enum OperationSubcommand {
     Approve(OperationDecisionArgs),
     Reject(OperationDecisionArgs),
     Apply(OperationApplyArgs),
+    Undo(OperationUndoArgs),
 }
 
 #[derive(Debug, Args)]
@@ -458,6 +583,15 @@ struct OperationApplyArgs {
     json: bool,
 }
 
+#[derive(Debug, Args)]
+struct OperationUndoArgs {
+    id: String,
+    #[arg(long)]
+    apply: bool,
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum NamespaceSubcommand {
     List(ListNamespaceArgs),
@@ -473,6 +607,7 @@ struct ListNamespaceArgs {
 enum CommandKind {
     NamespaceList,
     ToolCatalog(ToolCatalogRuntimeCommand),
+    Audit(AuditRuntimeCommand),
     Operation(OperationRequest),
     StoredOperation(StoredOperationCommand),
 }
@@ -481,6 +616,30 @@ enum CommandKind {
 enum ToolCatalogRuntimeCommand {
     List { json: bool },
     Describe { tool: ToolName, json: bool },
+}
+
+#[derive(Debug)]
+enum AuditRuntimeCommand {
+    List {
+        operation_id: Option<OperationId>,
+        json: bool,
+    },
+    Show {
+        selector: AuditSelector,
+        json: bool,
+    },
+}
+
+#[derive(Debug)]
+enum AuditSelector {
+    EventId(AuditEventId),
+    OperationId(OperationId),
+}
+
+#[derive(Debug)]
+enum AuditSelection {
+    Single(StoredAuditEvent),
+    Operation(OperationId, Vec<StoredAuditEvent>),
 }
 
 #[derive(Debug)]
@@ -508,12 +667,36 @@ enum StoredOperationCommand {
         id: OperationId,
         json: bool,
     },
+    Undo {
+        id: OperationId,
+        mode: ExecutionMode,
+        json: bool,
+    },
 }
 
 fn default_actor() -> String {
     env::var("USER")
         .or_else(|_| env::var("USERNAME"))
         .unwrap_or_else(|_| "switchboard-user".to_owned())
+}
+
+fn operation_write_mode(apply: bool) -> ExecutionMode {
+    if apply {
+        ExecutionMode::Apply
+    } else {
+        ExecutionMode::Draft
+    }
+}
+
+fn parse_audit_selector(value: &str) -> Result<AuditSelector> {
+    if value.starts_with("audit_") {
+        return Ok(AuditSelector::EventId(AuditEventId::new(value.to_owned())?));
+    }
+    if value.starts_with("op_") {
+        return Ok(AuditSelector::OperationId(OperationId::new(value.to_owned())?));
+    }
+
+    bail!("audit selector must be an audit_* event id or op_* operation id");
 }
 
 #[derive(Debug, Default)]
@@ -663,6 +846,65 @@ fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     output
 }
 
+fn render_audit_events_human(events: &[StoredAuditEvent]) -> String {
+    let mut output = String::from("Audit Events\n");
+    for event in events {
+        output.push_str(&format!(
+            "- {} {} {} outcome={} recorded_at={}\n",
+            event.id,
+            event.tool,
+            event.namespace,
+            render_audit_outcome(&event.outcome),
+            event.recorded_at
+        ));
+    }
+
+    output
+}
+
+fn render_audit_selection_human(selection: &AuditSelection) -> String {
+    match selection {
+        AuditSelection::Single(event) => render_audit_event_human(event),
+        AuditSelection::Operation(operation_id, events) => {
+            let mut output = format!("Audit for operation {operation_id}\n");
+            if events.is_empty() {
+                output.push_str("- no audit events recorded\n");
+            } else {
+                for event in events {
+                    output.push_str(&format!(
+                        "- {} outcome={} recorded_at={} summary={}\n",
+                        event.id,
+                        render_audit_outcome(&event.outcome),
+                        event.recorded_at,
+                        event.summary
+                    ));
+                }
+            }
+            output
+        }
+    }
+}
+
+fn render_audit_event_human(event: &StoredAuditEvent) -> String {
+    let mut output = String::new();
+    output.push_str(&format!("Audit Event: {}\n", event.id));
+    output.push_str(&format!("Recorded at: {}\n", event.recorded_at));
+    output.push_str(&format!("Outcome: {}\n", render_audit_outcome(&event.outcome)));
+    output.push_str(&format!("Tool: {}\n", event.tool));
+    output.push_str(&format!("Namespace: {}\n", event.namespace));
+    output.push_str(&format!("Auth: {}\n", event.auth_ref));
+    output.push_str(&format!("Backend: {}\n", event.backend));
+    output.push_str(&format!("Summary: {}\n", event.summary));
+    output.push_str(&format!("Approval required: {}\n", event.approval_required));
+    if let Some(operation_id) = &event.operation_id {
+        output.push_str(&format!("Operation ID: {operation_id}\n"));
+    }
+    if let Some(operation_id) = &event.compensates_operation_id {
+        output.push_str(&format!("Compensates: {operation_id}\n"));
+    }
+    output
+}
+
 fn render_tools_human(tools: &[RegisteredTool]) -> String {
     let mut output = String::from("Tools\n");
     for tool in tools {
@@ -754,6 +996,9 @@ fn render_stored_operation_human(operation: &StoredOperation) -> String {
         "Approval: {}\n",
         render_approval_state(operation.approval.state)
     ));
+    if let Some(operation_id) = &operation.compensates_operation_id {
+        output.push_str(&format!("Compensates: {operation_id}\n"));
+    }
     if let Some(reason) = &operation.approval_reason {
         output.push_str(&format!("Approval reason: {reason}\n"));
     }
@@ -791,6 +1036,9 @@ fn render_dispatch_human(outcome: &DispatchOutcome) -> String {
             output.push_str(&format!("Approval required: {}\n", plan.approval_required));
             if let Some(operation_id) = &plan.operation_id {
                 output.push_str(&format!("Operation ID: {operation_id}\n"));
+            }
+            if let Some(operation_id) = &plan.compensates_operation_id {
+                output.push_str(&format!("Compensates: {operation_id}\n"));
             }
             if let Some(reason) = &plan.approval_reason {
                 output.push_str(&format!("Approval reason: {reason}\n"));
@@ -948,6 +1196,18 @@ fn render_operation_status(status: switchboard_core::OperationStatus) -> &'stati
     }
 }
 
+fn render_audit_outcome(outcome: &switchboard_core::AuditOutcome) -> &'static str {
+    match outcome {
+        switchboard_core::AuditOutcome::Planned => "planned",
+        switchboard_core::AuditOutcome::Approved => "approved",
+        switchboard_core::AuditOutcome::Rejected => "rejected",
+        switchboard_core::AuditOutcome::Executed => "executed",
+        switchboard_core::AuditOutcome::Failed => "failed",
+        switchboard_core::AuditOutcome::Compensated => "compensated",
+        switchboard_core::AuditOutcome::Blocked => "blocked",
+    }
+}
+
 fn render_aggregate_read_human(outcome: &AggregateReadOutcome) -> String {
     let namespaces = outcome
         .namespaces
@@ -1099,6 +1359,25 @@ struct NamespaceListResponse {
 }
 
 #[derive(Serialize)]
+struct AuditListResponse<'a> {
+    status: &'static str,
+    events: &'a [StoredAuditEvent],
+}
+
+#[derive(Serialize)]
+struct AuditEventResponse<'a> {
+    status: &'static str,
+    event: &'a StoredAuditEvent,
+}
+
+#[derive(Serialize)]
+struct AuditOperationResponse<'a> {
+    status: &'static str,
+    operation_id: &'a OperationId,
+    events: &'a [StoredAuditEvent],
+}
+
+#[derive(Serialize)]
 struct ToolCatalogListResponse {
     status: &'static str,
     tools: Vec<ToolCatalogEntry>,
@@ -1212,6 +1491,8 @@ enum DispatchResponse<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         operation_id: Option<&'a switchboard_core::OperationId>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        compensates_operation_id: Option<&'a switchboard_core::OperationId>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         approval_reason: Option<&'a str>,
     },
     Executed {
@@ -1243,6 +1524,7 @@ impl<'a> DispatchResponse<'a> {
             backend: plan.backend,
             approval_required: plan.approval_required,
             operation_id: plan.operation_id.as_ref(),
+            compensates_operation_id: plan.compensates_operation_id.as_ref(),
             approval_reason: plan.approval_reason.as_deref(),
         }
     }
@@ -1295,8 +1577,8 @@ mod tests {
     use serde::{de::DeserializeOwned, Deserialize};
     use serde_json::json;
     use switchboard_core::{
-        AggregateReadRequest, DispatchOutcome, ExecutionMode, NamespaceId, OperationOutcome, OperationRequest,
-        ToolName, ToolOutput, ToolRequest,
+        AggregateReadRequest, ApprovalState, DispatchOutcome, ExecutionMode, NamespaceId, OperationEffect,
+        OperationOutcome, OperationRequest, StoredAuditEvent, ToolName, ToolOutput, ToolRequest,
     };
 
     use crate::{
@@ -1332,6 +1614,10 @@ mod tests {
     const GOOGLE_CALENDAR_CREATE_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-calendar-create.json"
+    ));
+    const GOOGLE_CALENDAR_DELETE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-calendar-delete.json"
     ));
     const GITHUB_NOTIFICATIONS_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1369,39 +1655,40 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct JsonPlannedResponse {
         status: String,
-        tool: String,
-        namespace: String,
+        tool: ToolName,
+        namespace: NamespaceId,
         summary: String,
-        backend: String,
+        backend: switchboard_core::BackendKind,
         approval_required: bool,
-        operation_id: Option<String>,
+        operation_id: Option<switchboard_core::OperationId>,
+        compensates_operation_id: Option<switchboard_core::OperationId>,
         approval_reason: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
     struct JsonExecutedResponse<TFields> {
         status: String,
-        tool: String,
-        namespace: String,
+        tool: ToolName,
+        namespace: NamespaceId,
         summary: String,
         fields: TFields,
         #[serde(default)]
-        refs: Vec<JsonToolRef>,
-        operation_id: Option<String>,
-        effect: Option<JsonOperationEffect>,
+        refs: Vec<switchboard_core::ToolRef>,
+        operation_id: Option<switchboard_core::OperationId>,
+        effect: Option<OperationEffect>,
     }
 
     #[derive(Debug, Deserialize)]
     struct JsonAggregateReadResponse<TFields> {
         status: String,
-        tool: String,
-        namespaces: Vec<String>,
+        tool: ToolName,
+        namespaces: Vec<NamespaceId>,
         results: Vec<JsonAggregateReadResult<TFields>>,
     }
 
     #[derive(Debug, Deserialize)]
     struct JsonAggregateReadResult<TFields> {
-        namespace: String,
+        namespace: NamespaceId,
         outcome: JsonExecutedResponse<TFields>,
     }
 
@@ -1413,12 +1700,16 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     struct JsonStoredOperation {
+        id: switchboard_core::OperationId,
+        status: switchboard_core::OperationStatus,
+        compensates_operation_id: Option<switchboard_core::OperationId>,
         approval: JsonOperationApproval,
+        effect: Option<OperationEffect>,
     }
 
     #[derive(Debug, Deserialize)]
     struct JsonOperationApproval {
-        state: String,
+        state: ApprovalState,
     }
 
     #[derive(Debug, Deserialize)]
@@ -1429,20 +1720,27 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     struct JsonToolCatalogEntry {
-        name: String,
+        name: ToolName,
         raw: bool,
     }
 
     #[derive(Debug, Deserialize)]
-    struct JsonToolRef {
-        kind: String,
-        #[serde(default)]
-        parent_id: Option<String>,
+    struct JsonAuditListResponse {
+        status: String,
+        events: Vec<StoredAuditEvent>,
     }
 
     #[derive(Debug, Deserialize)]
-    struct JsonOperationEffect {
-        undoable: bool,
+    struct JsonAuditEventEnvelope {
+        status: String,
+        event: StoredAuditEvent,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct JsonAuditOperationEnvelope {
+        status: String,
+        operation_id: switchboard_core::OperationId,
+        events: Vec<StoredAuditEvent>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -1469,6 +1767,23 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct GoogleDraftPayload {
         id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoogleCalendarDeleteFields {
+        event: GoogleCalendarDeleteEvent,
+        response: GoogleCalendarDeleteResponse,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoogleCalendarDeleteEvent {
+        event_id: String,
+        calendar: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct GoogleCalendarDeleteResponse {
+        status: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -1587,13 +1902,21 @@ mod tests {
         let draft_output = run(draft).expect("draft should succeed");
         let draft_value: JsonPlannedResponse = parse_json(&draft_output);
         assert_eq!(draft_value.status, "planned");
-        assert_eq!(draft_value.tool, "google.calendar.create");
-        assert_eq!(draft_value.namespace, "google.work");
-        assert_eq!(draft_value.backend, "cli");
+        assert_eq!(
+            draft_value.tool,
+            ToolName::new("google.calendar.create").expect("tool should build")
+        );
+        assert_eq!(
+            draft_value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
+        assert_eq!(draft_value.backend, switchboard_core::BackendKind::Cli);
         assert!(draft_value.summary.contains("calendar"));
         assert!(draft_value.approval_required);
         assert!(draft_value.approval_reason.is_some());
         let operation_id = draft_value.operation_id.expect("draft operation id should exist");
+        assert!(draft_value.compensates_operation_id.is_none());
+        let operation_id_string = operation_id.to_string();
 
         let approve = Cli::try_parse_from([
             "switchboard",
@@ -1601,7 +1924,7 @@ mod tests {
             &config_path,
             "op",
             "approve",
-            &operation_id,
+            &operation_id_string,
             "--actor",
             "codex",
             "--note",
@@ -1613,7 +1936,12 @@ mod tests {
         let approve_output = run(approve).expect("approve should succeed");
         let approve_value: JsonStoredOperationEnvelope = parse_json(&approve_output);
         assert_eq!(approve_value.status, "approved");
-        assert_eq!(approve_value.operation.approval.state, "approved");
+        assert_eq!(approve_value.operation.id, operation_id);
+        assert_eq!(
+            approve_value.operation.status,
+            switchboard_core::OperationStatus::Planned
+        );
+        assert_eq!(approve_value.operation.approval.state, ApprovalState::Approved);
 
         let apply = Cli::try_parse_from([
             "switchboard",
@@ -1621,7 +1949,7 @@ mod tests {
             &config_path,
             "op",
             "apply",
-            &operation_id,
+            &operation_id_string,
             "--json",
         ])
         .expect("apply cli should parse");
@@ -1629,12 +1957,18 @@ mod tests {
         let apply_output = run(apply).expect("apply should succeed");
         let apply_value: JsonExecutedResponse<BTreeMap<String, serde_json::Value>> = parse_json(&apply_output);
         assert_eq!(apply_value.status, "executed");
-        assert_eq!(apply_value.tool, "google.calendar.create");
-        assert_eq!(apply_value.namespace, "google.work");
+        assert_eq!(
+            apply_value.tool,
+            ToolName::new("google.calendar.create").expect("tool should build")
+        );
+        assert_eq!(
+            apply_value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert!(apply_value.summary.contains("calendar"));
-        assert_eq!(apply_value.operation_id.as_deref(), Some(operation_id.as_str()));
+        assert_eq!(apply_value.operation_id.as_ref(), Some(&operation_id));
         assert_eq!(apply_value.effect.as_ref().map(|effect| effect.undoable), Some(true));
-        assert_eq!(apply_value.refs[0].kind, "event");
+        assert_eq!(apply_value.refs[0].kind, switchboard_core::ToolRefKind::Event);
         assert!(
             environment
                 .gws_capture_contents()
@@ -1669,11 +2003,294 @@ mod tests {
         let value: JsonExecutedResponse<BTreeMap<String, serde_json::Value>> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "google.calendar.create");
-        assert_eq!(value.namespace, "google.work");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.calendar.create").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert!(value.summary.contains("calendar"));
         assert_eq!(value.effect.as_ref().map(|effect| effect.undoable), Some(true));
-        assert_eq!(value.refs[0].kind, "event");
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Event);
+    }
+
+    #[test]
+    fn audit_commands_show_persisted_operation_history() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+
+        let draft = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.calendar.create",
+            "--ns",
+            "google.work",
+            "--title",
+            "Vet visit",
+            "--start",
+            "2026-04-02T09:00:00-07:00",
+            "--end",
+            "2026-04-02T10:00:00-07:00",
+            "--draft",
+            "--json",
+        ])
+        .expect("draft cli should parse");
+
+        let draft_output = run(draft).expect("draft should succeed");
+        let draft_value: JsonPlannedResponse = parse_json(&draft_output);
+        let operation_id = draft_value.operation_id.expect("operation id should exist");
+        let operation_id_string = operation_id.to_string();
+
+        let approve = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "approve",
+            &operation_id_string,
+            "--actor",
+            "codex",
+            "--note",
+            "approved for testing",
+            "--json",
+        ])
+        .expect("approve cli should parse");
+        run(approve).expect("approve should succeed");
+
+        let apply = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "apply",
+            &operation_id_string,
+            "--json",
+        ])
+        .expect("apply cli should parse");
+        run(apply).expect("apply should succeed");
+
+        let audit_list = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "audit",
+            "list",
+            "--operation-id",
+            &operation_id_string,
+            "--json",
+        ])
+        .expect("audit list cli should parse");
+        let audit_list_output = run(audit_list).expect("audit list should succeed");
+        let audit_list_value: JsonAuditListResponse = parse_json(&audit_list_output);
+
+        assert_eq!(audit_list_value.status, "ok");
+        assert_eq!(audit_list_value.events.len(), 3);
+        assert!(audit_list_value
+            .events
+            .iter()
+            .all(|event| event.operation_id.as_ref() == Some(&operation_id)));
+        let outcomes = audit_list_value
+            .events
+            .iter()
+            .map(|event| event.outcome.clone())
+            .collect::<Vec<_>>();
+        assert!(outcomes.contains(&switchboard_core::AuditOutcome::Planned));
+        assert!(outcomes.contains(&switchboard_core::AuditOutcome::Approved));
+        assert!(outcomes.contains(&switchboard_core::AuditOutcome::Executed));
+
+        let executed_event = audit_list_value
+            .events
+            .iter()
+            .find(|event| event.outcome == switchboard_core::AuditOutcome::Executed)
+            .expect("executed audit event should exist");
+        let event_id_string = executed_event.id.to_string();
+
+        let audit_show_event = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "audit",
+            "show",
+            &event_id_string,
+            "--json",
+        ])
+        .expect("audit show event cli should parse");
+        let audit_show_event_output = run(audit_show_event).expect("audit show event should succeed");
+        let audit_show_event_value: JsonAuditEventEnvelope = parse_json(&audit_show_event_output);
+
+        assert_eq!(audit_show_event_value.status, "ok");
+        assert_eq!(audit_show_event_value.event.id, executed_event.id);
+        assert_eq!(audit_show_event_value.event.operation_id.as_ref(), Some(&operation_id));
+        assert_eq!(
+            audit_show_event_value.event.outcome,
+            switchboard_core::AuditOutcome::Executed
+        );
+
+        let audit_show_operation = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "audit",
+            "show",
+            &operation_id_string,
+            "--json",
+        ])
+        .expect("audit show operation cli should parse");
+        let audit_show_operation_output = run(audit_show_operation).expect("audit show operation should succeed");
+        let audit_show_operation_value: JsonAuditOperationEnvelope = parse_json(&audit_show_operation_output);
+
+        assert_eq!(audit_show_operation_value.status, "ok");
+        assert_eq!(audit_show_operation_value.operation_id, operation_id);
+        assert_eq!(audit_show_operation_value.events.len(), 3);
+    }
+
+    #[test]
+    fn undo_creates_compensating_delete_and_marks_original_operation_compensated() {
+        let environment = TestEnvironment::with_config_template(ALLOW_WRITES_CONFIG_TEMPLATE);
+        let config_path = environment.path_string();
+
+        let create = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.calendar.create",
+            "--ns",
+            "google.work",
+            "--title",
+            "Budget review",
+            "--start",
+            "2026-03-30T15:00:00-07:00",
+            "--end",
+            "2026-03-30T15:30:00-07:00",
+            "--apply",
+            "--json",
+        ])
+        .expect("create cli should parse");
+
+        let create_output = run(create).expect("create should execute");
+        let create_value: JsonExecutedResponse<BTreeMap<String, serde_json::Value>> = parse_json(&create_output);
+        let original_operation_id = create_value
+            .operation_id
+            .clone()
+            .expect("created event should have an operation id");
+        let original_operation_id_string = original_operation_id.to_string();
+
+        let undo = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "undo",
+            &original_operation_id_string,
+            "--apply",
+            "--json",
+        ])
+        .expect("undo cli should parse");
+
+        let undo_output = run(undo).expect("undo should execute");
+        let undo_value: JsonExecutedResponse<GoogleCalendarDeleteFields> = parse_json(&undo_output);
+        let compensating_operation_id = undo_value
+            .operation_id
+            .clone()
+            .expect("compensating delete should have an operation id");
+        let compensating_operation_id_string = compensating_operation_id.to_string();
+
+        assert_eq!(undo_value.status, "executed");
+        assert_eq!(
+            undo_value.tool,
+            ToolName::new("google.calendar.delete").expect("tool should build")
+        );
+        assert_eq!(
+            undo_value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
+        assert_ne!(compensating_operation_id, original_operation_id);
+        assert_eq!(undo_value.fields.event.calendar, "primary");
+        assert_eq!(undo_value.fields.event.event_id, "event-1960budgetwork");
+        assert_eq!(undo_value.fields.response.status, "deleted");
+
+        let original_show = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "show",
+            &original_operation_id_string,
+            "--json",
+        ])
+        .expect("op show original cli should parse");
+        let original_show_output = run(original_show).expect("original op show should succeed");
+        let original_show_value: JsonStoredOperationEnvelope = parse_json(&original_show_output);
+
+        assert_eq!(original_show_value.status, "ok");
+        assert_eq!(original_show_value.operation.id, original_operation_id);
+        assert_eq!(
+            original_show_value.operation.status,
+            switchboard_core::OperationStatus::Compensated
+        );
+        assert_eq!(
+            original_show_value
+                .operation
+                .effect
+                .as_ref()
+                .map(|effect| effect.undoable),
+            Some(true)
+        );
+
+        let compensating_show = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "op",
+            "show",
+            &compensating_operation_id_string,
+            "--json",
+        ])
+        .expect("op show compensation cli should parse");
+        let compensating_show_output = run(compensating_show).expect("compensating op show should succeed");
+        let compensating_show_value: JsonStoredOperationEnvelope = parse_json(&compensating_show_output);
+
+        assert_eq!(compensating_show_value.status, "ok");
+        assert_eq!(compensating_show_value.operation.id, compensating_operation_id);
+        assert_eq!(
+            compensating_show_value.operation.status,
+            switchboard_core::OperationStatus::Applied
+        );
+        assert_eq!(
+            compensating_show_value.operation.compensates_operation_id.as_ref(),
+            Some(&original_operation_id)
+        );
+
+        let audit_list = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "audit",
+            "list",
+            "--operation-id",
+            &original_operation_id_string,
+            "--json",
+        ])
+        .expect("audit list cli should parse");
+        let audit_list_output = run(audit_list).expect("audit list should succeed");
+        let audit_list_value: JsonAuditListResponse = parse_json(&audit_list_output);
+        let outcomes = audit_list_value
+            .events
+            .iter()
+            .map(|event| event.outcome.clone())
+            .collect::<Vec<_>>();
+
+        assert!(outcomes.contains(&switchboard_core::AuditOutcome::Executed));
+        assert!(outcomes.contains(&switchboard_core::AuditOutcome::Compensated));
+        assert!(
+            environment
+                .gws_capture_contents()
+                .contains("ARGV=calendar events delete --format json --params {\"calendarId\":\"primary\",\"eventId\":\"event-1960budgetwork\"} --send-updates none"),
+            "expected calendar delete command to run during undo"
+        );
     }
 
     #[test]
@@ -1691,21 +2308,21 @@ mod tests {
             value
                 .tools
                 .iter()
-                .any(|tool| tool.name == "google.mail.search" && !tool.raw),
+                .any(|tool| tool.name == ToolName::new("google.mail.search").expect("tool should build") && !tool.raw),
             "expected curated google tool in catalog"
         );
         assert!(
             value
                 .tools
                 .iter()
-                .any(|tool| tool.name == "google.cli.write" && tool.raw),
+                .any(|tool| tool.name == ToolName::new("google.cli.write").expect("tool should build") && tool.raw),
             "expected raw google write tool in catalog"
         );
         assert!(
             value
                 .tools
                 .iter()
-                .any(|tool| tool.name == "github.cli.read" && tool.raw),
+                .any(|tool| tool.name == ToolName::new("github.cli.read").expect("tool should build") && tool.raw),
             "expected raw github read tool in catalog"
         );
     }
@@ -1754,8 +2371,14 @@ mod tests {
         let value: JsonExecutedResponse<RawGoogleWriteFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "google.cli.write");
-        assert_eq!(value.namespace, "google.work");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.cli.write").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert!(value.summary.contains("gws"));
         assert_eq!(value.fields.response.id, "draft-1960work");
         assert!(
@@ -1791,8 +2414,11 @@ mod tests {
         let value: JsonExecutedResponse<RawGoogleReadFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "google.cli.read");
-        assert_eq!(value.namespace, "google.work");
+        assert_eq!(value.tool, ToolName::new("google.cli.read").expect("tool should build"));
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert!(value.summary.contains("gws"));
         assert_eq!(value.fields.response.count, 2);
         assert_eq!(value.fields.response.events[0].summary, "Standup");
@@ -1884,10 +2510,16 @@ mod tests {
         let value: JsonExecutedResponse<GoogleMailSearchFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "google.mail.search");
-        assert_eq!(value.namespace, "google.work");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.mail.search").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert_eq!(value.fields.count, 2);
-        assert_eq!(value.refs[0].kind, "message");
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Message);
     }
 
     #[test]
@@ -1911,12 +2543,18 @@ mod tests {
         let value: JsonExecutedResponse<GoogleMailReadFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "google.mail.read");
-        assert_eq!(value.namespace, "google.work");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.mail.read").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert_eq!(value.fields.message.gmail_message_id, "1960abc456work");
         assert_eq!(value.fields.message.gmail_thread_id, "1960thread123work");
-        assert_eq!(value.refs[0].kind, "message");
-        assert_eq!(value.refs[1].kind, "thread");
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Message);
+        assert_eq!(value.refs[1].kind, switchboard_core::ToolRefKind::Thread);
     }
 
     #[test]
@@ -1944,11 +2582,17 @@ mod tests {
         let value: JsonExecutedResponse<GitHubPullRequestSearchFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "github.pull_request.search");
-        assert_eq!(value.namespace, "github.personal");
+        assert_eq!(
+            value.tool,
+            ToolName::new("github.pull_request.search").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("github.personal").expect("namespace should build")
+        );
         assert!(value.summary.contains("GitHub"));
         assert_eq!(value.fields.count, 2);
-        assert_eq!(value.refs[0].kind, "pull_request");
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::PullRequest);
         assert_eq!(value.refs[0].parent_id.as_deref(), Some("openai/codex"));
     }
 
@@ -1975,11 +2619,17 @@ mod tests {
         let value: JsonExecutedResponse<GitHubIssueReadFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "github.issue.read");
-        assert_eq!(value.namespace, "github.personal");
+        assert_eq!(
+            value.tool,
+            ToolName::new("github.issue.read").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("github.personal").expect("namespace should build")
+        );
         assert!(value.summary.contains("GitHub"));
         assert_eq!(value.fields.issue.number, 77);
-        assert_eq!(value.refs[0].kind, "issue");
+        assert_eq!(value.refs[0].kind, switchboard_core::ToolRefKind::Issue);
         assert_eq!(value.refs[0].parent_id.as_deref(), Some("openai/codex"));
     }
 
@@ -2004,10 +2654,25 @@ mod tests {
         let value: JsonAggregateReadResponse<CountFields> = parse_json(&output);
 
         assert_eq!(value.status, "aggregate_read");
-        assert_eq!(value.tool, "google.calendar.list");
-        assert_eq!(value.namespaces, vec!["google.work", "google.personal"]);
-        assert_eq!(value.results[0].namespace, "google.work");
-        assert_eq!(value.results[1].namespace, "google.personal");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.calendar.list").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespaces,
+            vec![
+                NamespaceId::new("google.work").expect("namespace should build"),
+                NamespaceId::new("google.personal").expect("namespace should build"),
+            ]
+        );
+        assert_eq!(
+            value.results[0].namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
+        assert_eq!(
+            value.results[1].namespace,
+            NamespaceId::new("google.personal").expect("namespace should build")
+        );
         assert_eq!(value.results[0].outcome.status, "executed");
         assert_eq!(value.results[1].outcome.status, "executed");
         assert_eq!(value.results[0].outcome.fields.count, 2);
@@ -2063,8 +2728,14 @@ mod tests {
         let value: JsonExecutedResponse<CountFields> = parse_json(&output);
 
         assert_eq!(value.status, "executed");
-        assert_eq!(value.tool, "google.calendar.list");
-        assert_eq!(value.namespace, "google.work");
+        assert_eq!(
+            value.tool,
+            ToolName::new("google.calendar.list").expect("tool should build")
+        );
+        assert_eq!(
+            value.namespace,
+            NamespaceId::new("google.work").expect("namespace should build")
+        );
         assert!(value.summary.contains("calendar"));
         assert_eq!(value.fields.count, 2);
         assert!(
@@ -2284,6 +2955,7 @@ mod tests {
             .replace("__GMAIL_READ_FIXTURE__", GOOGLE_GMAIL_READ_FIXTURE)
             .replace("__GMAIL_DRAFT_CREATE_FIXTURE__", GOOGLE_GMAIL_DRAFT_CREATE_FIXTURE)
             .replace("__CALENDAR_CREATE_FIXTURE__", GOOGLE_CALENDAR_CREATE_FIXTURE)
+            .replace("__CALENDAR_DELETE_FIXTURE__", GOOGLE_CALENDAR_DELETE_FIXTURE)
     }
 
     fn render_github_script_template() -> String {

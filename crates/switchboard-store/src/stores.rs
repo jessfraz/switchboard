@@ -7,8 +7,9 @@ use std::{
 };
 
 use switchboard_core::{
-    AuditEvent, AuditSink, AuthRef, AuthStore, Error, NamespaceId, NamespaceStore, OperationId, OperationStore,
-    ResolvedAuth, ResolvedNamespace, ResolvedSecret, Result, SecretRef, SecretStore, StoredOperation, ToolOutput,
+    AuditEvent, AuditEventId, AuditStore, AuthRef, AuthStore, Error, NamespaceId, NamespaceStore, OperationId,
+    OperationStore, ResolvedAuth, ResolvedNamespace, ResolvedSecret, Result, SecretRef, SecretStore, StoredAuditEvent,
+    StoredOperation, ToolOutput,
 };
 
 #[derive(Clone, Debug)]
@@ -83,28 +84,55 @@ impl SecretStore for StaticSecretStore {
     }
 }
 
-#[derive(Default, Debug)]
-pub struct MemoryAuditSink {
-    events: Mutex<Vec<AuditEvent>>,
+#[derive(Debug)]
+pub struct MemoryAuditStore {
+    next_id: AtomicU64,
+    events: Mutex<Vec<StoredAuditEvent>>,
 }
 
-impl MemoryAuditSink {
-    pub fn snapshot(&self) -> Vec<AuditEvent> {
+impl Default for MemoryAuditStore {
+    fn default() -> Self {
+        Self {
+            next_id: AtomicU64::new(1),
+            events: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl MemoryAuditStore {
+    pub fn snapshot(&self) -> Vec<StoredAuditEvent> {
         match self.events.lock() {
             Ok(events) => events.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         }
     }
+
+    fn next_audit_event_id(&self) -> Result<AuditEventId> {
+        let value = self.next_id.fetch_add(1, Ordering::Relaxed);
+        AuditEventId::new(format!("audit_{value:08}"))
+    }
 }
 
-impl AuditSink for MemoryAuditSink {
+impl AuditStore for MemoryAuditStore {
     fn record(&self, event: &AuditEvent) -> Result<()> {
+        let stored = StoredAuditEvent::from_event(self.next_audit_event_id()?, "memory", event);
         match self.events.lock() {
-            Ok(mut events) => events.push(event.clone()),
-            Err(poisoned) => poisoned.into_inner().push(event.clone()),
+            Ok(mut events) => events.push(stored),
+            Err(poisoned) => poisoned.into_inner().push(stored),
         }
 
         Ok(())
+    }
+
+    fn get(&self, id: &AuditEventId) -> Option<StoredAuditEvent> {
+        match self.events.lock() {
+            Ok(events) => events.iter().find(|event| event.id == *id).cloned(),
+            Err(poisoned) => poisoned.into_inner().iter().find(|event| event.id == *id).cloned(),
+        }
+    }
+
+    fn list(&self) -> Vec<StoredAuditEvent> {
+        self.snapshot()
     }
 }
 

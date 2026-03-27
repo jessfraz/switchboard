@@ -19,6 +19,11 @@ if [ "$1" = "calendar" ] && [ "$2" = "+insert" ] && [ "$3" = "--help" ]; then
   exit 0
 fi
 
+if [ "$1" = "calendar" ] && [ "$2" = "events" ] && [ "$3" = "delete" ] && [ "$4" = "--help" ]; then
+  echo 'calendar delete help'
+  exit 0
+fi
+
 if [ "$1" = "gmail" ] && [ "$2" = "+triage" ] && [ "$3" = "--help" ]; then
   echo 'gmail triage help'
   exit 0
@@ -57,6 +62,22 @@ ARGV=$*
 EOF
   cat <<'JSON'
 __CALENDAR_CREATE_FIXTURE__
+JSON
+  exit 0
+fi
+
+if [ "$1" = "calendar" ] && [ "$2" = "events" ] && [ "$3" = "delete" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__CALENDAR_DELETE_FIXTURE__
 JSON
   exit 0
 fi

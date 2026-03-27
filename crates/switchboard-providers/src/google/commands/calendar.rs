@@ -8,7 +8,7 @@ use crate::{
     cli::{CliCommandSpec, CliResponse},
     google::commands::{
         append_optional_flag, append_optional_value, append_repeatable_values, flag_enabled, GWS_BINARY,
-        GWS_CALENDAR_CAPABILITY, GWS_CALENDAR_INSERT_CAPABILITY,
+        GWS_CALENDAR_CAPABILITY, GWS_CALENDAR_DELETE_CAPABILITY, GWS_CALENDAR_INSERT_CAPABILITY,
     },
 };
 
@@ -40,6 +40,20 @@ pub(crate) const CALENDAR_CREATE_COMMAND: CliCommandSpec = CliCommandSpec {
     decode: decode_calendar_create,
 };
 
+pub(crate) const CALENDAR_DELETE_COMMAND: CliCommandSpec = CliCommandSpec {
+    descriptor: switchboard_core::ToolDescriptor {
+        name: "google.calendar.delete",
+        kind: switchboard_core::ToolKind::Write,
+        summary: "Delete a calendar event",
+        backend: switchboard_core::BackendKind::Cli,
+    },
+    binary: &GWS_BINARY,
+    capability: &GWS_CALENDAR_DELETE_CAPABILITY,
+    summarize: summarize_calendar_delete,
+    build_args: build_calendar_delete_args,
+    decode: decode_calendar_delete,
+};
+
 fn summarize_calendar_list(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {
     let time_scope = agenda_scope(&request.args)?;
     Ok(format!("List {time_scope} calendar events for {}", namespace.id))
@@ -54,6 +68,19 @@ fn summarize_calendar_create(namespace: &ResolvedNamespace, request: &ToolReques
     };
     Ok(format!(
         "{verb} calendar event {title:?} starting at {start} for {}",
+        namespace.id
+    ))
+}
+
+fn summarize_calendar_delete(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {
+    let event_id = required_arg(request, &["event-id"])?;
+    let calendar = request.args.value("calendar").unwrap_or("primary");
+    let verb = match request.mode {
+        switchboard_core::ExecutionMode::Plan | switchboard_core::ExecutionMode::Draft => "Draft delete of",
+        switchboard_core::ExecutionMode::Auto | switchboard_core::ExecutionMode::Apply => "Delete",
+    };
+    Ok(format!(
+        "{verb} calendar event {event_id:?} from calendar {calendar:?} for {}",
         namespace.id
     ))
 }
@@ -98,6 +125,28 @@ fn build_calendar_create_args(action: &PlannedAction) -> Result<Vec<String>> {
     append_optional_value(&mut args, &action.args, "description");
     append_repeatable_values(&mut args, &action.args, "attendee");
     append_optional_flag(&mut args, &action.args, "meet")?;
+
+    Ok(args)
+}
+
+fn build_calendar_delete_args(action: &PlannedAction) -> Result<Vec<String>> {
+    let event_id = required_action_arg(action, &["event-id"])?;
+    let calendar = action.args.value("calendar").unwrap_or("primary");
+    let mut args = vec![
+        "calendar".to_owned(),
+        "events".to_owned(),
+        "delete".to_owned(),
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--params".to_owned(),
+        json!({
+            "calendarId": calendar,
+            "eventId": event_id,
+        })
+        .to_string(),
+    ];
+
+    append_optional_value(&mut args, &action.args, "send-updates");
 
     Ok(args)
 }
@@ -191,6 +240,50 @@ fn decode_calendar_create(
     .with_ref(event_ref)
     .with_effect(effect);
 
+    if !stderr.trim().is_empty() {
+        output = output.with_field("cli_stderr", stderr);
+    }
+
+    Ok(output)
+}
+
+fn decode_calendar_delete(
+    target: &ExecutionTarget,
+    action: &PlannedAction,
+    response: CliResponse,
+) -> Result<ToolOutput> {
+    let CliResponse {
+        version,
+        stdout,
+        stderr,
+        ..
+    } = response;
+    let event_id = required_action_arg(action, &["event-id"])?;
+    let calendar = action.args.value("calendar").unwrap_or("primary");
+    let mut output = ToolOutput::new(
+        action.tool.clone(),
+        action.namespace.clone(),
+        format!("Deleted calendar event {event_id:?} from {}", action.namespace),
+    )
+    .with_field("status", "ok")
+    .with_field("backend", action.backend.to_string())
+    .with_field("auth", target.auth.id.to_string())
+    .with_field("cli_version", version)
+    .with_value_field(
+        "event",
+        json!({
+            "event_id": event_id,
+            "calendar": calendar,
+        }),
+    );
+
+    if !stdout.trim().is_empty() {
+        if let Ok(value) = serde_json::from_str::<Value>(&stdout) {
+            output = output.with_value_field("response", value);
+        } else {
+            output = output.with_field("stdout_text", stdout);
+        }
+    }
     if !stderr.trim().is_empty() {
         output = output.with_field("cli_stderr", stderr);
     }

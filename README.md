@@ -39,9 +39,12 @@ Start with:
 
 - GitHub cloud-state workflows
 - Google Workspace workflows
+- full raw CLI coverage for both
+- curated high-value tools layered on top
 - local namespaces
 - draft and approval flows
 - audit logging
+- honest undo for actions that can be compensated
 
 Do not start with:
 
@@ -766,8 +769,8 @@ Initial write flows:
 
 Preferred backend order:
 
-1. `gh` for obvious flows
-1. GitHub API when `gh` is awkward or incomplete
+1. `gh` today
+1. direct GitHub APIs later if they win on stability or coverage
 
 Example commands:
 
@@ -815,8 +818,8 @@ Initial write flows:
 
 Preferred backend order:
 
-1. direct Google APIs or official workspace tooling
-1. a provider-specific CLI if it becomes the better option later
+1. Google Workspace CLI today
+1. direct Google APIs later if they win on stability or ergonomics
 
 Example commands:
 
@@ -894,6 +897,15 @@ Example:
 
 If the system does something important, there should be a receipt.
 
+Useful commands:
+
+```text
+switchboard audit list
+switchboard audit list --operation-id op_1234abcd
+switchboard audit show audit_1234abcd
+switchboard audit show op_1234abcd
+```
+
 ## Undo model
 
 Undo should be honest.
@@ -958,6 +970,12 @@ An undoable write receipt should look more like this:
 }
 ```
 
+And the command should stay boring:
+
+```text
+switchboard op undo op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc --apply --json
+```
+
 ## Output contract
 
 Commands should return structured JSON by default or with `--json`.
@@ -993,20 +1011,6 @@ V1 is successful if it can do these reliably:
 1. produce an audit trail for everything that matters
 
 If it cannot do those things cleanly, adding more providers is just expanding the blast radius.
-- auth refresh
-- caching
-- local approval UI if needed
-- optional MCP shim if it earns its keep
-
-### Phase 5, new providers
-
-Only after v1 is good:
-
-- Slack
-- Ramp
-- iMessage
-- WhatsApp
-- browser-backed internal tools
 
 ## Later, if this works
 

@@ -3,15 +3,15 @@ mod materializer;
 
 use switchboard_core::{
     Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedNamespace,
-    Result, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Result, ToolArgument, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
 };
 
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
     google::{
         commands::{
-            CALENDAR_CREATE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND, RAW_READ_COMMAND,
-            RAW_WRITE_COMMAND,
+            CALENDAR_CREATE_COMMAND, CALENDAR_DELETE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND,
+            MAIL_SEARCH_COMMAND, RAW_READ_COMMAND, RAW_WRITE_COMMAND,
         },
         materializer::DefaultGoogleWorkspaceCliMaterializer,
     },
@@ -55,6 +55,12 @@ const TOOLS: &[ToolDescriptor] = &[
         backend: BackendKind::Cli,
     },
     ToolDescriptor {
+        name: "google.calendar.delete",
+        kind: ToolKind::Write,
+        summary: "Delete a calendar event",
+        backend: BackendKind::Cli,
+    },
+    ToolDescriptor {
         name: "google.drive.search",
         kind: ToolKind::Read,
         summary: "Search Drive files",
@@ -81,6 +87,7 @@ const COMMANDS: &[&CliCommandSpec] = &[
     &MAIL_READ_COMMAND,
     &CALENDAR_LIST_COMMAND,
     &CALENDAR_CREATE_COMMAND,
+    &CALENDAR_DELETE_COMMAND,
 ];
 
 pub struct GoogleWorkspaceAdapter {
@@ -183,6 +190,38 @@ impl Adapter for GoogleWorkspaceAdapter {
 
         Ok(Self::stub_output(target, action))
     }
+
+    fn compensation_request(
+        &self,
+        operation: &switchboard_core::StoredOperation,
+        mode: switchboard_core::ExecutionMode,
+    ) -> Result<Option<ToolRequest>> {
+        if operation.tool.as_str() != "google.calendar.create" {
+            return Ok(None);
+        }
+
+        let effect = operation
+            .effect
+            .as_ref()
+            .ok_or_else(|| Error::OperationNotUndoable(operation.id.clone()))?;
+        let event_ref = effect
+            .refs
+            .iter()
+            .find(|tool_ref| tool_ref.kind == switchboard_core::ToolRefKind::Event)
+            .ok_or_else(|| Error::OperationNotUndoable(operation.id.clone()))?;
+        let calendar = event_ref.parent_id.clone().unwrap_or_else(|| "primary".to_owned());
+
+        Ok(Some(ToolRequest::new(
+            "google.calendar.delete",
+            operation.namespace.to_string(),
+            mode,
+            vec![
+                ToolArgument::option("event-id", event_ref.id.clone())?,
+                ToolArgument::option("calendar", calendar)?,
+                ToolArgument::option("send-updates", "none")?,
+            ],
+        )?))
+    }
 }
 
 #[cfg(test)]
@@ -191,8 +230,9 @@ mod tests {
 
     use serde_json::Value;
     use switchboard_core::{
-        Adapter, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
-        ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument, ToolRequest,
+        Adapter, ApprovalState, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationApproval,
+        PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument,
+        ToolRequest,
     };
 
     use crate::{
@@ -219,6 +259,10 @@ mod tests {
     const CALENDAR_CREATE_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-calendar-create.json"
+    ));
+    const CALENDAR_DELETE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-calendar-delete.json"
     ));
     const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -490,6 +534,55 @@ mod tests {
         assert!(captured.contains("--json {\"message\":{\"raw\":\"SGVsbG8sIHdvcmxkIQ==\"}} --format json"));
     }
 
+    #[test]
+    fn compensation_request_for_calendar_create_targets_calendar_delete() {
+        let adapter = GoogleWorkspaceAdapter::default();
+        let request = adapter
+            .compensation_request(
+                &switchboard_core::StoredOperation {
+                    id: switchboard_core::OperationId::new("op_undo_test").expect("operation id should build"),
+                    tool: switchboard_core::ToolName::new("google.calendar.create").expect("tool should build"),
+                    namespace: switchboard_core::NamespaceId::new("google.work").expect("namespace should build"),
+                    auth_ref: switchboard_core::AuthRef::new("google.work").expect("auth ref should build"),
+                    kind: switchboard_core::ToolKind::Write,
+                    summary: "Create calendar event".into(),
+                    backend: switchboard_core::BackendKind::Cli,
+                    approval_required: true,
+                    approval_reason: Some("approval".into()),
+                    compensates_operation_id: None,
+                    approval: OperationApproval {
+                        state: ApprovalState::Approved,
+                        actor: Some("tester".into()),
+                        note: None,
+                    },
+                    status: switchboard_core::OperationStatus::Applied,
+                    args: switchboard_core::ToolArguments::empty(),
+                    effect: Some(
+                        switchboard_core::OperationEffect::new(true).with_ref(
+                            switchboard_core::ToolRef::new(
+                                switchboard_core::ProviderKind::GoogleWorkspace,
+                                switchboard_core::NamespaceId::new("google.work").expect("namespace should build"),
+                                switchboard_core::ToolRefKind::Event,
+                                "event-1960budgetwork",
+                            )
+                            .expect("tool ref should build")
+                            .with_parent_id("primary")
+                            .expect("parent id should build"),
+                        ),
+                    ),
+                    failure_reason: None,
+                },
+                ExecutionMode::Apply,
+            )
+            .expect("compensation request should build")
+            .expect("compensation request should exist");
+
+        assert_eq!(request.tool.to_string(), "google.calendar.delete");
+        assert_eq!(request.namespace.to_string(), "google.work");
+        assert_eq!(request.args.value("event-id"), Some("event-1960budgetwork"));
+        assert_eq!(request.args.value("calendar"), Some("primary"));
+    }
+
     fn google_test_script() -> TempScript {
         TempScript::new("gws-test", &render_google_script())
     }
@@ -500,6 +593,7 @@ mod tests {
             .replace("__GMAIL_TRIAGE_FIXTURE__", GMAIL_TRIAGE_FIXTURE)
             .replace("__GMAIL_READ_FIXTURE__", GMAIL_READ_FIXTURE)
             .replace("__GMAIL_DRAFT_CREATE_FIXTURE__", GMAIL_DRAFT_CREATE_FIXTURE)
+            .replace("__CALENDAR_DELETE_FIXTURE__", CALENDAR_DELETE_FIXTURE)
             .replace("__CALENDAR_CREATE_FIXTURE__", CALENDAR_CREATE_FIXTURE)
     }
 

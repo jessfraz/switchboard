@@ -25,9 +25,9 @@ use crate::state::{MyChartState, StateStore};
 use crate::{
     client::{JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
-        run_api, run_appointments, run_auth, run_connect, run_labs, run_meds, run_notes, run_portal, run_timeline,
-        ApiCommand, AppointmentsCommand, AuthCommand, ConnectCommand, LabsCommand, MedsCommand, NotesCommand,
-        PortalCommand, TimelineCommand,
+        run_api, run_appointments, run_auth, run_claims, run_connect, run_labs, run_meds, run_notes, run_pack,
+        run_portal, run_timeline, ApiCommand, AppointmentsCommand, AuthCommand, ClaimsCommand, ConnectCommand,
+        LabsCommand, MedsCommand, NotesCommand, PackCommand, PortalCommand, TimelineCommand,
     },
     state::{
         ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
@@ -47,6 +47,8 @@ const AFTER_HELP: &str = concat!(
     "  mychart appointments upcoming --limit 5\n",
     "  mychart meds reconcile\n",
     "  mychart notes search --query migraine\n",
+    "  mychart claims audit --since 1y\n",
+    "  mychart pack doctor\n",
     "  mychart auth exchange-code --code <oauth-code>\n",
     "  mychart api resources --details\n",
     "  mychart api appointment search --patient 123 --date ge2026-03-01 --status booked\n",
@@ -98,6 +100,8 @@ fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
         Commands::Notes(command) => run_notes(command.command, &context),
         Commands::Meds(command) => run_meds(command.command, &context),
         Commands::Appointments(command) => run_appointments(command.command, &context),
+        Commands::Claims(command) => run_claims(command.command, &context),
+        Commands::Pack(command) => run_pack(command.command, &context),
         Commands::Portal(command) => run_portal(command.command, &mut context),
     }
     .map_err(|error| (error, compact))?;
@@ -167,6 +171,8 @@ enum Commands {
     Notes(NotesCommand),
     Meds(MedsCommand),
     Appointments(AppointmentsCommand),
+    Claims(ClaimsCommand),
+    Pack(PackCommand),
     Portal(PortalCommand),
 }
 
@@ -1631,6 +1637,254 @@ mod tests {
         assert_eq!(output["status"], "ok");
         assert_eq!(output["appointments"].as_array().map(Vec::len), Some(1));
         assert_eq!(output["appointments"][0]["id"], "appt-future");
+    }
+
+    #[test]
+    fn claims_audit_flags_duplicate_and_problem_claims() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("ExplanationOfBenefit", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [
+                        {
+                            "resource": {
+                                "resourceType": "ExplanationOfBenefit",
+                                "id": "claim-1",
+                                "status": "active",
+                                "outcome": "complete",
+                                "use": "claim",
+                                "billablePeriod": {"start": "2100-01-01"},
+                                "provider": {"display": "UCLA Health"},
+                                "total": [{"amount": {"value": 250.0, "currency": "USD"}}],
+                                "item": [{"productOrService": {"text": "MRI Brain"}}]
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "ExplanationOfBenefit",
+                                "id": "claim-2",
+                                "status": "active",
+                                "outcome": "complete",
+                                "use": "claim",
+                                "billablePeriod": {"start": "2100-01-01"},
+                                "provider": {"display": "UCLA Health"},
+                                "total": [{"amount": {"value": 250.0, "currency": "USD"}}],
+                                "item": [{"productOrService": {"text": "MRI Brain"}}]
+                            }
+                        },
+                        {
+                            "resource": {
+                                "resourceType": "ExplanationOfBenefit",
+                                "id": "claim-3",
+                                "status": "active",
+                                "outcome": "partial",
+                                "use": "claim",
+                                "billablePeriod": {"start": "2100-01-03"},
+                                "provider": {"display": "UCLA Health"},
+                                "total": [{"amount": {"value": 99.0, "currency": "USD"}}],
+                                "item": [{"productOrService": {"text": "Lab Panel"}}]
+                            }
+                        }
+                    ]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-claims-audit");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "claims",
+            "audit",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(
+            output["duplicate_charge_candidates"]
+                .as_array()
+                .expect("duplicate groups should be an array")
+                .len(),
+            1
+        );
+        assert_eq!(
+            output["denied_or_problematic_claims"]
+                .as_array()
+                .expect("problem claims should be an array")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn pack_doctor_assembles_visit_packet() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[
+                        resource_capability("Appointment", &["read", "search-type"]),
+                        resource_capability("Observation", &["read", "search-type"]),
+                        resource_capability("MedicationRequest", &["read", "search-type"]),
+                        resource_capability("Condition", &["read", "search-type"]),
+                        resource_capability("Encounter", &["read", "search-type"]),
+                        resource_capability("DocumentReference", &["read", "search-type"]),
+                    ],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Appointment",
+                            "id": "appt-1",
+                            "status": "booked",
+                            "start": "2100-01-01T10:00:00Z",
+                            "description": "Neurology follow-up"
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Observation",
+                            "id": "obs-1",
+                            "effectiveDateTime": "2100-01-01T08:00:00Z",
+                            "code": {"text": "Ferritin"},
+                            "valueQuantity": {"value": 14.0, "unit": "ng/mL"},
+                            "interpretation": [{"text": "low"}]
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "MedicationRequest",
+                            "id": "med-1",
+                            "status": "active",
+                            "authoredOn": "2099-12-15",
+                            "medicationCodeableConcept": {"text": "Topiramate"},
+                            "dosageInstruction": [{"text": "Take once daily"}]
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Condition",
+                            "id": "cond-1",
+                            "recordedDate": "2099-12-10",
+                            "clinicalStatus": {"text": "active"},
+                            "verificationStatus": {"text": "confirmed"},
+                            "code": {"text": "Migraine"}
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Encounter",
+                            "id": "enc-1",
+                            "period": {"start": "2099-12-01"},
+                            "status": "finished",
+                            "class": {"display": "outpatient"},
+                            "type": [{"text": "Office visit"}]
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "DocumentReference",
+                            "id": "note-1",
+                            "date": "2099-12-02",
+                            "type": {"text": "Progress Note"},
+                            "description": "Neurology note",
+                            "author": [{"display": "Dr. Headache"}]
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-pack-doctor");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "pack",
+            "doctor",
+        ]);
+
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["upcoming_appointment"]["description"], "Neurology follow-up");
+        assert_eq!(output["recent_labs"][0]["label"], "Ferritin");
+        assert_eq!(output["active_medications"][0]["name"], "Topiramate");
+        assert_eq!(output["active_conditions"][0]["condition"], "Migraine");
+        assert!(!output["suggested_questions"]
+            .as_array()
+            .expect("suggested questions should be an array")
+            .is_empty());
     }
 
     #[test]

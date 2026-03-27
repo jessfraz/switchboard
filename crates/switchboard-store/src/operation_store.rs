@@ -57,9 +57,10 @@ impl SqliteOperationStore {
                backend TEXT NOT NULL,
                approval_required INTEGER NOT NULL,
                approval_reason TEXT,
+               compensates_operation_id TEXT,
                approval_state TEXT NOT NULL,
                approval_actor TEXT,
-               approval_note TEXT,
+                approval_note TEXT,
                status TEXT NOT NULL,
                args_json TEXT NOT NULL,
                effect_json TEXT,
@@ -80,6 +81,12 @@ impl SqliteOperationStore {
             "approval_reason",
             "TEXT",
             "ALTER TABLE operations ADD COLUMN approval_reason TEXT",
+        )?;
+        ensure_column(
+            &connection,
+            "compensates_operation_id",
+            "TEXT",
+            "ALTER TABLE operations ADD COLUMN compensates_operation_id TEXT",
         )?;
         ensure_column(
             &connection,
@@ -129,7 +136,7 @@ impl SqliteOperationStore {
     fn get_operation(connection: &Connection, id: &OperationId) -> Result<StoredOperation> {
         connection
             .query_row(
-                "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
+                "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
                  FROM operations
                  WHERE operation_id = ?1",
                 params![id.as_str()],
@@ -151,8 +158,8 @@ impl OperationStore for SqliteOperationStore {
         connection
             .execute(
                 "INSERT INTO operations (
-                   operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11, ?12, NULL, NULL)",
+                   operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, NULL, ?12, ?13, NULL, NULL)",
                 params![
                     operation.id.as_str(),
                     operation.tool.as_str(),
@@ -163,6 +170,7 @@ impl OperationStore for SqliteOperationStore {
                     backend_kind_identifier(operation.backend),
                     operation.approval_required,
                     operation.approval_reason.as_deref(),
+                    operation.compensates_operation_id.as_ref().map(OperationId::as_str),
                     approval_state_identifier(operation.approval.state),
                     operation_status_identifier(operation.status),
                     args_json,
@@ -288,7 +296,7 @@ impl OperationStore for SqliteOperationStore {
             Err(_) => return Vec::new(),
         };
         let mut statement = match connection.prepare(
-            "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
+            "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
              FROM operations
              ORDER BY created_at DESC, rowid DESC",
         ) {
@@ -335,13 +343,14 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
     let backend = row.get::<_, String>(6)?;
     let approval_required = row.get::<_, bool>(7)?;
     let approval_reason = row.get::<_, Option<String>>(8)?;
-    let approval_state = row.get::<_, String>(9)?;
-    let approval_actor = row.get::<_, Option<String>>(10)?;
-    let approval_note = row.get::<_, Option<String>>(11)?;
-    let status = row.get::<_, String>(12)?;
-    let args_json = row.get::<_, String>(13)?;
-    let effect_json = row.get::<_, Option<String>>(14)?;
-    let failure_reason = row.get::<_, Option<String>>(15)?;
+    let compensates_operation_id = row.get::<_, Option<String>>(9)?;
+    let approval_state = row.get::<_, String>(10)?;
+    let approval_actor = row.get::<_, Option<String>>(11)?;
+    let approval_note = row.get::<_, Option<String>>(12)?;
+    let status = row.get::<_, String>(13)?;
+    let args_json = row.get::<_, String>(14)?;
+    let effect_json = row.get::<_, Option<String>>(15)?;
+    let failure_reason = row.get::<_, Option<String>>(16)?;
 
     Ok(StoredOperation {
         id: OperationId::new(id).map_err(to_sqlite_error)?,
@@ -353,6 +362,10 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
         backend: parse_backend_kind(&backend).map_err(to_sqlite_error)?,
         approval_required,
         approval_reason,
+        compensates_operation_id: compensates_operation_id
+            .map(OperationId::new)
+            .transpose()
+            .map_err(to_sqlite_error)?,
         approval: OperationApproval {
             state: parse_approval_state(&approval_state).map_err(to_sqlite_error)?,
             actor: approval_actor,

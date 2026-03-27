@@ -384,6 +384,7 @@ impl Switchboard {
             approval_reason: operation.approval_reason.clone(),
             args: operation.args.clone(),
             operation_id: Some(operation.id.clone()),
+            compensates_operation_id: operation.compensates_operation_id.clone(),
         };
         let execution_target = self.resolve_execution_target(&planning_target)?;
 
@@ -476,13 +477,13 @@ mod tests {
     use crate::{
         engine::{AdapterRegistry, Switchboard, SwitchboardServices},
         traits::{
-            Adapter, AuditSink, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
+            Adapter, AuditStore, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
         },
-        AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, DispatchOutcome, Error,
+        AuditEvent, AuditEventId, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, DispatchOutcome, Error,
         ExecutionMode, ExecutionTarget, NamespaceId, OperationEffect, OperationId, OperationStatus, PlannedAction,
         PlanningTarget, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedNamespace, ResolvedSecret, Result,
-        SecretRef, SecretSource, SecretString, StoredOperation, ToolDescriptor, ToolKind, ToolOutput, ToolRef,
-        ToolRefKind, ToolRequest,
+        SecretRef, SecretSource, SecretString, StoredAuditEvent, StoredOperation, ToolDescriptor, ToolKind, ToolOutput,
+        ToolRef, ToolRefKind, ToolRequest,
     };
 
     #[test]
@@ -575,7 +576,7 @@ mod tests {
 
     fn test_switchboard(
         policy: Arc<dyn PolicyEngine>,
-        audit: Arc<dyn AuditSink>,
+        audit: Arc<dyn AuditStore>,
         operations: Arc<dyn OperationStore>,
         adapter: Arc<dyn Adapter>,
     ) -> Switchboard {
@@ -743,28 +744,54 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
     struct TestAuditSink {
-        events: Mutex<Vec<AuditEvent>>,
+        next_id: AtomicU64,
+        events: Mutex<Vec<StoredAuditEvent>>,
+    }
+
+    impl Default for TestAuditSink {
+        fn default() -> Self {
+            Self {
+                next_id: AtomicU64::new(1),
+                events: Mutex::new(Vec::new()),
+            }
+        }
     }
 
     impl TestAuditSink {
-        fn snapshot(&self) -> Vec<AuditEvent> {
+        fn snapshot(&self) -> Vec<StoredAuditEvent> {
             match self.events.lock() {
                 Ok(events) => events.clone(),
                 Err(poisoned) => poisoned.into_inner().clone(),
             }
         }
+
+        fn next_audit_event_id(&self) -> Result<AuditEventId> {
+            let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+            AuditEventId::new(format!("audit_test_{id:04}"))
+        }
     }
 
-    impl AuditSink for TestAuditSink {
+    impl AuditStore for TestAuditSink {
         fn record(&self, event: &AuditEvent) -> Result<()> {
+            let stored = StoredAuditEvent::from_event(self.next_audit_event_id()?, "test", event);
             match self.events.lock() {
-                Ok(mut events) => events.push(event.clone()),
-                Err(poisoned) => poisoned.into_inner().push(event.clone()),
+                Ok(mut events) => events.push(stored),
+                Err(poisoned) => poisoned.into_inner().push(stored),
             }
 
             Ok(())
+        }
+
+        fn get(&self, id: &AuditEventId) -> Option<StoredAuditEvent> {
+            match self.events.lock() {
+                Ok(events) => events.iter().find(|event| event.id == *id).cloned(),
+                Err(poisoned) => poisoned.into_inner().iter().find(|event| event.id == *id).cloned(),
+            }
+        }
+
+        fn list(&self) -> Vec<StoredAuditEvent> {
+            self.snapshot()
         }
     }
 
