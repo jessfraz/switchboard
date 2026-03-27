@@ -409,21 +409,12 @@ impl CliArgsSegment {
             Self::Literal(_) => Ok(()),
             Self::RequiredPositional { aliases } => collector.add_alias_argument(
                 aliases,
-                ToolArgumentTransport::Positional,
-                ToolArgumentValueKind::String,
-                true,
-                false,
-                None,
-                None,
+                ToolArgumentSpecSeed::new(ToolArgumentTransport::Positional, ToolArgumentValueKind::String)
+                    .with_required(true),
             ),
             Self::OptionalPositional { aliases } => collector.add_alias_argument(
                 aliases,
-                ToolArgumentTransport::Positional,
-                ToolArgumentValueKind::String,
-                false,
-                false,
-                None,
-                None,
+                ToolArgumentSpecSeed::new(ToolArgumentTransport::Positional, ToolArgumentValueKind::String),
             ),
             Self::Json { template } => template.collect_argument_specs(collector),
             Self::Option {
@@ -433,12 +424,10 @@ impl CliArgsSegment {
                 required,
             } => collector.add_alias_argument(
                 aliases,
-                ToolArgumentTransport::Option,
-                ToolArgumentValueKind::String,
-                *required,
-                *repeated,
-                Some(flag.clone()),
-                None,
+                ToolArgumentSpecSeed::new(ToolArgumentTransport::Option, ToolArgumentValueKind::String)
+                    .with_required(*required)
+                    .with_repeated(*repeated)
+                    .with_forwarding(Some(flag.clone()), None),
             ),
             Self::KeyValueOption {
                 flag,
@@ -449,25 +438,22 @@ impl CliArgsSegment {
                 boolish,
             } => collector.add_alias_argument(
                 aliases,
-                ToolArgumentTransport::KeyValueOption,
-                if *boolish {
-                    ToolArgumentValueKind::Boolean
-                } else {
-                    ToolArgumentValueKind::String
-                },
-                *required,
-                *repeated,
-                Some(flag.clone()),
-                Some(key.clone()),
+                ToolArgumentSpecSeed::new(
+                    ToolArgumentTransport::KeyValueOption,
+                    if *boolish {
+                        ToolArgumentValueKind::Boolean
+                    } else {
+                        ToolArgumentValueKind::String
+                    },
+                )
+                .with_required(*required)
+                .with_repeated(*repeated)
+                .with_forwarding(Some(flag.clone()), Some(key.clone())),
             ),
             Self::Flag { flag, aliases } => collector.add_alias_argument(
                 aliases,
-                ToolArgumentTransport::Flag,
-                ToolArgumentValueKind::Boolean,
-                false,
-                false,
-                Some(flag.clone()),
-                None,
+                ToolArgumentSpecSeed::new(ToolArgumentTransport::Flag, ToolArgumentValueKind::Boolean)
+                    .with_forwarding(Some(flag.clone()), None),
             ),
         }
     }
@@ -551,12 +537,9 @@ impl CliJsonArgumentValue {
                 ..
             } => collector.add_alias_argument(
                 aliases,
-                ToolArgumentTransport::JsonField,
-                ToolArgumentValueKind::String,
-                *required,
-                *repeated,
-                None,
-                None,
+                ToolArgumentSpecSeed::new(ToolArgumentTransport::JsonField, ToolArgumentValueKind::String)
+                    .with_required(*required)
+                    .with_repeated(*repeated),
             ),
             Self::Object { fields } => {
                 for field in fields {
@@ -671,26 +654,55 @@ struct ToolArgumentSpecCollector {
     specs: Vec<ToolArgumentSpec>,
 }
 
+struct ToolArgumentSpecSeed {
+    transport: ToolArgumentTransport,
+    value_kind: ToolArgumentValueKind,
+    required: bool,
+    repeated: bool,
+    forwarded_flag: Option<String>,
+    forwarded_key: Option<String>,
+}
+
+impl ToolArgumentSpecSeed {
+    fn new(transport: ToolArgumentTransport, value_kind: ToolArgumentValueKind) -> Self {
+        Self {
+            transport,
+            value_kind,
+            required: false,
+            repeated: false,
+            forwarded_flag: None,
+            forwarded_key: None,
+        }
+    }
+
+    fn with_required(mut self, required: bool) -> Self {
+        self.required = required;
+        self
+    }
+
+    fn with_repeated(mut self, repeated: bool) -> Self {
+        self.repeated = repeated;
+        self
+    }
+
+    fn with_forwarding(mut self, forwarded_flag: Option<String>, forwarded_key: Option<String>) -> Self {
+        self.forwarded_flag = forwarded_flag;
+        self.forwarded_key = forwarded_key;
+        self
+    }
+}
+
 impl ToolArgumentSpecCollector {
-    fn add_alias_argument(
-        &mut self,
-        aliases: &[String],
-        transport: ToolArgumentTransport,
-        value_kind: ToolArgumentValueKind,
-        required: bool,
-        repeated: bool,
-        forwarded_flag: Option<String>,
-        forwarded_key: Option<String>,
-    ) -> Result<()> {
+    fn add_alias_argument(&mut self, aliases: &[String], seed: ToolArgumentSpecSeed) -> Result<()> {
         let primary = aliases
             .first()
             .cloned()
             .ok_or_else(|| Error::Config("tool argument metadata requires at least one alias".into()))?;
-        let spec = ToolArgumentSpec::new(primary, transport, value_kind)?
+        let spec = ToolArgumentSpec::new(primary, seed.transport, seed.value_kind)?
             .with_aliases(aliases.iter().skip(1).cloned().collect())?
-            .with_required(required)
-            .with_repeated(repeated)
-            .with_forwarding(forwarded_flag, forwarded_key)?;
+            .with_required(seed.required)
+            .with_repeated(seed.repeated)
+            .with_forwarding(seed.forwarded_flag, seed.forwarded_key)?;
         self.add_spec(spec)
     }
 

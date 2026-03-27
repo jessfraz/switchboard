@@ -143,10 +143,11 @@ fn build_manifest_command(
             binaries
                 .get(&binary)
                 .cloned()
-                .ok_or_else(|| Error::Config(format!("tool {} references unknown binary {binary}", tool_name)))?,
-            capabilities.get(&capability).cloned().ok_or_else(|| {
-                Error::Config(format!("tool {} references unknown capability {capability}", tool_name))
-            })?,
+                .ok_or_else(|| Error::Config(format!("tool {tool_name} references unknown binary {binary}")))?,
+            capabilities
+                .get(&capability)
+                .cloned()
+                .ok_or_else(|| Error::Config(format!("tool {tool_name} references unknown capability {capability}")))?,
         )),
         CliManifestExecution::PlanningOnly => None,
     };
@@ -171,14 +172,12 @@ fn build_manifest_command(
         None => {
             if command.args.is_some() {
                 return Err(Error::Config(format!(
-                    "tool {} defines args but is planning_only",
-                    tool_name
+                    "tool {tool_name} defines args but is planning_only"
                 )));
             }
             if command.decode.is_some() {
                 return Err(Error::Config(format!(
-                    "tool {} defines decode but is planning_only",
-                    tool_name
+                    "tool {tool_name} defines decode but is planning_only"
                 )));
             }
             None
