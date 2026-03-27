@@ -1,0 +1,17 @@
+[namespace.github.personal]
+provider = "github"
+account = "jessfraz"
+auth = "gh"
+default_read = true
+
+[namespace.google.work]
+provider = "google"
+account = "jess@company.com"
+auth = "oauth"
+default_read = true
+
+[namespace.google.personal]
+provider = "google"
+account = "jess@example.com"
+auth = "oauth"
+default_read = false

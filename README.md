@@ -218,6 +218,14 @@ auth = "oauth"
 default_read = false
 ```
 
+`switchboard` looks for config in this order:
+
+1. `--config <path>`
+1. `SWITCHBOARD_CONFIG`
+1. `./switchboard.toml`
+1. `$XDG_CONFIG_HOME/switchboard/config.toml`
+1. `$HOME/.config/switchboard/config.toml`
+
 The model should never infer hidden authority.
 If it wants to write, it should say where.
 
@@ -470,6 +478,149 @@ Important:
 
 - aggregate fan-out is fine for reads
 - writes should still resolve to one namespace unless the user explicitly asks for multiple writes
+
+## Compound workflow examples
+
+These are the kinds of requests the model should be able to handle by composing multiple `switchboard` calls.
+
+The rule stays the same:
+
+- the model does the reasoning
+- `switchboard` provides typed, namespace-aware primitives
+- every read and write stays auditable
+- writes still end in draft, then approval, then apply
+
+### Latest email to calendar event
+
+Example user request:
+
+> you see the latest email from the car wash people, make me a calendar event with the details
+
+What should happen:
+
+1. the model decides this is a `search -> read -> draft calendar event` workflow
+1. the model searches the allowed Gmail namespace or namespaces for the latest relevant message
+1. the model reads the winning message in the namespace it came from
+1. the model extracts structured event fields from the email
+1. the model chooses the target calendar namespace, or asks if that is ambiguous
+1. the model calls `google.calendar.create` in draft mode
+1. the model shows the event preview before applying it
+
+```text
+User
+  |
+  | "you see the latest email from the car wash people,
+  |  make me a calendar event with the details"
+  v
+Model
+  |
+  | decides:
+  | - search mail
+  | - read latest matching message
+  | - extract event fields
+  | - draft calendar event
+  v
+switchboard
+  |
+  +--> google.mail.search --ns google.personal ...
+  |
+  +--> google.mail.read --ns google.personal --message-id <id>
+  |
+  +--> google.calendar.create --ns google.personal --draft ...
+  v
+draft preview returned to model
+  |
+  v
+User approves
+  |
+  v
+Model calls apply
+  |
+  +--> google.calendar.create --ns google.personal --apply ...
+  v
+done
+```
+
+Example tool chain:
+
+```bash
+switchboard google.mail.search \
+  --ns google.personal \
+  --query 'from:carwash newer_than:30d' \
+  --json
+
+switchboard google.mail.read \
+  --ns google.personal \
+  --message-id 18c7f6... \
+  --json
+
+switchboard google.calendar.create \
+  --ns google.personal \
+  --title 'Car wash appointment' \
+  --start '2026-03-31T10:00:00-07:00' \
+  --end '2026-03-31T11:00:00-07:00' \
+  --draft \
+  --json
+```
+
+### Prior booking emails to similar draft
+
+Example user request:
+
+> look up all the past emails i sent to book the dogs at the dog hotel, make a new appointment for these dates by sending them a similar email
+
+What should happen:
+
+1. the model decides this is a `search sent mail -> read history -> draft similar email` workflow
+1. the model searches sent mail for prior booking conversations
+1. the model reads the best matching messages or threads
+1. the model extracts recurring structure, recipient, subject pattern, and the booking details they usually need
+1. the model fills in the new dates
+1. the model drafts a new email in the same namespace
+1. the model shows the draft and provenance before sending it
+
+```text
+User
+  |
+  | "look up all the past emails i sent to book the dogs at
+  |  the dog hotel, make a new appointment for these dates"
+  v
+Model
+  |
+  | decides:
+  | - search sent mail
+  | - read prior booking emails
+  | - extract reusable pattern
+  | - draft similar outbound email
+  v
+switchboard
+  |
+  +--> google.mail.search --ns google.personal --query 'in:sent dog hotel'
+  |
+  +--> google.mail.read --ns google.personal --message-id <id>
+  |
+  +--> google.mail.draft --ns google.personal --to ... --subject ... --body ...
+  v
+draft preview returned to model
+  |
+  v
+User approves
+  |
+  v
+Model calls send
+  |
+  +--> google.mail.send --ns google.personal ...
+  v
+done
+```
+
+Important:
+
+- fuzzy reads are fine for finding candidates
+- fuzzy reads are not enough to auto-send mail without review
+- if the target namespace is ambiguous, the model should ask
+- if the extracted dates or recipient are uncertain, the model should ask
+- search and read results should preserve stable IDs and source namespace so later calls can chain correctly
 
 ## Initial provider surface
 

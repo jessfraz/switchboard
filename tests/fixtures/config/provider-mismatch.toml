@@ -1,0 +1,4 @@
+[namespace.github.personal]
+provider = "google"
+account = "jess@example.com"
+auth = "oauth"

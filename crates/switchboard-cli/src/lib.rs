@@ -1,10 +1,18 @@
-use std::{collections::BTreeMap, env, ffi::OsString, process::ExitCode, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    env,
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::Arc,
+};
 
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
-    OperationOutcome, OperationRequest, ResolvedNamespace, Result, Switchboard, ToolName, ToolOutput, ToolRequest,
+    NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, Switchboard, ToolName, ToolOutput,
+    ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{DefaultPolicyEngine, MemoryAuditSink, StaticNamespaceStore};
@@ -18,13 +26,25 @@ const AFTER_HELP: &str = concat!(
     "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n"
 );
 
-pub fn default_switchboard() -> Result<Switchboard> {
-    let namespaces = Arc::new(StaticNamespaceStore::bootstrap()?);
+fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
+    let config_path = resolve_config_path(config_path)?;
+    let namespaces = Arc::new(StaticNamespaceStore::from_file(&config_path)?);
+
+    Ok(build_switchboard(namespaces))
+}
+
+fn build_switchboard(namespaces: Arc<dyn NamespaceStore>) -> Switchboard {
     let policy = Arc::new(DefaultPolicyEngine);
     let audit = Arc::new(MemoryAuditSink::default());
     let adapters = default_registry();
 
-    Ok(Switchboard::new(namespaces, policy, audit, adapters))
+    Switchboard::new(namespaces, policy, audit, adapters)
+}
+
+#[cfg(test)]
+fn test_switchboard() -> Result<Switchboard> {
+    let namespaces = Arc::new(StaticNamespaceStore::bootstrap()?);
+    Ok(build_switchboard(namespaces))
 }
 
 pub fn main_entry<I, T>(args: I) -> ExitCode
@@ -57,8 +77,9 @@ where
 }
 
 fn run(cli: Cli) -> std::result::Result<String, RunError> {
+    let config_path = cli.config.clone();
     let json_requested = cli.json_requested();
-    let switchboard = default_switchboard().map_err(|error| RunError {
+    let switchboard = load_switchboard(config_path.as_deref()).map_err(|error| RunError {
         message: error.to_string(),
         json: json_requested,
     })?;
@@ -96,6 +117,9 @@ fn run(cli: Cli) -> std::result::Result<String, RunError> {
     after_help = AFTER_HELP
 )]
 struct Cli {
+    #[arg(long, global = true, value_name = "PATH")]
+    config: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -166,6 +190,16 @@ enum CommandKind {
 struct RunError {
     message: String,
     json: bool,
+}
+
+#[derive(Debug, Default)]
+struct ConfigPathCandidates {
+    explicit: Option<PathBuf>,
+    env: Option<PathBuf>,
+    cwd: Option<PathBuf>,
+    appdata: Option<PathBuf>,
+    xdg: Option<PathBuf>,
+    home: Option<PathBuf>,
 }
 
 fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<OperationRequest, RunError> {
@@ -251,8 +285,8 @@ fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     let mut output = String::from("Namespaces\n");
     for namespace in namespaces {
         output.push_str(&format!(
-            "- {} ({}, account={}, default_read={})\n",
-            namespace.id, namespace.provider, namespace.account_label, namespace.default_read
+            "- {} ({}, account={}, auth={}, default_read={})\n",
+            namespace.id, namespace.provider, namespace.account_label, namespace.auth_ref, namespace.default_read
         ));
     }
 
@@ -387,6 +421,47 @@ fn render_clap_error(error: clap::Error, json_requested: bool) -> ExitCode {
     }
 }
 
+fn resolve_config_path(config_path: Option<&Path>) -> Result<PathBuf> {
+    let candidates = ConfigPathCandidates {
+        explicit: config_path.map(Path::to_path_buf),
+        env: env::var_os("SWITCHBOARD_CONFIG").map(PathBuf::from),
+        cwd: existing_file(PathBuf::from("switchboard.toml")),
+        appdata: env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .map(|path| path.join("switchboard").join("config.toml"))
+            .filter(|path| path.is_file()),
+        xdg: env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .map(|path| path.join("switchboard").join("config.toml"))
+            .filter(|path| path.is_file()),
+        home: env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|path| path.join(".config").join("switchboard").join("config.toml"))
+            .filter(|path| path.is_file()),
+    };
+
+    select_config_path(candidates)
+}
+
+fn select_config_path(candidates: ConfigPathCandidates) -> Result<PathBuf> {
+    candidates
+        .explicit
+        .or(candidates.env)
+        .or(candidates.cwd)
+        .or(candidates.appdata)
+        .or(candidates.xdg)
+        .or(candidates.home)
+        .ok_or_else(|| {
+            switchboard_core::Error::Config(
+                "no switchboard config found. Pass --config <path>, set SWITCHBOARD_CONFIG, create ./switchboard.toml, or place config at $XDG_CONFIG_HOME/switchboard/config.toml or $HOME/.config/switchboard/config.toml".into(),
+            )
+        })
+}
+
+fn existing_file(path: PathBuf) -> Option<PathBuf> {
+    path.is_file().then_some(path)
+}
+
 fn contains_flag(args: &[OsString], flag: &str) -> bool {
     args.iter().any(|value| value == flag)
 }
@@ -486,18 +561,29 @@ struct ErrorResponse<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{
+        collections::BTreeMap,
+        env, fs,
+        path::PathBuf,
+        process,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use clap::Parser;
     use switchboard_core::{
         AggregateReadRequest, DispatchOutcome, ExecutionMode, OperationOutcome, OperationRequest, ToolRequest,
     };
 
-    use crate::{default_switchboard, run, Cli};
+    use crate::{run, select_config_path, test_switchboard, Cli, ConfigPathCandidates};
+
+    const BASIC_CONFIG: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/config/basic.toml"
+    ));
 
     #[test]
     fn bootstrap_namespaces_match_current_examples() {
-        let switchboard = default_switchboard().expect("switchboard should build");
+        let switchboard = test_switchboard().expect("switchboard should build");
         let namespaces = switchboard.list_namespaces();
         let ids = namespaces
             .into_iter()
@@ -509,7 +595,7 @@ mod tests {
 
     #[test]
     fn write_requests_default_to_planning_until_approval_exists() {
-        let switchboard = default_switchboard().expect("switchboard should build");
+        let switchboard = test_switchboard().expect("switchboard should build");
         let request = ToolRequest::new(
             "github.pull_request.comment",
             "github.personal",
@@ -536,7 +622,7 @@ mod tests {
 
     #[test]
     fn read_requests_execute_into_stub_results() {
-        let switchboard = default_switchboard().expect("switchboard should build");
+        let switchboard = test_switchboard().expect("switchboard should build");
         let request = ToolRequest::new(
             "google.mail.search",
             "google.work",
@@ -558,8 +644,12 @@ mod tests {
 
     #[test]
     fn flat_tool_invocation_still_parses_with_clap() {
+        let config = TempConfigFile::new(BASIC_CONFIG);
+        let config_path = config.path_string();
         let cli = Cli::try_parse_from([
             "switchboard",
+            "--config",
+            &config_path,
             "google.mail.search",
             "--ns",
             "google.work",
@@ -579,8 +669,12 @@ mod tests {
 
     #[test]
     fn repeated_namespace_flags_become_aggregate_reads() {
+        let config = TempConfigFile::new(BASIC_CONFIG);
+        let config_path = config.path_string();
         let cli = Cli::try_parse_from([
             "switchboard",
+            "--config",
+            &config_path,
             "google.calendar.list",
             "--ns",
             "google.work",
@@ -603,8 +697,12 @@ mod tests {
 
     #[test]
     fn repeated_namespace_flags_reject_write_tools() {
+        let config = TempConfigFile::new(BASIC_CONFIG);
+        let config_path = config.path_string();
         let cli = Cli::try_parse_from([
             "switchboard",
+            "--config",
+            &config_path,
             "google.calendar.create",
             "--ns",
             "google.work",
@@ -621,7 +719,7 @@ mod tests {
 
     #[test]
     fn aggregate_read_operations_can_fan_out_across_calendar_namespaces() {
-        let switchboard = default_switchboard().expect("switchboard should build");
+        let switchboard = test_switchboard().expect("switchboard should build");
         let request = AggregateReadRequest::new(
             "google.calendar.list",
             ["google.work", "google.personal"],
@@ -649,7 +747,7 @@ mod tests {
 
     #[test]
     fn aggregate_reads_reject_write_tools() {
-        let switchboard = default_switchboard().expect("switchboard should build");
+        let switchboard = test_switchboard().expect("switchboard should build");
         let request = AggregateReadRequest::new(
             "google.calendar.create",
             ["google.work", "google.personal"],
@@ -663,5 +761,64 @@ mod tests {
             .expect_err("aggregate write should fail");
 
         assert!(error.to_string().contains("aggregate reads require a read tool"));
+    }
+
+    #[test]
+    fn config_path_selection_prefers_explicit_paths_first() {
+        let selected = select_config_path(ConfigPathCandidates {
+            explicit: Some(PathBuf::from("/explicit.toml")),
+            env: Some(PathBuf::from("/env.toml")),
+            cwd: Some(PathBuf::from("/cwd.toml")),
+            ..ConfigPathCandidates::default()
+        })
+        .expect("an explicit path should win");
+
+        assert_eq!(selected, PathBuf::from("/explicit.toml"));
+    }
+
+    #[test]
+    fn config_path_selection_falls_back_in_documented_order() {
+        let selected = select_config_path(ConfigPathCandidates {
+            cwd: Some(PathBuf::from("/cwd.toml")),
+            home: Some(PathBuf::from("/home.toml")),
+            ..ConfigPathCandidates::default()
+        })
+        .expect("a discovered config should be selected");
+
+        assert_eq!(selected, PathBuf::from("/cwd.toml"));
+    }
+
+    struct TempConfigFile {
+        directory: PathBuf,
+        path: PathBuf,
+    }
+
+    impl TempConfigFile {
+        fn new(contents: &str) -> Self {
+            let directory = env::temp_dir().join(format!(
+                "switchboard-test-{}-{}",
+                process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("system time should be after unix epoch")
+                    .as_nanos()
+            ));
+            fs::create_dir_all(&directory).expect("temp dir should be created");
+            let path = directory.join("switchboard.toml");
+            fs::write(&path, contents).expect("config should be written");
+
+            Self { directory, path }
+        }
+
+        fn path_string(&self) -> String {
+            self.path.to_str().expect("temp path should be valid utf-8").to_owned()
+        }
+    }
+
+    impl Drop for TempConfigFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+            let _ = fs::remove_dir(&self.directory);
+        }
     }
 }

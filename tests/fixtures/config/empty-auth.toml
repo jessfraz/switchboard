@@ -1,0 +1,4 @@
+[namespace.google.personal]
+provider = "google"
+account = "jess@example.com"
+auth = ""

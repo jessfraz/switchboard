@@ -7,3 +7,4 @@
 # Local environment noise
 .DS_Store
 .direnv/
+switchboard.toml

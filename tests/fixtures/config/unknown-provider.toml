@@ -1,0 +1,4 @@
+[namespace.oracle.personal]
+provider = "oracle"
+account = "jess@example.com"
+auth = "oauth"
