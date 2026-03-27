@@ -1,0 +1,25 @@
+gws — Google Workspace CLI
+
+USAGE:
+    gws <service> <resource> [sub-resource] <method> [flags]
+    gws schema <service.resource.method> [--resolve-refs]
+
+SERVICES:
+    drive                Manage files, folders, and shared drives
+    sheets               Read and write spreadsheets
+    gmail                Send, read, and manage email
+    calendar             Manage calendars and events
+    admin-reports        Audit logs and usage reports (also: reports)
+    docs                 Read and write Google Docs
+    slides               Read and write presentations
+    tasks                Manage task lists and tasks
+    people               Manage contacts and profiles
+    chat                 Manage Chat spaces and messages
+    classroom            Manage classes, rosters, and coursework
+    forms                Read and write Google Forms
+    keep                 Manage Google Keep notes
+    meet                 Manage Google Meet conferences
+    events               Subscribe to Google Workspace events
+    modelarmor           Filter user-generated content for safety
+    workflow             Cross-service productivity workflows (also: wf)
+    script               Manage Google Apps Script projects

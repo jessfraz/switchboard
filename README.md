@@ -379,6 +379,7 @@ Those manifests describe the boring truth:
 
 Rust still owns the smart parts, auth materialization, codecs, effect extraction, and compensation logic.
 The manifest is the stable inventory, not a replacement for typed code.
+Full CLI inventories should also be generated and committed, so adding a new provider is mostly about crawling its help tree once, then curating the parts worth normalizing.
 
 You should be able to discover that surface without reading the source:
 

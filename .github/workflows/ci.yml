@@ -43,6 +43,9 @@ jobs:
           gh --version
           gws --version
 
+      - name: Check Generated CLI Inventories
+        run: cargo run -p switchboard-providers --bin switchboard-catalog-gen -- check
+
       - name: Format
         run: cargo fmt --check
 

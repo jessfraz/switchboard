@@ -1,0 +1,3335 @@
+{
+  "provider": "github",
+  "program": "gh",
+  "commands": [
+    {
+      "path": [],
+      "command": "gh",
+      "summary": "Work seamlessly with GitHub from the command line.",
+      "usage": "gh <command> <subcommand> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "auth",
+        "browse",
+        "codespace",
+        "gist",
+        "issue",
+        "org",
+        "pr",
+        "project",
+        "release",
+        "repo",
+        "cache",
+        "run",
+        "workflow",
+        "co",
+        "agent-task",
+        "alias",
+        "api",
+        "attestation",
+        "completion",
+        "config",
+        "copilot",
+        "extension",
+        "gpg-key",
+        "label",
+        "licenses",
+        "preview",
+        "ruleset",
+        "search",
+        "secret",
+        "ssh-key",
+        "status",
+        "variable"
+      ]
+    },
+    {
+      "path": [
+        "agent-task"
+      ],
+      "command": "gh agent-task",
+      "summary": "Working with agent tasks in the GitHub CLI is in preview and",
+      "usage": "gh agent-task <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "list",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "agent-task",
+        "create"
+      ],
+      "command": "gh agent-task create",
+      "summary": "Create an agent task (preview)",
+      "usage": "gh agent-task create [<task description>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "agent-task",
+        "list"
+      ],
+      "command": "gh agent-task list",
+      "summary": "List agent tasks (preview)",
+      "usage": "gh agent-task list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "agent-task",
+        "view"
+      ],
+      "command": "gh agent-task view",
+      "summary": "View an agent task session.",
+      "usage": "gh agent-task view [<session-id> | <pr-number> | <pr-url> | <pr-branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "alias"
+      ],
+      "command": "gh alias",
+      "summary": "Aliases can be used to make shortcuts for gh commands or to compose multiple commands.",
+      "usage": "gh alias <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "delete",
+        "import",
+        "list",
+        "set"
+      ]
+    },
+    {
+      "path": [
+        "alias",
+        "delete"
+      ],
+      "command": "gh alias delete",
+      "summary": "Delete set aliases",
+      "usage": "gh alias delete {<alias> | --all} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "alias",
+        "import"
+      ],
+      "command": "gh alias import",
+      "summary": "Import aliases from the contents of a YAML file.",
+      "usage": "gh alias import [<filename> | -] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "alias",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "alias",
+        "list"
+      ],
+      "command": "gh alias list",
+      "summary": "This command prints out all of the aliases gh is configured to use.",
+      "usage": "gh alias list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "alias",
+        "set"
+      ],
+      "command": "gh alias set",
+      "summary": "Define a word that will expand to a full gh command when invoked.",
+      "usage": "gh alias set <alias> <expansion> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "api"
+      ],
+      "command": "gh api",
+      "summary": "Makes an authenticated HTTP request to the GitHub API and prints the response.",
+      "usage": "gh api <endpoint> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "attestation"
+      ],
+      "command": "gh attestation",
+      "summary": "Download and verify artifact attestations.",
+      "usage": "gh attestation [subcommand] [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "download",
+        "trusted-root",
+        "verify"
+      ]
+    },
+    {
+      "path": [
+        "attestation",
+        "download"
+      ],
+      "command": "gh attestation download",
+      "summary": "### NOTE: This feature is currently in public preview, and subject to change.",
+      "usage": "gh attestation download [<file-path> | oci://<image-uri>] [--owner | --repo] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "attestation",
+        "trusted-root"
+      ],
+      "command": "gh attestation trusted-root",
+      "summary": "Output contents for a trusted_root.jsonl file, likely for offline verification.",
+      "usage": "gh attestation trusted-root [--tuf-url <url> --tuf-root <file-path>] [--verify-only] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "attestation",
+        "verify"
+      ],
+      "command": "gh attestation verify",
+      "summary": "Verify the integrity and provenance of an artifact using its associated",
+      "usage": "gh attestation verify [<file-path> | oci://<image-uri>] [--owner | --repo] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth"
+      ],
+      "command": "gh auth",
+      "summary": "Authenticate gh and git with GitHub",
+      "usage": "gh auth <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "login",
+        "logout",
+        "refresh",
+        "setup-git",
+        "status",
+        "switch",
+        "token"
+      ]
+    },
+    {
+      "path": [
+        "auth",
+        "login"
+      ],
+      "command": "gh auth login",
+      "summary": "Authenticate with a GitHub host.",
+      "usage": "gh auth login [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "logout"
+      ],
+      "command": "gh auth logout",
+      "summary": "Remove authentication for a GitHub account.",
+      "usage": "gh auth logout [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "refresh"
+      ],
+      "command": "gh auth refresh",
+      "summary": "Expand or fix the permission scopes for stored credentials for active account.",
+      "usage": "gh auth refresh [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "setup-git"
+      ],
+      "command": "gh auth setup-git",
+      "summary": "This command configures `git` to use GitHub CLI as a credential helper.",
+      "usage": "gh auth setup-git [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "status"
+      ],
+      "command": "gh auth status",
+      "summary": "Display active account and authentication state on each known GitHub host.",
+      "usage": "gh auth status [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "switch"
+      ],
+      "command": "gh auth switch",
+      "summary": "Switch the active account for a GitHub host.",
+      "usage": "gh auth switch [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "token"
+      ],
+      "command": "gh auth token",
+      "summary": "This command outputs the authentication token for an account on a given GitHub host.",
+      "usage": "gh auth token [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "browse"
+      ],
+      "command": "gh browse",
+      "summary": "Transition from the terminal to the web browser to view and interact with:",
+      "usage": "gh browse [<number> | <path> | <commit-sha>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "cache"
+      ],
+      "command": "gh cache",
+      "summary": "Work with GitHub Actions caches.",
+      "usage": "gh cache <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "delete",
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "cache",
+        "delete"
+      ],
+      "command": "gh cache delete",
+      "summary": "Delete GitHub Actions caches.",
+      "usage": "gh cache delete [<cache-id> | <cache-key> | --all] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "cache",
+        "list"
+      ],
+      "command": "gh cache list",
+      "summary": "List GitHub Actions caches",
+      "usage": "gh cache list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "co"
+      ],
+      "command": "gh co",
+      "summary": "Check out a pull request in git",
+      "usage": "gh pr checkout [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace"
+      ],
+      "command": "gh codespace",
+      "summary": "Connect to and manage codespaces",
+      "usage": "gh codespace [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "code",
+        "cp",
+        "create",
+        "delete",
+        "edit",
+        "jupyter",
+        "list",
+        "logs",
+        "ports",
+        "rebuild",
+        "ssh",
+        "stop",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "codespace",
+        "code"
+      ],
+      "command": "gh codespace code",
+      "summary": "Open a codespace in Visual Studio Code",
+      "usage": "gh codespace code [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "cp"
+      ],
+      "command": "gh codespace cp",
+      "summary": "The `cp` command copies files between the local and remote file systems.",
+      "usage": "gh codespace cp [-e] [-r] [-- [<scp flags>...]] <sources>... <dest>",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "create"
+      ],
+      "command": "gh codespace create",
+      "summary": "Create a codespace",
+      "usage": "gh codespace create [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "codespace",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "delete"
+      ],
+      "command": "gh codespace delete",
+      "summary": "Delete codespaces based on selection criteria.",
+      "usage": "gh codespace delete [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "edit"
+      ],
+      "command": "gh codespace edit",
+      "summary": "Edit a codespace",
+      "usage": "gh codespace edit [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "jupyter"
+      ],
+      "command": "gh codespace jupyter",
+      "summary": "Open a codespace in JupyterLab",
+      "usage": "gh codespace jupyter [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "list"
+      ],
+      "command": "gh codespace list",
+      "summary": "List codespaces of the authenticated user.",
+      "usage": "gh codespace list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "logs"
+      ],
+      "command": "gh codespace logs",
+      "summary": "Access codespace logs",
+      "usage": "gh codespace logs [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "ports"
+      ],
+      "command": "gh codespace ports",
+      "summary": "List ports in a codespace",
+      "usage": "gh codespace ports [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "forward",
+        "visibility"
+      ]
+    },
+    {
+      "path": [
+        "codespace",
+        "ports",
+        "forward"
+      ],
+      "command": "gh codespace ports forward",
+      "summary": "Forward ports",
+      "usage": "gh codespace ports forward <remote-port>:<local-port>... [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "ports",
+        "visibility"
+      ],
+      "command": "gh codespace ports visibility",
+      "summary": "Change the visibility of the forwarded port",
+      "usage": "gh codespace ports visibility <port>:{public|private|org}... [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "rebuild"
+      ],
+      "command": "gh codespace rebuild",
+      "summary": "Rebuilding recreates your codespace.",
+      "usage": "gh codespace rebuild [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "ssh"
+      ],
+      "command": "gh codespace ssh",
+      "summary": "The `ssh` command is used to SSH into a codespace. In its simplest form, you can",
+      "usage": "gh codespace ssh [<flags>...] [-- <ssh-flags>...] [<command>]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "stop"
+      ],
+      "command": "gh codespace stop",
+      "summary": "Stop a running codespace",
+      "usage": "gh codespace stop [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "codespace",
+        "view"
+      ],
+      "command": "gh codespace view",
+      "summary": "View details about a codespace",
+      "usage": "gh codespace view [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "completion"
+      ],
+      "command": "gh completion",
+      "summary": "Generate shell completion scripts for GitHub CLI commands.",
+      "usage": "gh completion -s <shell>",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "config"
+      ],
+      "command": "gh config",
+      "summary": "Display or change configuration settings for gh.",
+      "usage": "gh config <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "clear-cache",
+        "get",
+        "list",
+        "set"
+      ]
+    },
+    {
+      "path": [
+        "config",
+        "clear-cache"
+      ],
+      "command": "gh config clear-cache",
+      "summary": "Clear the cli cache",
+      "usage": "gh config clear-cache [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "config",
+        "get"
+      ],
+      "command": "gh config get",
+      "summary": "Print the value of a given configuration key",
+      "usage": "gh config get <key> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "config",
+        "list"
+      ],
+      "command": "gh config list",
+      "summary": "Print a list of configuration keys and values",
+      "usage": "gh config list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "config",
+        "set"
+      ],
+      "command": "gh config set",
+      "summary": "Update configuration with a value for the given key",
+      "usage": "gh config set <key> <value> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "copilot"
+      ],
+      "command": "gh copilot",
+      "summary": "Runs the GitHub Copilot CLI.",
+      "usage": "gh copilot [flags] [args]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "extension"
+      ],
+      "command": "gh extension",
+      "summary": "GitHub CLI extensions are repositories that provide additional gh commands.",
+      "usage": "gh extension [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "browse",
+        "create",
+        "exec",
+        "install",
+        "list",
+        "remove",
+        "search",
+        "upgrade"
+      ]
+    },
+    {
+      "path": [
+        "extension",
+        "browse"
+      ],
+      "command": "gh extension browse",
+      "summary": "This command will take over your terminal and run a fully interactive",
+      "usage": "gh extension browse [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "create"
+      ],
+      "command": "gh extension create",
+      "summary": "Create a new extension",
+      "usage": "gh extension create [<name>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "extension",
+          "remove"
+        ]
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "exec"
+      ],
+      "command": "gh extension exec",
+      "summary": "Execute an extension using the short name. For example, if the extension repository is",
+      "usage": "gh extension exec <name> [args] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "install"
+      ],
+      "command": "gh extension install",
+      "summary": "Install a GitHub CLI extension from a GitHub or local repository.",
+      "usage": "gh extension install <repository> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "list"
+      ],
+      "command": "gh extension list",
+      "summary": "List installed extension commands",
+      "usage": "gh extension list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "remove"
+      ],
+      "command": "gh extension remove",
+      "summary": "Remove an installed extension",
+      "usage": "gh extension remove <name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "search"
+      ],
+      "command": "gh extension search",
+      "summary": "Search for gh extensions.",
+      "usage": "gh extension search [<query>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "extension",
+        "upgrade"
+      ],
+      "command": "gh extension upgrade",
+      "summary": "Upgrade installed extensions",
+      "usage": "gh extension upgrade {<name> | --all} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "gist"
+      ],
+      "command": "gh gist",
+      "summary": "Work with GitHub gists.",
+      "usage": "gh gist <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "clone",
+        "create",
+        "delete",
+        "edit",
+        "list",
+        "rename",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "gist",
+        "clone"
+      ],
+      "command": "gh gist clone",
+      "summary": "Clone a GitHub gist locally.",
+      "usage": "gh gist clone <gist> [<directory>] [-- <gitflags>...]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "gist",
+        "create"
+      ],
+      "command": "gh gist create",
+      "summary": "Create a new GitHub gist with given contents.",
+      "usage": "gh gist create [<filename>... | <pattern>... | -] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "gist",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "gist",
+        "delete"
+      ],
+      "command": "gh gist delete",
+      "summary": "Delete a GitHub gist.",
+      "usage": "gh gist delete {<id> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "gist",
+        "edit"
+      ],
+      "command": "gh gist edit",
+      "summary": "Edit one of your gists",
+      "usage": "gh gist edit {<id> | <url>} [<filename>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "gist",
+        "list"
+      ],
+      "command": "gh gist list",
+      "summary": "List gists from your user account.",
+      "usage": "gh gist list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "gist",
+        "rename"
+      ],
+      "command": "gh gist rename",
+      "summary": "Rename a file in the given gist ID / URL.",
+      "usage": "gh gist rename {<id> | <url>} <old-filename> <new-filename> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "gist",
+        "view"
+      ],
+      "command": "gh gist view",
+      "summary": "View the given gist or select from recent gists.",
+      "usage": "gh gist view [<id> | <url>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "gpg-key"
+      ],
+      "command": "gh gpg-key",
+      "summary": "Manage GPG keys registered with your GitHub account.",
+      "usage": "gh gpg-key <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "add",
+        "delete",
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "gpg-key",
+        "add"
+      ],
+      "command": "gh gpg-key add",
+      "summary": "Add a GPG key to your GitHub account",
+      "usage": "gh gpg-key add [<key-file>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "gpg-key",
+        "delete"
+      ],
+      "command": "gh gpg-key delete",
+      "summary": "Delete a GPG key from your GitHub account",
+      "usage": "gh gpg-key delete <key-id> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "gpg-key",
+        "list"
+      ],
+      "command": "gh gpg-key list",
+      "summary": "Lists GPG keys in your GitHub account",
+      "usage": "gh gpg-key list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue"
+      ],
+      "command": "gh issue",
+      "summary": "Work with GitHub issues.",
+      "usage": "gh issue <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "list",
+        "status",
+        "close",
+        "comment",
+        "delete",
+        "develop",
+        "edit",
+        "lock",
+        "pin",
+        "reopen",
+        "transfer",
+        "unlock",
+        "unpin",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "issue",
+        "close"
+      ],
+      "command": "gh issue close",
+      "summary": "Close issue",
+      "usage": "gh issue close {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "issue",
+          "reopen"
+        ]
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "comment"
+      ],
+      "command": "gh issue comment",
+      "summary": "Add a comment to a GitHub issue.",
+      "usage": "gh issue comment {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "create"
+      ],
+      "command": "gh issue create",
+      "summary": "Create an issue on GitHub.",
+      "usage": "gh issue create [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "issue",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "delete"
+      ],
+      "command": "gh issue delete",
+      "summary": "Delete issue",
+      "usage": "gh issue delete {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "develop"
+      ],
+      "command": "gh issue develop",
+      "summary": "Manage linked branches for an issue.",
+      "usage": "gh issue develop {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "edit"
+      ],
+      "command": "gh issue edit",
+      "summary": "Edit one or more issues within the same repository.",
+      "usage": "gh issue edit {<numbers> | <urls>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "list"
+      ],
+      "command": "gh issue list",
+      "summary": "List issues in a GitHub repository. By default, this only lists open issues.",
+      "usage": "gh issue list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "lock"
+      ],
+      "command": "gh issue lock",
+      "summary": "Lock issue conversation",
+      "usage": "gh issue lock {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "issue",
+          "unlock"
+        ]
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "pin"
+      ],
+      "command": "gh issue pin",
+      "summary": "Pin an issue to a repository.",
+      "usage": "gh issue pin {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "reopen"
+      ],
+      "command": "gh issue reopen",
+      "summary": "Reopen issue",
+      "usage": "gh issue reopen {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "status"
+      ],
+      "command": "gh issue status",
+      "summary": "Show status of relevant issues",
+      "usage": "gh issue status [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "transfer"
+      ],
+      "command": "gh issue transfer",
+      "summary": "Transfer issue to another repository",
+      "usage": "gh issue transfer {<number> | <url>} <destination-repo> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "unlock"
+      ],
+      "command": "gh issue unlock",
+      "summary": "Unlock issue conversation",
+      "usage": "gh issue unlock {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "unpin"
+      ],
+      "command": "gh issue unpin",
+      "summary": "Unpin an issue from a repository.",
+      "usage": "gh issue unpin {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "issue",
+        "view"
+      ],
+      "command": "gh issue view",
+      "summary": "Display the title, body, and other information about an issue.",
+      "usage": "gh issue view {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "label"
+      ],
+      "command": "gh label",
+      "summary": "Work with GitHub labels.",
+      "usage": "gh label <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "clone",
+        "create",
+        "delete",
+        "edit",
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "label",
+        "clone"
+      ],
+      "command": "gh label clone",
+      "summary": "Clones labels from a source repository to a destination repository on GitHub.",
+      "usage": "gh label clone <source-repository> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "label",
+        "create"
+      ],
+      "command": "gh label create",
+      "summary": "Create a new label on GitHub, or update an existing one with `--force`.",
+      "usage": "gh label create <name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "label",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "label",
+        "delete"
+      ],
+      "command": "gh label delete",
+      "summary": "Delete a label from a repository",
+      "usage": "gh label delete <name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "label",
+        "edit"
+      ],
+      "command": "gh label edit",
+      "summary": "Update a label on GitHub.",
+      "usage": "gh label edit <name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "label",
+        "list"
+      ],
+      "command": "gh label list",
+      "summary": "Display labels in a GitHub repository.",
+      "usage": "gh label list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "licenses"
+      ],
+      "command": "gh licenses",
+      "summary": "View license information for third-party libraries used in this build of the GitHub CLI.",
+      "usage": "gh licenses [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "org"
+      ],
+      "command": "gh org",
+      "summary": "Work with GitHub organizations.",
+      "usage": "gh org <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "org",
+        "list"
+      ],
+      "command": "gh org list",
+      "summary": "List organizations for the authenticated user.",
+      "usage": "gh org list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr"
+      ],
+      "command": "gh pr",
+      "summary": "Work with GitHub pull requests.",
+      "usage": "gh pr <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "list",
+        "status",
+        "checkout",
+        "checks",
+        "close",
+        "comment",
+        "diff",
+        "edit",
+        "lock",
+        "merge",
+        "ready",
+        "reopen",
+        "revert",
+        "review",
+        "unlock",
+        "update-branch",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "pr",
+        "checkout"
+      ],
+      "command": "gh pr checkout",
+      "summary": "Check out a pull request in git",
+      "usage": "gh pr checkout [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "checks"
+      ],
+      "command": "gh pr checks",
+      "summary": "Show CI status for a single pull request.",
+      "usage": "gh pr checks [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "close"
+      ],
+      "command": "gh pr close",
+      "summary": "Close a pull request",
+      "usage": "gh pr close {<number> | <url> | <branch>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "pr",
+          "reopen"
+        ]
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "comment"
+      ],
+      "command": "gh pr comment",
+      "summary": "Add a comment to a GitHub pull request.",
+      "usage": "gh pr comment [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "create"
+      ],
+      "command": "gh pr create",
+      "summary": "Create a pull request on GitHub.",
+      "usage": "gh pr create [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "diff"
+      ],
+      "command": "gh pr diff",
+      "summary": "View changes in a pull request.",
+      "usage": "gh pr diff [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "edit"
+      ],
+      "command": "gh pr edit",
+      "summary": "Edit a pull request.",
+      "usage": "gh pr edit [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "list"
+      ],
+      "command": "gh pr list",
+      "summary": "List pull requests in a GitHub repository. By default, this only lists open PRs.",
+      "usage": "gh pr list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "lock"
+      ],
+      "command": "gh pr lock",
+      "summary": "Lock pull request conversation",
+      "usage": "gh pr lock {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "pr",
+          "unlock"
+        ]
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "merge"
+      ],
+      "command": "gh pr merge",
+      "summary": "Merge a pull request on GitHub.",
+      "usage": "gh pr merge [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "pr",
+          "revert"
+        ]
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "ready"
+      ],
+      "command": "gh pr ready",
+      "summary": "Mark a pull request as ready for review.",
+      "usage": "gh pr ready [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "reopen"
+      ],
+      "command": "gh pr reopen",
+      "summary": "Reopen a pull request",
+      "usage": "gh pr reopen {<number> | <url> | <branch>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "revert"
+      ],
+      "command": "gh pr revert",
+      "summary": "Revert a pull request",
+      "usage": "gh pr revert {<number> | <url> | <branch>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "review"
+      ],
+      "command": "gh pr review",
+      "summary": "Add a review to a pull request.",
+      "usage": "gh pr review [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "status"
+      ],
+      "command": "gh pr status",
+      "summary": "Show status of relevant pull requests.",
+      "usage": "gh pr status [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "unlock"
+      ],
+      "command": "gh pr unlock",
+      "summary": "Unlock pull request conversation",
+      "usage": "gh pr unlock {<number> | <url>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "update-branch"
+      ],
+      "command": "gh pr update-branch",
+      "summary": "Update a pull request branch with latest changes of the base branch.",
+      "usage": "gh pr update-branch [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "pr",
+        "view"
+      ],
+      "command": "gh pr view",
+      "summary": "Display the title, body, and other information about a pull request.",
+      "usage": "gh pr view [<number> | <url> | <branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "preview"
+      ],
+      "command": "gh preview",
+      "summary": "Preview commands are for testing, demonstrative, and development purposes only.",
+      "usage": "gh preview <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "prompter"
+      ]
+    },
+    {
+      "path": [
+        "preview",
+        "prompter"
+      ],
+      "command": "gh preview prompter",
+      "summary": "Execute a test program to preview the prompter.",
+      "usage": "gh preview prompter [prompt type] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project"
+      ],
+      "command": "gh project",
+      "summary": "Work with GitHub Projects.",
+      "usage": "gh project <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "close",
+        "copy",
+        "create",
+        "delete",
+        "edit",
+        "field-create",
+        "field-delete",
+        "field-list",
+        "item-add",
+        "item-archive",
+        "item-create",
+        "item-delete",
+        "item-edit",
+        "item-list",
+        "link",
+        "list",
+        "mark-template",
+        "unlink",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "project",
+        "close"
+      ],
+      "command": "gh project close",
+      "summary": "Close a project",
+      "usage": "gh project close [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "copy"
+      ],
+      "command": "gh project copy",
+      "summary": "Copy a project",
+      "usage": "gh project copy [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "create"
+      ],
+      "command": "gh project create",
+      "summary": "Create a project",
+      "usage": "gh project create [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "project",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "project",
+        "delete"
+      ],
+      "command": "gh project delete",
+      "summary": "Delete a project",
+      "usage": "gh project delete [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "edit"
+      ],
+      "command": "gh project edit",
+      "summary": "Edit a project",
+      "usage": "gh project edit [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "field-create"
+      ],
+      "command": "gh project field-create",
+      "summary": "Create a field in a project",
+      "usage": "gh project field-create [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "field-delete"
+      ],
+      "command": "gh project field-delete",
+      "summary": "Delete a field in a project",
+      "usage": "gh project field-delete [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "field-list"
+      ],
+      "command": "gh project field-list",
+      "summary": "List the fields in a project",
+      "usage": "gh project field-list [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "item-add"
+      ],
+      "command": "gh project item-add",
+      "summary": "Add a pull request or an issue to a project",
+      "usage": "gh project item-add [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "item-archive"
+      ],
+      "command": "gh project item-archive",
+      "summary": "Archive an item in a project",
+      "usage": "gh project item-archive [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "item-create"
+      ],
+      "command": "gh project item-create",
+      "summary": "Create a draft issue item in a project",
+      "usage": "gh project item-create [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "item-delete"
+      ],
+      "command": "gh project item-delete",
+      "summary": "Delete an item from a project by ID",
+      "usage": "gh project item-delete [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "item-edit"
+      ],
+      "command": "gh project item-edit",
+      "summary": "Edit either a draft issue or a project item. Both usages require the ID of the item to edit.",
+      "usage": "gh project item-edit [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "item-list"
+      ],
+      "command": "gh project item-list",
+      "summary": "List the items in a project.",
+      "usage": "gh project item-list [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "link"
+      ],
+      "command": "gh project link",
+      "summary": "Link a project to a repository or a team",
+      "usage": "gh project link [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "list"
+      ],
+      "command": "gh project list",
+      "summary": "List the projects for an owner",
+      "usage": "gh project list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "mark-template"
+      ],
+      "command": "gh project mark-template",
+      "summary": "Mark a project as a template",
+      "usage": "gh project mark-template [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "unlink"
+      ],
+      "command": "gh project unlink",
+      "summary": "Unlink a project from a repository or a team",
+      "usage": "gh project unlink [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "project",
+        "view"
+      ],
+      "command": "gh project view",
+      "summary": "View a project",
+      "usage": "gh project view [<number>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "release"
+      ],
+      "command": "gh release",
+      "summary": "Manage releases",
+      "usage": "gh release <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "list",
+        "delete",
+        "delete-asset",
+        "download",
+        "edit",
+        "upload",
+        "verify",
+        "verify-asset",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "release",
+        "create"
+      ],
+      "command": "gh release create",
+      "summary": "Create a new GitHub Release for a repository.",
+      "usage": "gh release create [<tag>] [<filename>... | <pattern>...]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "release",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "release",
+        "delete"
+      ],
+      "command": "gh release delete",
+      "summary": "Delete a release",
+      "usage": "gh release delete <tag> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "delete-asset"
+      ],
+      "command": "gh release delete-asset",
+      "summary": "Delete an asset from a release",
+      "usage": "gh release delete-asset <tag> <asset-name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "download"
+      ],
+      "command": "gh release download",
+      "summary": "Download assets from a GitHub release.",
+      "usage": "gh release download [<tag>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "edit"
+      ],
+      "command": "gh release edit",
+      "summary": "Edit a release",
+      "usage": "gh release edit <tag>",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "list"
+      ],
+      "command": "gh release list",
+      "summary": "List releases in a repository",
+      "usage": "gh release list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "upload"
+      ],
+      "command": "gh release upload",
+      "summary": "Upload asset files to a GitHub Release.",
+      "usage": "gh release upload <tag> <files>... [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "verify"
+      ],
+      "command": "gh release verify",
+      "summary": "Verify that a GitHub Release is accompanied by a valid cryptographically signed attestation.",
+      "usage": "gh release verify [<tag>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "verify-asset"
+      ],
+      "command": "gh release verify-asset",
+      "summary": "Verify that a given asset file originated from a specific GitHub Release using cryptographically signed attestations.",
+      "usage": "gh release verify-asset [<tag>] <file-path> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "release",
+        "view"
+      ],
+      "command": "gh release view",
+      "summary": "View information about a GitHub Release.",
+      "usage": "gh release view [<tag>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo"
+      ],
+      "command": "gh repo",
+      "summary": "Work with GitHub repositories.",
+      "usage": "gh repo <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "list",
+        "archive",
+        "autolink",
+        "clone",
+        "delete",
+        "deploy-key",
+        "edit",
+        "fork",
+        "gitignore",
+        "license",
+        "rename",
+        "set-default",
+        "sync",
+        "unarchive",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "repo",
+        "archive"
+      ],
+      "command": "gh repo archive",
+      "summary": "Archive a GitHub repository.",
+      "usage": "gh repo archive [<repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "autolink"
+      ],
+      "command": "gh repo autolink",
+      "summary": "Autolinks link issues, pull requests, commit messages, and release descriptions to external third-party services.",
+      "usage": "gh repo autolink <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "delete",
+        "list",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "create"
+      ],
+      "command": "gh repo autolink create",
+      "summary": "Create a new autolink reference for a repository.",
+      "usage": "gh repo autolink create <keyPrefix> <urlTemplate> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "repo",
+          "autolink",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "delete"
+      ],
+      "command": "gh repo autolink delete",
+      "summary": "Delete an autolink reference for a repository.",
+      "usage": "gh repo autolink delete <id> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "list"
+      ],
+      "command": "gh repo autolink list",
+      "summary": "Gets all autolink references that are configured for a repository.",
+      "usage": "gh repo autolink list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "view"
+      ],
+      "command": "gh repo autolink view",
+      "summary": "View an autolink reference for a repository.",
+      "usage": "gh repo autolink view <id> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "clone"
+      ],
+      "command": "gh repo clone",
+      "summary": "Clone a GitHub repository locally. Pass additional `git clone` flags by listing",
+      "usage": "gh repo clone <repository> [<directory>] [-- <gitflags>...]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "create"
+      ],
+      "command": "gh repo create",
+      "summary": "Create a new GitHub repository.",
+      "usage": "gh repo create [<name>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "repo",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "delete"
+      ],
+      "command": "gh repo delete",
+      "summary": "Delete a GitHub repository.",
+      "usage": "gh repo delete [<repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key"
+      ],
+      "command": "gh repo deploy-key",
+      "summary": "Manage deploy keys in a repository",
+      "usage": "gh repo deploy-key <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "add",
+        "delete",
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key",
+        "add"
+      ],
+      "command": "gh repo deploy-key add",
+      "summary": "Add a deploy key to a GitHub repository.",
+      "usage": "gh repo deploy-key add <key-file> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key",
+        "delete"
+      ],
+      "command": "gh repo deploy-key delete",
+      "summary": "Delete a deploy key from a GitHub repository",
+      "usage": "gh repo deploy-key delete <key-id> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key",
+        "list"
+      ],
+      "command": "gh repo deploy-key list",
+      "summary": "List deploy keys in a GitHub repository",
+      "usage": "gh repo deploy-key list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "edit"
+      ],
+      "command": "gh repo edit",
+      "summary": "Edit repository settings.",
+      "usage": "gh repo edit [<repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "fork"
+      ],
+      "command": "gh repo fork",
+      "summary": "Create a fork of a repository.",
+      "usage": "gh repo fork [<repository>] [-- <gitflags>...] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "gitignore"
+      ],
+      "command": "gh repo gitignore",
+      "summary": "List and view available repository gitignore templates",
+      "usage": "gh repo gitignore <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "list",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "repo",
+        "gitignore",
+        "list"
+      ],
+      "command": "gh repo gitignore list",
+      "summary": "List available repository gitignore templates",
+      "usage": "gh repo gitignore list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "gitignore",
+        "view"
+      ],
+      "command": "gh repo gitignore view",
+      "summary": "View an available repository `.gitignore` template.",
+      "usage": "gh repo gitignore view <template> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "license"
+      ],
+      "command": "gh repo license",
+      "summary": "Explore repository licenses",
+      "usage": "gh repo license <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "list",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "repo",
+        "license",
+        "list"
+      ],
+      "command": "gh repo license list",
+      "summary": "List common repository licenses.",
+      "usage": "gh repo license list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "license",
+        "view"
+      ],
+      "command": "gh repo license view",
+      "summary": "View a specific repository license by license key or SPDX ID.",
+      "usage": "gh repo license view {<license-key> | <spdx-id>} [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "list"
+      ],
+      "command": "gh repo list",
+      "summary": "List repositories owned by a user or organization.",
+      "usage": "gh repo list [<owner>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "rename"
+      ],
+      "command": "gh repo rename",
+      "summary": "Rename a GitHub repository.",
+      "usage": "gh repo rename [<new-name>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "set-default"
+      ],
+      "command": "gh repo set-default",
+      "summary": "This command sets the default remote repository to use when querying the",
+      "usage": "gh repo set-default [<repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "sync"
+      ],
+      "command": "gh repo sync",
+      "summary": "Sync destination repository from source repository. Syncing uses the default branch",
+      "usage": "gh repo sync [<destination-repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "unarchive"
+      ],
+      "command": "gh repo unarchive",
+      "summary": "Unarchive a GitHub repository.",
+      "usage": "gh repo unarchive [<repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "repo",
+        "view"
+      ],
+      "command": "gh repo view",
+      "summary": "Display the description and the README of a GitHub repository.",
+      "usage": "gh repo view [<repository>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "ruleset"
+      ],
+      "command": "gh ruleset",
+      "summary": "Repository rulesets are a way to define a set of rules that apply to a repository.",
+      "usage": "gh ruleset <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "check",
+        "list",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "ruleset",
+        "check"
+      ],
+      "command": "gh ruleset check",
+      "summary": "View information about GitHub rules that apply to a given branch.",
+      "usage": "gh ruleset check [<branch>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "ruleset",
+        "list"
+      ],
+      "command": "gh ruleset list",
+      "summary": "List GitHub rulesets for a repository or organization.",
+      "usage": "gh ruleset list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "ruleset",
+        "view"
+      ],
+      "command": "gh ruleset view",
+      "summary": "View information about a GitHub ruleset.",
+      "usage": "gh ruleset view [<ruleset-id>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "run"
+      ],
+      "command": "gh run",
+      "summary": "List, view, and watch recent workflow runs from GitHub Actions.",
+      "usage": "gh run <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "cancel",
+        "delete",
+        "download",
+        "list",
+        "rerun",
+        "view",
+        "watch"
+      ]
+    },
+    {
+      "path": [
+        "run",
+        "cancel"
+      ],
+      "command": "gh run cancel",
+      "summary": "Cancel a workflow run",
+      "usage": "gh run cancel [<run-id>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "run",
+        "delete"
+      ],
+      "command": "gh run delete",
+      "summary": "Delete a workflow run",
+      "usage": "gh run delete [<run-id>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "run",
+        "download"
+      ],
+      "command": "gh run download",
+      "summary": "Download artifacts generated by a GitHub Actions workflow run.",
+      "usage": "gh run download [<run-id>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "run",
+        "list"
+      ],
+      "command": "gh run list",
+      "summary": "List recent workflow runs.",
+      "usage": "gh run list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "run",
+        "rerun"
+      ],
+      "command": "gh run rerun",
+      "summary": "Rerun an entire run, only failed jobs, or a specific job from a run.",
+      "usage": "gh run rerun [<run-id>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "run",
+        "view"
+      ],
+      "command": "gh run view",
+      "summary": "View a summary of a workflow run.",
+      "usage": "gh run view [<run-id>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "run",
+        "watch"
+      ],
+      "command": "gh run watch",
+      "summary": "Watch a run until it completes, showing its progress.",
+      "usage": "gh run watch <run-id> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "run",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "search"
+      ],
+      "command": "gh search",
+      "summary": "Search across all of GitHub.",
+      "usage": "gh search <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "code",
+        "commits",
+        "issues",
+        "prs",
+        "repos"
+      ]
+    },
+    {
+      "path": [
+        "search",
+        "code"
+      ],
+      "command": "gh search code",
+      "summary": "Search within code in GitHub repositories.",
+      "usage": "gh search code <query> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "search",
+        "commits"
+      ],
+      "command": "gh search commits",
+      "summary": "Search for commits on GitHub.",
+      "usage": "gh search commits [<query>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "search",
+        "issues"
+      ],
+      "command": "gh search issues",
+      "summary": "Search for issues on GitHub.",
+      "usage": "gh search issues [<query>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "search",
+        "prs"
+      ],
+      "command": "gh search prs",
+      "summary": "Search for pull requests on GitHub.",
+      "usage": "gh search prs [<query>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "search",
+        "repos"
+      ],
+      "command": "gh search repos",
+      "summary": "Search for repositories on GitHub.",
+      "usage": "gh search repos [<query>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "secret"
+      ],
+      "command": "gh secret",
+      "summary": "Secrets can be set at the repository, or organization level for use in",
+      "usage": "gh secret <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "delete",
+        "list",
+        "set"
+      ]
+    },
+    {
+      "path": [
+        "secret",
+        "delete"
+      ],
+      "command": "gh secret delete",
+      "summary": "Delete a secret on one of the following levels:",
+      "usage": "gh secret delete <secret-name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "secret",
+        "list"
+      ],
+      "command": "gh secret list",
+      "summary": "List secrets on one of the following levels:",
+      "usage": "gh secret list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "secret",
+        "set"
+      ],
+      "command": "gh secret set",
+      "summary": "Set a value for a secret on one of the following levels:",
+      "usage": "gh secret set <secret-name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "ssh-key"
+      ],
+      "command": "gh ssh-key",
+      "summary": "Manage SSH keys registered with your GitHub account.",
+      "usage": "gh ssh-key <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "add",
+        "delete",
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "ssh-key",
+        "add"
+      ],
+      "command": "gh ssh-key add",
+      "summary": "Add an SSH key to your GitHub account",
+      "usage": "gh ssh-key add [<key-file>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "ssh-key",
+        "delete"
+      ],
+      "command": "gh ssh-key delete",
+      "summary": "Delete an SSH key from your GitHub account",
+      "usage": "gh ssh-key delete <id> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "ssh-key",
+        "list"
+      ],
+      "command": "gh ssh-key list",
+      "summary": "Lists SSH keys in your GitHub account",
+      "usage": "gh ssh-key list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "status"
+      ],
+      "command": "gh status",
+      "summary": "The status command prints information about your work on GitHub across all the repositories you're subscribed to, including:",
+      "usage": "gh status [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "variable"
+      ],
+      "command": "gh variable",
+      "summary": "Variables can be set at the repository, environment or organization level for use in",
+      "usage": "gh variable <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "delete",
+        "get",
+        "list",
+        "set"
+      ]
+    },
+    {
+      "path": [
+        "variable",
+        "delete"
+      ],
+      "command": "gh variable delete",
+      "summary": "Delete a variable on one of the following levels:",
+      "usage": "gh variable delete <variable-name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "variable",
+        "get"
+      ],
+      "command": "gh variable get",
+      "summary": "Get a variable on one of the following levels:",
+      "usage": "gh variable get <variable-name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "variable",
+        "list"
+      ],
+      "command": "gh variable list",
+      "summary": "List variables on one of the following levels:",
+      "usage": "gh variable list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "variable",
+        "set"
+      ],
+      "command": "gh variable set",
+      "summary": "Set a value for a variable on one of the following levels:",
+      "usage": "gh variable set <variable-name> [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "workflow"
+      ],
+      "command": "gh workflow",
+      "summary": "List, view, and run workflows in GitHub Actions.",
+      "usage": "gh workflow <command> [flags]",
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "disable",
+        "enable",
+        "list",
+        "run",
+        "view"
+      ]
+    },
+    {
+      "path": [
+        "workflow",
+        "disable"
+      ],
+      "command": "gh workflow disable",
+      "summary": "Disable a workflow, preventing it from running or showing up when listing workflows.",
+      "usage": "gh workflow disable [<workflow-id> | <workflow-name>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "workflow",
+        "enable"
+      ],
+      "command": "gh workflow enable",
+      "summary": "Enable a workflow, allowing it to be run and show up when listing workflows.",
+      "usage": "gh workflow enable [<workflow-id> | <workflow-name>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "workflow",
+        "list"
+      ],
+      "command": "gh workflow list",
+      "summary": "List workflow files, hiding disabled workflows by default.",
+      "usage": "gh workflow list [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "workflow",
+        "run"
+      ],
+      "command": "gh workflow run",
+      "summary": "Create a `workflow_dispatch` event for a given workflow.",
+      "usage": "gh workflow run [<workflow-id> | <workflow-name>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "workflow",
+        "view"
+      ],
+      "command": "gh workflow view",
+      "summary": "View the summary of a workflow",
+      "usage": "gh workflow view [<workflow-id> | <workflow-name> | <filename>] [flags]",
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    }
+  ]
+}

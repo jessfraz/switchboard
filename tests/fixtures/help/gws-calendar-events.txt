@@ -1,0 +1,17 @@
+Operations on the 'events' resource
+
+Usage: gws events [OPTIONS] <COMMAND>
+
+Commands:
+  delete     Deletes an event.
+  get        Returns an event based on its Google Calendar ID. To retrieve an event using its iCalendar ID, call the events.list method using the iCalUID parameter.
+  import     Imports an event. This operation is used to add a private copy of an existing event to a calendar.
+  insert     Creates an event.
+  instances  Returns instances of the specified recurring event.
+  list       Returns events on the specified calendar.
+  move       Moves an event to another calendar, i.e. changes an event's organizer.
+  patch      Updates an event. This method supports patch semantics.
+  quickAdd   Creates an event based on a simple text string.
+  update     Updates an event.
+  watch      Watch for changes to Events resources.
+  help       Print this message or the help of the given subcommand(s)

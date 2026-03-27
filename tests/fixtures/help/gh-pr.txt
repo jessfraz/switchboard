@@ -1,0 +1,26 @@
+Work with GitHub pull requests.
+
+USAGE
+  gh pr <command> [flags]
+
+GENERAL COMMANDS
+  create:        Create a pull request
+  list:          List pull requests in a repository
+  status:        Show status of relevant pull requests
+
+TARGETED COMMANDS
+  checkout:      Check out a pull request in git
+  checks:        Show CI status for a single pull request
+  close:         Close a pull request
+  comment:       Add a comment to a pull request
+  diff:          View changes in a pull request
+  edit:          Edit a pull request
+  lock:          Lock pull request conversation
+  merge:         Merge a pull request
+  ready:         Mark a pull request as ready for review
+  reopen:        Reopen a pull request
+  revert:        Revert a pull request
+  review:        Add a review to a pull request
+  unlock:        Unlock pull request conversation
+  update-branch: Update a pull request branch
+  view:          View a pull request

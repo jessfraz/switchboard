@@ -1,0 +1,11 @@
+Display the title, body, and other information about a pull request.
+
+Without an argument, the pull request that belongs to the current branch
+is displayed.
+
+With `--web` flag, open the pull request in a web browser instead.
+
+For more information about output formatting flags, see `gh help formatting`.
+
+USAGE
+  gh pr view [<number> | <url> | <branch>] [flags]

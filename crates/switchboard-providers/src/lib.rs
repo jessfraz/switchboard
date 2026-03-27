@@ -1,6 +1,8 @@
 mod cli;
 mod github;
 mod google;
+pub mod inventory;
+pub mod inventory_generator;
 mod process_runtime;
 #[cfg(test)]
 mod test_support;

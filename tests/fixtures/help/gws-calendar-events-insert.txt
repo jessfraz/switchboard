@@ -1,0 +1,3 @@
+Creates an event.
+
+Usage: gws events insert [OPTIONS]

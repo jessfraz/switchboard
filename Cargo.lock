@@ -1086,7 +1086,9 @@ dependencies = [
 name = "switchboard-providers"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64",
+ "clap",
  "serde",
  "serde_json",
  "switchboard-core",

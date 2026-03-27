@@ -1,0 +1,16 @@
+Manipulates events and other calendar data.
+
+Usage: gws [OPTIONS] <COMMAND>
+
+Commands:
+  +insert       [Helper] create a new event
+  +agenda       [Helper] Show upcoming events across all calendars
+  acl           Operations on the 'acl' resource
+  calendarList  Operations on the 'calendarList' resource
+  calendars     Operations on the 'calendars' resource
+  channels      Operations on the 'channels' resource
+  colors        Operations on the 'colors' resource
+  events        Operations on the 'events' resource
+  freebusy      Operations on the 'freebusy' resource
+  settings      Operations on the 'settings' resource
+  help          Print this message or the help of the given subcommand(s)
