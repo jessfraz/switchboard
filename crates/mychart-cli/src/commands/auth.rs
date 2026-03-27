@@ -43,42 +43,45 @@ pub(crate) enum AuthSubcommand {
 }
 
 #[derive(Debug, Args, Clone)]
-struct AuthAuthorizeOptions {
+pub(crate) struct AuthAuthorizeOptions {
     #[arg(long, value_name = "URL")]
-    redirect_uri: Option<String>,
+    pub(crate) redirect_uri: Option<String>,
 
     #[arg(long = "scope", value_name = "SCOPE")]
-    scopes: Vec<String>,
+    pub(crate) scopes: Vec<String>,
 
     #[arg(long)]
-    state: Option<String>,
+    pub(crate) state: Option<String>,
 
     #[arg(long = "code-verifier", value_name = "VERIFIER")]
-    code_verifier: Option<String>,
+    pub(crate) code_verifier: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct AuthAuthorizeUrlArgs {
     #[command(flatten)]
-    options: AuthAuthorizeOptions,
+    pub(crate) options: AuthAuthorizeOptions,
 
     #[arg(long)]
-    no_store: bool,
+    pub(crate) no_store: bool,
+
+    #[arg(long)]
+    pub(crate) no_open: bool,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct AuthLoginArgs {
     #[command(flatten)]
-    options: AuthAuthorizeOptions,
+    pub(crate) options: AuthAuthorizeOptions,
 
     #[arg(long, default_value_t = 300)]
-    timeout_seconds: u64,
+    pub(crate) timeout_seconds: u64,
 
     #[arg(long)]
-    no_open: bool,
+    pub(crate) no_open: bool,
 
     #[arg(long)]
-    dynamic_client: bool,
+    pub(crate) dynamic_client: bool,
 }
 
 #[derive(Debug, Args)]
@@ -98,10 +101,10 @@ pub(crate) struct AuthExchangeCodeArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct AuthExchangeUrlArgs {
-    callback_url: String,
+    pub(crate) callback_url: String,
 
     #[arg(long)]
-    no_store: bool,
+    pub(crate) no_store: bool,
 }
 
 #[derive(Debug, Args)]
@@ -116,36 +119,11 @@ pub(crate) struct AuthRefreshArgs {
 pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -> Result<Value> {
     match command {
         AuthSubcommand::Login(args) => run_login(args, context),
-        AuthSubcommand::AuthorizeUrl(args) => {
-            let prepared = prepare_authorization(
-                context,
-                args.options,
-                !args.no_store,
-                TokenExchangeAuth::StoredClientStrategy,
-            )?;
-            Ok(json!({
-                "status": "ok",
-                "base_url": prepared.base_url,
-                "client_id": prepared.client_id,
-                "redirect_uri": prepared.redirect_uri,
-                "authorize_url": prepared.authorize_url.as_str(),
-                "authorize_endpoint": prepared.authorize_endpoint,
-                "token_endpoint": prepared.token_endpoint,
-                "state": prepared.oauth_state,
-                "scopes": prepared.scopes,
-                "code_challenge_method": "S256",
-                "code_verifier": if args.no_store {
-                    Value::String(prepared.code_verifier)
-                } else {
-                    Value::Null
-                },
-                "stored": !args.no_store,
-            }))
-        }
+        AuthSubcommand::AuthorizeUrl(args) => run_authorize_url(args, context),
         AuthSubcommand::ExchangeCode(args) => {
             exchange_code(context, args.code, args.redirect_uri, args.code_verifier, args.no_store)
         }
-        AuthSubcommand::ExchangeUrl(args) => exchange_url(context, args.callback_url, args.no_store),
+        AuthSubcommand::ExchangeUrl(args) => exchange_url(args, context),
         AuthSubcommand::Refresh(args) => {
             if args.refresh_token.is_none() && context.dynamic_client().is_some() {
                 return refresh_with_dynamic_client(context, args.no_store);
@@ -218,6 +196,24 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             }))
         }
     }
+}
+
+pub(crate) fn run_login_command(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value> {
+    run_login(args, context)
+}
+
+pub(crate) fn run_authorize_url_command(
+    args: AuthAuthorizeUrlArgs,
+    context: &mut ResolvedContext,
+) -> Result<Value> {
+    run_authorize_url(args, context)
+}
+
+pub(crate) fn run_exchange_url_command(
+    args: AuthExchangeUrlArgs,
+    context: &mut ResolvedContext,
+) -> Result<Value> {
+    exchange_url(args, context)
 }
 
 #[derive(Debug)]
@@ -309,6 +305,38 @@ fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value
         Some(prepared.code_verifier),
         false,
     )
+}
+
+fn run_authorize_url(args: AuthAuthorizeUrlArgs, context: &mut ResolvedContext) -> Result<Value> {
+    let prepared = prepare_authorization(
+        context,
+        args.options,
+        !args.no_store,
+        TokenExchangeAuth::StoredClientStrategy,
+    )?;
+    let browser_launch = launch_browser_for_authorization(context, prepared.authorize_url.as_str(), args.no_open);
+    Ok(json!({
+        "status": "ok",
+        "base_url": prepared.base_url,
+        "client_id": prepared.client_id,
+        "redirect_uri": prepared.redirect_uri,
+        "authorize_url": prepared.authorize_url.as_str(),
+        "authorize_endpoint": prepared.authorize_endpoint,
+        "token_endpoint": prepared.token_endpoint,
+        "state": prepared.oauth_state,
+        "scopes": prepared.scopes,
+        "code_challenge_method": "S256",
+        "code_verifier": if args.no_store {
+            Value::String(prepared.code_verifier)
+        } else {
+            Value::Null
+        },
+        "stored": !args.no_store,
+        "browser_open_attempted": browser_launch.attempted,
+        "opened_browser": browser_launch.opened,
+        "browser_open_error": browser_launch.error,
+        "next_step": "After the browser finishes, run `mychart finish '<callback-url>'` in this repo.",
+    }))
 }
 
 fn prepare_authorization(
@@ -444,8 +472,8 @@ fn exchange_code(
     }))
 }
 
-fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: bool) -> Result<Value> {
-    let parsed_url = Url::parse(&callback_url).map_err(|error| {
+fn exchange_url(args: AuthExchangeUrlArgs, context: &mut ResolvedContext) -> Result<Value> {
+    let parsed_url = Url::parse(&args.callback_url).map_err(|error| {
         Error::Arguments(format!(
             "callback URL must be an absolute URL copied from the browser redirect: {error}"
         ))
@@ -524,7 +552,51 @@ fn exchange_url(context: &mut ResolvedContext, callback_url: String, no_store: b
             }),
         })?;
 
-    exchange_code(context, code, Some(normalized_expected.to_string()), None, no_store)
+    exchange_code(context, code, Some(normalized_expected.to_string()), None, args.no_store)
+}
+
+#[derive(Debug)]
+struct BrowserLaunch {
+    attempted: bool,
+    opened: bool,
+    error: Value,
+}
+
+fn launch_browser_for_authorization(context: &ResolvedContext, url: &str, no_open: bool) -> BrowserLaunch {
+    if no_open {
+        eprintln!("Open this URL in a browser: {url}");
+        return BrowserLaunch {
+            attempted: false,
+            opened: false,
+            error: Value::Null,
+        };
+    }
+
+    eprintln!("Opening browser for MyChart OAuth login...");
+    match open_browser(url) {
+        Ok(()) => BrowserLaunch {
+            attempted: true,
+            opened: true,
+            error: Value::Null,
+        },
+        Err(error) => {
+            let rendered = error.render(true);
+            eprintln!("Could not open the browser automatically. Open this URL manually:\n{url}");
+            auth_debug(
+                context,
+                "oauth_browser_open_failed",
+                json!({
+                    "url": url,
+                    "error": rendered,
+                }),
+            );
+            BrowserLaunch {
+                attempted: true,
+                opened: false,
+                error: Value::String(rendered),
+            }
+        }
+    }
 }
 
 fn login_with_dynamic_client(

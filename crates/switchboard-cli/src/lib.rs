@@ -6,10 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
+use clap::Parser;
 use switchboard_core::{
-    AuthStore, NamespaceStore, OperationId, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
-    Switchboard, SwitchboardServices,
+    AuthStore, DispatchOutcome, NamespaceStore, SecretResolver, SecretStore, Switchboard, SwitchboardServices,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
@@ -34,7 +34,6 @@ use crate::{
         ToolCatalogListResponse,
     },
 };
-
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
@@ -389,243 +388,8 @@ fn contains_flag(args: &[OsString], flag: &str) -> bool {
     args.iter().any(|value| value == flag)
 }
 
-fn contains_json_os_tokens(tokens: &[OsString]) -> bool {
-    tokens.iter().any(|value| value == "--json")
-}
-
-fn os_string_to_string(value: OsString) -> String {
-    match value.into_string() {
-        Ok(value) => value,
-        Err(value) => value.to_string_lossy().into_owned(),
-    }
-}
-
 pub fn args_from_env() -> Vec<OsString> {
     env::args_os().collect()
-}
-
-#[derive(Serialize)]
-struct NamespaceListResponse {
-    namespaces: Vec<ResolvedNamespace>,
-}
-
-#[derive(Serialize)]
-struct AuditListResponse<'a> {
-    status: &'static str,
-    events: &'a [StoredAuditEvent],
-}
-
-#[derive(Serialize)]
-struct AuditEventResponse<'a> {
-    status: &'static str,
-    event: &'a StoredAuditEvent,
-}
-
-#[derive(Serialize)]
-struct AuditOperationResponse<'a> {
-    status: &'static str,
-    operation_id: &'a OperationId,
-    events: &'a [StoredAuditEvent],
-}
-
-#[derive(Serialize)]
-struct ToolCatalogListResponse {
-    status: &'static str,
-    tools: Vec<ToolCatalogEntry>,
-}
-
-#[derive(Serialize)]
-struct ToolCatalogDetailResponse {
-    status: &'static str,
-    tool: ToolCatalogDetail,
-}
-
-#[derive(Serialize)]
-struct ToolCatalogEntry {
-    name: ToolName,
-    provider: ProviderKind,
-    kind: ToolKind,
-    backend: BackendKind,
-    summary: String,
-    surface: ToolSurface,
-    aggregate_read_supported: bool,
-    execution_support: ToolExecutionSupport,
-    undo_support: ToolUndoSupport,
-}
-
-impl From<&RegisteredTool> for ToolCatalogEntry {
-    fn from(tool: &RegisteredTool) -> Self {
-        Self {
-            name: tool.name.clone(),
-            provider: tool.provider.clone(),
-            kind: tool.kind,
-            backend: tool.backend,
-            summary: tool.summary.to_owned(),
-            surface: tool.surface,
-            aggregate_read_supported: tool.aggregate_read_supported,
-            execution_support: tool.execution_support,
-            undo_support: tool.undo_support,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct ToolCatalogDetail {
-    name: ToolName,
-    provider: ProviderKind,
-    kind: ToolKind,
-    backend: BackendKind,
-    summary: String,
-    surface: ToolSurface,
-    aggregate_read_supported: bool,
-    execution_support: ToolExecutionSupport,
-    undo_support: ToolUndoSupport,
-    arguments: Vec<ToolArgumentSpec>,
-    available_namespaces: Vec<NamespaceId>,
-    notes: Vec<String>,
-    examples: Vec<String>,
-}
-
-impl ToolCatalogDetail {
-    fn new(tool: &RegisteredTool, namespaces: &[ResolvedNamespace]) -> Self {
-        let available_namespaces = namespaces
-            .iter()
-            .map(|namespace| namespace.id.clone())
-            .collect::<Vec<_>>();
-        let raw = tool.surface == ToolSurface::Raw;
-        let example_namespace = namespaces
-            .first()
-            .map(|namespace| namespace.id.to_string())
-            .unwrap_or_else(|| format!("{}.default", tool.provider));
-        let mut notes = vec![
-            "policy, auth isolation, and audit still apply".to_owned(),
-            "repeat --ns for aggregate reads, writes stay single-namespace".to_owned(),
-        ];
-        if tool.execution_support == ToolExecutionSupport::PlanningOnly {
-            notes.push("execution is not wired yet, this tool currently plans cleanly but will not apply".to_owned());
-        }
-        let examples = if raw {
-            notes.push(
-                "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged"
-                    .to_owned(),
-            );
-            notes.push("for scripted calls, --argv-json accepts one JSON array of argv tokens".to_owned());
-            raw_tool_examples(tool, &example_namespace)
-        } else {
-            curated_tool_examples(tool, &example_namespace)
-        };
-
-        Self {
-            name: tool.name.clone(),
-            provider: tool.provider.clone(),
-            kind: tool.kind,
-            backend: tool.backend,
-            summary: tool.summary.to_owned(),
-            surface: tool.surface,
-            aggregate_read_supported: tool.aggregate_read_supported,
-            execution_support: tool.execution_support,
-            undo_support: tool.undo_support,
-            arguments: tool.arguments.clone(),
-            available_namespaces,
-            notes,
-            examples,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct StoredOperationListResponse<'a> {
-    status: &'static str,
-    operations: &'a [StoredOperation],
-}
-
-#[derive(Serialize)]
-struct StoredOperationResponse<'a> {
-    status: &'static str,
-    operation: &'a StoredOperation,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-enum DispatchResponse<'a> {
-    Planned {
-        tool: &'a ToolName,
-        namespace: &'a NamespaceId,
-        summary: &'a str,
-        backend: BackendKind,
-        approval_required: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        operation_id: Option<&'a switchboard_core::OperationId>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        compensates_operation_id: Option<&'a switchboard_core::OperationId>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        approval_reason: Option<&'a str>,
-    },
-    Executed {
-        tool: &'a ToolName,
-        namespace: &'a NamespaceId,
-        summary: &'a str,
-        fields: &'a BTreeMap<String, JsonValue>,
-        refs: &'a [ToolRef],
-        #[serde(skip_serializing_if = "Option::is_none")]
-        operation_id: Option<&'a switchboard_core::OperationId>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        effect: Option<&'a OperationEffect>,
-    },
-}
-
-impl<'a> DispatchResponse<'a> {
-    fn from(outcome: &'a DispatchOutcome) -> Self {
-        match outcome {
-            DispatchOutcome::Planned(plan) => Self::from_plan(plan),
-            DispatchOutcome::Executed(output) => Self::from_output(output),
-        }
-    }
-
-    fn from_plan(plan: &'a switchboard_core::PlannedAction) -> Self {
-        Self::Planned {
-            tool: &plan.tool,
-            namespace: &plan.namespace,
-            summary: &plan.summary,
-            backend: plan.backend,
-            approval_required: plan.approval_required,
-            operation_id: plan.operation_id.as_ref(),
-            compensates_operation_id: plan.compensates_operation_id.as_ref(),
-            approval_reason: plan.approval_reason.as_deref(),
-        }
-    }
-
-    fn from_output(output: &'a ToolOutput) -> Self {
-        Self::Executed {
-            tool: &output.tool,
-            namespace: &output.namespace,
-            summary: &output.summary,
-            fields: &output.fields,
-            refs: &output.refs,
-            operation_id: output.operation_id.as_ref(),
-            effect: output.effect.as_ref(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct AggregateReadResponse<'a> {
-    status: &'static str,
-    tool: &'a ToolName,
-    namespaces: &'a [NamespaceId],
-    results: Vec<AggregateReadResultResponse<'a>>,
-}
-
-#[derive(Serialize)]
-struct AggregateReadResultResponse<'a> {
-    namespace: &'a NamespaceId,
-    outcome: DispatchResponse<'a>,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse<'a> {
-    status: &'static str,
-    error: &'a str,
 }
 
 #[cfg(test)]
@@ -1918,7 +1682,7 @@ mod tests {
 
     #[test]
     fn repeated_argv_accepts_dash_prefixed_passthrough_tokens() {
-        let request = super::parse_external_tool_invocation(
+        let request = crate::args::parse_external_tool_invocation(
             [
                 "google.cli.read",
                 "--ns",
@@ -2420,7 +2184,6 @@ mod tests {
     fn config_path_selection_prefers_explicit_paths_first() {
         let selected = select_config_path(ConfigPathCandidates {
             explicit: Some(PathBuf::from("/explicit.toml")),
-            env: Some(PathBuf::from("/env.toml")),
             cwd: Some(PathBuf::from("/cwd.toml")),
             ..ConfigPathCandidates::default()
         })

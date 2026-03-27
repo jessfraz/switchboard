@@ -1,14 +1,10 @@
-use std::{
-    env,
-    ffi::OsString,
-    path::PathBuf,
-};
+use std::{env, ffi::OsString, path::PathBuf};
 
 use anyhow::{anyhow, bail, Result};
 use clap::{Args, Parser, Subcommand};
 use switchboard_core::{
-    AggregateReadRequest, AuditEventId, ExecutionMode, OperationId, OperationRequest, StoredAuditEvent, ToolArgument,
-    ToolName, ToolRequest,
+    AggregateReadRequest, AuditEventId, ExecutionMode, OperationId, OperationRequest, ToolArgument, ToolName,
+    ToolRequest,
 };
 
 const AFTER_HELP: &str = concat!(
@@ -421,7 +417,7 @@ fn parse_audit_selector(value: &str) -> Result<AuditSelector> {
     bail!("audit selector must be an audit_* event id or op_* operation id");
 }
 
-fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<OperationRequest> {
+pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<OperationRequest> {
     let mut positionals = tokens.into_iter().map(os_string_to_string).collect::<Vec<_>>();
     let tool = positionals
         .first()

@@ -5,13 +5,10 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, ApprovalState, BackendKind, DispatchOutcome, NamespaceId, OperationEffect, OperationId,
-    OperationOutcome, ProviderKind, RegisteredTool, ResolvedNamespace, StoredAuditEvent, StoredOperation,
-    ToolArgument, ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRef,
-    ToolSurface, ToolUndoSupport,
+    OperationOutcome, ProviderKind, RegisteredTool, ResolvedNamespace, StoredAuditEvent, StoredOperation, ToolArgument,
+    ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRef, ToolSurface,
+    ToolUndoSupport,
 };
-
-use crate::args::AuditSelector;
-
 pub(crate) fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     let mut output = String::from("Namespaces\n");
     for namespace in namespaces {

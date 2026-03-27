@@ -9,8 +9,8 @@ mod tool;
 pub use crate::types::{
     audit::{AuditEvent, AuditEventId, AuditOutcome, StoredAuditEvent},
     auth::{
-        AuthKind, AuthRef, AuthSecretRefs, ResolvedAuth, ResolvedCredentials, ResolvedSecret, SecretRef,
-        SecretSource, SecretString,
+        AuthKind, AuthRef, AuthSecretRefs, ResolvedAuth, ResolvedCredentials, ResolvedSecret, SecretRef, SecretSource,
+        SecretString,
     },
     context::{BackendKind, ExecutionTarget, PlanningTarget, ResolvedNamespace},
     identity::{NamespaceId, OperationId, ProviderKind, ToolName},
