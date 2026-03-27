@@ -27,11 +27,12 @@ use crate::state::{MyChartState, StateStore};
 use crate::{
     client::{normalize_api_base_url, JsonResponse, MyChartClient, ResolvedResponse},
     commands::{
-        ensure_api_session, redirect_uri_uses_loopback, run_api, run_appointments, run_auth, run_authorize_url_command,
-        run_claims, run_connect, run_exchange_url_command, run_labs, run_login_command, run_meds, run_notes, run_pack,
-        run_portal, run_timeline, ApiCommand, ApiSessionBootstrap, ApiSubcommand, AppointmentsCommand,
-        AuthAuthorizeOptions, AuthAuthorizeUrlArgs, AuthCommand, AuthExchangeUrlArgs, AuthLoginArgs, ClaimsCommand,
-        ConnectCommand, LabsCommand, MedsCommand, NotesCommand, PackCommand, PortalCommand, TimelineCommand,
+        complete_or_wait_for_hosted_authorization, ensure_api_session, redirect_uri_uses_loopback, run_api,
+        run_appointments, run_auth, run_authorize_url_command, run_claims, run_connect, run_exchange_url_command,
+        run_labs, run_login_command, run_meds, run_notes, run_pack, run_portal, run_timeline, ApiCommand,
+        ApiSessionBootstrap, ApiSubcommand, AppointmentsCommand, AuthAuthorizeOptions, AuthAuthorizeUrlArgs,
+        AuthCommand, AuthExchangeUrlArgs, AuthLoginArgs, ClaimsCommand, ConnectCommand, HostedAuthorizationOutcome,
+        LabsCommand, MedsCommand, NotesCommand, PackCommand, PortalCommand, TimelineCommand,
     },
     state::{
         ResolvedContext, ENV_MYCHART_ACCESS_TOKEN, ENV_MYCHART_ACCOUNT, ENV_MYCHART_BASE_URL, ENV_MYCHART_CLIENT_ID,
@@ -233,6 +234,9 @@ struct LoginCommand {
 
     #[arg(long)]
     dynamic_client: bool,
+
+    #[arg(long, value_name = "URL")]
+    callback_url: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -266,7 +270,7 @@ fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Resul
         );
     }
 
-    let mut output = run_authorize_url_command(
+    let output = run_authorize_url_command(
         AuthAuthorizeUrlArgs {
             options: command.options,
             no_store: false,
@@ -274,21 +278,15 @@ fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Resul
         },
         context,
     )?;
-    if let Some(object) = output.as_object_mut() {
-        object.insert("status".into(), Value::String("authorization_pending".into()));
-        object.insert(
-            "selected_account".into(),
-            context
-                .active_account_name()
-                .map(|name| Value::String(name.to_owned()))
-                .unwrap_or(Value::Null),
-        );
-        object.insert(
-            "next_step".into(),
-            Value::String("After the browser finishes, run `mychart finish '<callback-url>'` in this repo.".into()),
-        );
+    match complete_or_wait_for_hosted_authorization(
+        context,
+        output,
+        command.callback_url,
+        "Finish the browser login, paste the callback URL back into this terminal, or run `mychart finish '<callback-url>'` later.",
+    )? {
+        HostedAuthorizationOutcome::Completed(output) => Ok(output),
+        HostedAuthorizationOutcome::Pending(output) => Ok(output),
     }
-    Ok(output)
 }
 
 fn run_easy_finish(command: FinishCommand, context: &mut ResolvedContext) -> Result<Value> {
@@ -1717,6 +1715,60 @@ mod tests {
             .expect("default account should be persisted");
         assert!(account.pending_oauth_state.is_some());
         assert!(account.pending_code_verifier.is_some());
+    }
+
+    #[test]
+    fn top_level_login_with_hosted_redirect_can_finish_with_callback_url() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-easy-login-hosted-complete");
+        let config_path = temp_dir.join("config.json");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--base-url",
+            &format!("{}/", server.base_url()),
+            "--client-id",
+            "client-123",
+            "--redirect-uri",
+            "https://jessfraz.github.io/switchboard/mychart-callback/",
+            "--compact",
+            "login",
+            "--no-open",
+            "--callback-url",
+            "https://jessfraz.github.io/switchboard/mychart-callback/?code=oauth-code&state=test-state",
+            "--state",
+            "test-state",
+            "--code-verifier",
+            "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+        assert_eq!(output["patient_id"], "patient-123");
+
+        let state = StateStore::new(config_path).load().expect("state should load");
+        let account = state
+            .accounts
+            .get("default")
+            .expect("default account should be persisted");
+        assert_eq!(account.access_token.as_deref(), Some("access-token"));
+        assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
     }
 
     #[test]

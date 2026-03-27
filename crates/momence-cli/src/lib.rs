@@ -515,7 +515,7 @@ mod tests {
                     let request = read_request(&mut stream);
                     if let Some(capture) = capture {
                         if let Ok(mut guard) = capture.lock() {
-                            *guard = request;
+                            *guard = Some(request);
                         }
                     }
 

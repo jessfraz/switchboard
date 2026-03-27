@@ -325,6 +325,7 @@ fn render_serialization_error(error: serde_json::Error) -> String {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         ffi::OsString,
         fs,
         io::{Read, Write},
@@ -381,7 +382,7 @@ mod tests {
 
     #[test]
     fn locations_search_sends_headers_and_query() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "items": [
@@ -425,19 +426,22 @@ mod tests {
             "5",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone().to_lowercase();
-        assert!(request.starts_with("get /locations?"));
-        assert!(request.contains("searchtext=pilates"));
-        assert!(request.contains("countrycode=us"));
-        assert!(request.contains("maxresults=5"));
-        assert!(request.contains("api-key: api-key"));
-        assert!(request.contains("authorization: basic"));
+        let request = captured_request(&capture);
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/locations");
+        assert_eq!(request.query_value("searchText"), Some("pilates"));
+        assert_eq!(request.query_value("countryCode"), Some("US"));
+        assert_eq!(request.query_value("maxResults"), Some("5"));
+        assert_eq!(request.header("api-key"), Some("api-key"));
+        assert!(request
+            .header("authorization")
+            .is_some_and(|value| value.starts_with("Basic ")));
         assert_eq!(output.items[0].id, 86784);
     }
 
     #[test]
     fn bookings_create_with_pass_builds_typed_body() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "booking": {
@@ -481,13 +485,17 @@ mod tests {
             "--suppress-booking-confirmation-email",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        let request_lower = request.to_lowercase();
-        assert!(request.starts_with("POST /bookings"));
-        assert!(request_lower.contains("idempotency-key: 123e4567-e89b-12d3-a456-426614174000"));
-        assert!(request.contains("\"uniqueUserId\":\"pilates.user\""));
-        assert!(request.contains("\"type\":\"Pass\""));
-        assert!(request.contains("\"paymentDetails\":null"));
+        let request = captured_request(&capture);
+        let body: BookingCreateRequestBody = request.json_body();
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/bookings");
+        assert_eq!(
+            request.header("idempotency-key"),
+            Some("123e4567-e89b-12d3-a456-426614174000")
+        );
+        assert_eq!(body.unique_user_id, "pilates.user");
+        assert_eq!(body.booking_reconciliation.r#type, "Pass");
+        assert!(body.payment_details.is_none());
         assert_eq!(output.booking.id, "booking-1");
     }
 
@@ -516,12 +524,12 @@ mod tests {
         ]);
 
         assert_eq!(error.kind, "arguments");
-        assert!(error.message.contains("--pricing-option-total"));
+        assert_eq!(error.message, "pricing-option bookings require --pricing-option-total");
     }
 
     #[test]
     fn bookings_cancel_uses_user_id_and_query_flag() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "message": "Cancellation successful.",
@@ -557,15 +565,19 @@ mod tests {
             "--suppress-cancellation-confirmation-email",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        assert!(request
-            .starts_with("DELETE /users/pilates.user/bookings/booking-123?suppressCancellationConfirmationEmail=true"));
+        let request = captured_request(&capture);
+        assert_eq!(request.method, "DELETE");
+        assert_eq!(request.path, "/users/pilates.user/bookings/booking-123");
+        assert_eq!(
+            request.query_value("suppressCancellationConfirmationEmail"),
+            Some("true")
+        );
         assert_eq!(output.message, "Cancellation successful.");
     }
 
     #[test]
     fn purchases_list_uses_filters_and_user_scope() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "items": [
@@ -619,22 +631,26 @@ mod tests {
             "desc",
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        assert!(request.starts_with("GET /users/pilates.user/purchases?"));
-        assert!(request.contains("locationId=86784"));
-        assert!(request.contains("subscriberId=42"));
-        assert!(request.contains("fromPurchaseDateTime=2026-03-01T00%3A00%3A00Z"));
-        assert!(request.contains("toPurchaseDateTime=2026-03-31T23%3A59%3A59Z"));
-        assert!(request.contains("maxResults=10"));
-        assert!(request.contains("offset=5"));
-        assert!(request.contains("orderBy=purchaseDateTime"));
-        assert!(request.contains("order=desc"));
+        let request = captured_request(&capture);
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/users/pilates.user/purchases");
+        assert_eq!(request.query_value("locationId"), Some("86784"));
+        assert_eq!(request.query_value("subscriberId"), Some("42"));
+        assert_eq!(
+            request.query_value("fromPurchaseDateTime"),
+            Some("2026-03-01T00:00:00Z")
+        );
+        assert_eq!(request.query_value("toPurchaseDateTime"), Some("2026-03-31T23:59:59Z"));
+        assert_eq!(request.query_value("maxResults"), Some("10"));
+        assert_eq!(request.query_value("offset"), Some("5"));
+        assert_eq!(request.query_value("orderBy"), Some("purchaseDateTime"));
+        assert_eq!(request.query_value("order"), Some("desc"));
         assert_eq!(output.items[0].id, "purchase-1");
     }
 
     #[test]
     fn liability_waiver_sign_reads_png_and_posts_base64() {
-        let capture = Arc::new(Mutex::new(String::new()));
+        let capture = Arc::new(Mutex::new(None));
         let server = TestServer::spawn(
             json!({
                 "status": "ok"
@@ -672,13 +688,16 @@ mod tests {
             signature_path.to_str().expect("signature path should be utf-8"),
         ]);
 
-        let request = capture.lock().expect("capture lock should work").clone();
-        assert!(request.starts_with("POST /signedliabilitywaivers"));
-        assert!(request.contains("\"bookingId\":\"f5405d87-46a0-4b48-a384-e26159e130d6\""));
-        assert!(request.contains(
-            "\"liabilityWaiverHashedText\":\"21A951F270098C71D8C127EC57B31FDA811B37E64ABF28DD1906F84159C73D64\""
-        ));
-        assert!(request.contains("\"pngBase64UserSignaturePicture\":\"iVBORw0KGgoAAAAA\""));
+        let request = captured_request(&capture);
+        let body: LiabilityWaiverSignRequestBody = request.json_body();
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/signedliabilitywaivers");
+        assert_eq!(body.booking_id, "f5405d87-46a0-4b48-a384-e26159e130d6");
+        assert_eq!(
+            body.liability_waiver_hashed_text,
+            "21A951F270098C71D8C127EC57B31FDA811B37E64ABF28DD1906F84159C73D64"
+        );
+        assert_eq!(body.png_base64_user_signature_picture, "iVBORw0KGgoAAAAA");
         assert_eq!(output.status, "ok");
     }
 
@@ -716,6 +735,28 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct StringIdItem {
         id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BookingCreateRequestBody {
+        unique_user_id: String,
+        booking_reconciliation: BookingReconciliation,
+        payment_details: Option<Value>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BookingReconciliation {
+        r#type: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct LiabilityWaiverSignRequestBody {
+        booking_id: String,
+        liability_waiver_hashed_text: String,
+        png_base64_user_signature_picture: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -764,7 +805,7 @@ mod tests {
     }
 
     impl TestServer {
-        fn spawn(body: String, status_code: u16, capture: Option<Arc<Mutex<String>>>) -> Self {
+        fn spawn(body: String, status_code: u16, capture: Option<Arc<Mutex<Option<CapturedRequest>>>>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
             let address = listener.local_addr().expect("local addr should exist");
 
@@ -773,7 +814,7 @@ mod tests {
                     let request = read_request(&mut stream);
                     if let Some(capture) = capture {
                         if let Ok(mut guard) = capture.lock() {
-                            *guard = request;
+                            *guard = Some(request);
                         }
                     }
 
@@ -804,7 +845,63 @@ mod tests {
         }
     }
 
-    fn read_request(stream: &mut std::net::TcpStream) -> String {
+    #[derive(Clone, Debug)]
+    struct CapturedRequest {
+        method: String,
+        path: String,
+        query: BTreeMap<String, Vec<String>>,
+        headers: BTreeMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    impl CapturedRequest {
+        fn parse(buffer: &[u8]) -> Self {
+            let headers_end = find_headers_end(buffer).expect("request should include headers");
+            let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+            let mut lines = headers.lines();
+            let request_line = lines.next().expect("request line should exist");
+            let mut request_parts = request_line.split_whitespace();
+            let method = request_parts.next().expect("method should exist").to_owned();
+            let target = request_parts.next().expect("target should exist");
+            let (path, query) = split_target(target);
+            let headers = lines
+                .filter_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    Some((name.trim().to_ascii_lowercase(), value.trim().to_owned()))
+                })
+                .collect();
+
+            Self {
+                method,
+                path,
+                query,
+                headers,
+                body: buffer[headers_end + 4..].to_vec(),
+            }
+        }
+
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers.get(&name.to_ascii_lowercase()).map(String::as_str)
+        }
+
+        fn query_value(&self, name: &str) -> Option<&str> {
+            self.query.get(name)?.last().map(String::as_str)
+        }
+
+        fn json_body<T: DeserializeOwned>(&self) -> T {
+            serde_json::from_slice(&self.body).expect("request body should deserialize")
+        }
+    }
+
+    fn captured_request(capture: &Arc<Mutex<Option<CapturedRequest>>>) -> CapturedRequest {
+        capture
+            .lock()
+            .expect("capture lock should work")
+            .clone()
+            .expect("request should be captured")
+    }
+
+    fn read_request(stream: &mut std::net::TcpStream) -> CapturedRequest {
         let mut buffer = Vec::new();
         let mut temp = [0_u8; 4096];
         loop {
@@ -834,11 +931,60 @@ mod tests {
             }
         }
 
-        String::from_utf8_lossy(&buffer).into_owned()
+        CapturedRequest::parse(&buffer)
     }
 
     fn find_headers_end(buffer: &[u8]) -> Option<usize> {
         buffer.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    fn split_target(target: &str) -> (String, BTreeMap<String, Vec<String>>) {
+        let Some((path, query)) = target.split_once('?') else {
+            return (target.to_owned(), BTreeMap::new());
+        };
+
+        (path.to_owned(), parse_www_form(query))
+    }
+
+    fn parse_www_form(input: &str) -> BTreeMap<String, Vec<String>> {
+        let mut values = BTreeMap::new();
+        for pair in input.split('&').filter(|pair| !pair.is_empty()) {
+            let (raw_key, raw_value) = pair.split_once('=').unwrap_or((pair, ""));
+            let key = decode_form_component(raw_key);
+            let value = decode_form_component(raw_value);
+            values.entry(key).or_insert_with(Vec::new).push(value);
+        }
+        values
+    }
+
+    fn decode_form_component(value: &str) -> String {
+        let bytes = value.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'+' => {
+                    decoded.push(b' ');
+                    index += 1;
+                }
+                b'%' if index + 2 < bytes.len() => {
+                    let hex = &value[index + 1..index + 3];
+                    if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                        decoded.push(byte);
+                        index += 3;
+                    } else {
+                        decoded.push(bytes[index]);
+                        index += 1;
+                    }
+                }
+                byte => {
+                    decoded.push(byte);
+                    index += 1;
+                }
+            }
+        }
+
+        String::from_utf8(decoded).expect("form component should decode as utf-8")
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {

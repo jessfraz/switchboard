@@ -1105,7 +1105,8 @@ Typical MyChart production flow:
 mychart login ucla
 ```
 
-Finish the browser login, let Epic redirect to the GitHub Pages callback, then run the command the page gives you:
+Finish the browser login, let Epic redirect to the GitHub Pages callback, then either paste the callback URL back
+into the waiting `mychart login` process or use the fallback command the page gives you:
 
 ```text
 mychart --account ucla finish 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'

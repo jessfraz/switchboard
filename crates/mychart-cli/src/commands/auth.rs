@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{self, IsTerminal, Read, Write},
     net::{TcpListener, TcpStream},
     process::Command,
     thread,
@@ -212,6 +212,11 @@ pub(crate) fn run_exchange_url_command(args: AuthExchangeUrlArgs, context: &mut 
 
 pub(crate) enum ApiSessionBootstrap {
     Ready,
+    Pending(Value),
+}
+
+pub(crate) enum HostedAuthorizationOutcome {
+    Completed(Value),
     Pending(Value),
 }
 
@@ -471,7 +476,7 @@ fn interactive_auth_bootstrap(context: &mut ResolvedContext) -> Result<ApiSessio
         return Ok(ApiSessionBootstrap::Ready);
     }
 
-    let mut output = run_authorize_url(
+    let output = run_authorize_url(
         AuthAuthorizeUrlArgs {
             options: AuthAuthorizeOptions {
                 redirect_uri: None,
@@ -484,7 +489,35 @@ fn interactive_auth_bootstrap(context: &mut ResolvedContext) -> Result<ApiSessio
         },
         context,
     )?;
-    if let Some(object) = output.as_object_mut() {
+    match complete_or_wait_for_hosted_authorization(
+        context,
+        output,
+        None,
+        "Finish the browser login, paste the callback URL back into this terminal, or run `mychart finish '<callback-url>'` later, then rerun the original command.",
+    )? {
+        HostedAuthorizationOutcome::Completed(_) => Ok(ApiSessionBootstrap::Ready),
+        HostedAuthorizationOutcome::Pending(output) => Ok(ApiSessionBootstrap::Pending(output)),
+    }
+}
+
+pub(crate) fn complete_or_wait_for_hosted_authorization(
+    context: &mut ResolvedContext,
+    mut authorize_output: Value,
+    callback_url: Option<String>,
+    pending_next_step: &str,
+) -> Result<HostedAuthorizationOutcome> {
+    if let Some(callback_url) = callback_url.or_else(prompt_for_callback_url) {
+        let output = exchange_url(
+            AuthExchangeUrlArgs {
+                callback_url,
+                no_store: false,
+            },
+            context,
+        )?;
+        return Ok(HostedAuthorizationOutcome::Completed(output));
+    }
+
+    if let Some(object) = authorize_output.as_object_mut() {
         object.insert("status".into(), Value::String("authorization_pending".into()));
         object.insert(
             "selected_account".into(),
@@ -493,15 +526,10 @@ fn interactive_auth_bootstrap(context: &mut ResolvedContext) -> Result<ApiSessio
                 .map(|name| Value::String(name.to_owned()))
                 .unwrap_or(Value::Null),
         );
-        object.insert(
-            "next_step".into(),
-            Value::String(
-                "Finish the browser login, run `mychart finish '<callback-url>'`, then rerun the original command."
-                    .into(),
-            ),
-        );
+        object.insert("next_step".into(), Value::String(pending_next_step.into()));
     }
-    Ok(ApiSessionBootstrap::Pending(output))
+
+    Ok(HostedAuthorizationOutcome::Pending(authorize_output))
 }
 
 fn exchange_code(
@@ -1102,6 +1130,40 @@ fn access_token_is_fresh(context: &ResolvedContext) -> bool {
     };
 
     current_epoch_seconds().saturating_add(ACCESS_TOKEN_REFRESH_SKEW_SECONDS) < expires_at_epoch_seconds
+}
+
+fn prompt_for_callback_url() -> Option<String> {
+    if !io::stdin().is_terminal() {
+        return None;
+    }
+
+    eprintln!(
+        "Finish the browser login. When the callback page loads, paste the full callback URL here and press Enter."
+    );
+    eprint!("Callback URL> ");
+    let _ = io::stderr().flush();
+
+    let mut input = String::new();
+    match io::stdin().read_line(&mut input) {
+        Ok(0) => None,
+        Ok(_) => extract_callback_url(&input),
+        Err(_) => None,
+    }
+}
+
+fn extract_callback_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let start = trimmed.find("https://").or_else(|| trimmed.find("http://"))?;
+    let candidate = trimmed[start..]
+        .trim()
+        .trim_matches(|character| matches!(character, '\'' | '"' | '`' | ')' | ']' | '}'))
+        .trim_end_matches(';')
+        .to_owned();
+    (!candidate.is_empty()).then_some(candidate)
 }
 
 fn current_epoch_seconds() -> u64 {
