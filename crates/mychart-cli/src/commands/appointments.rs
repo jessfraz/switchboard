@@ -1,12 +1,13 @@
 use clap::{Args, Subcommand};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     commands::shared::{
-        concept_text, current_utc_date_string, first_string, iso_on_or_after, normalize_match_text,
-        open_patient_session, resolve_since_floor, resolve_until_ceiling,
+        accounts_used_json, concept_text, current_utc_date_string, first_string, iso_on_or_after, normalize_match_text,
+        open_patient_sessions, resolve_since_floor, resolve_until_ceiling, single_patient_id,
     },
-    Result,
+    Error, Result,
 };
 
 #[derive(Debug, Args)]
@@ -21,37 +22,88 @@ pub(crate) enum AppointmentsSubcommand {
     Find(AppointmentsFindArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub(crate) struct AppointmentsUpcomingArgs {
     #[arg(long)]
-    patient: Option<String>,
+    pub(crate) patient: Option<String>,
+
+    #[arg(long, alias = "all-providers")]
+    pub(crate) all_accounts: bool,
 
     #[arg(long)]
-    since: Option<String>,
+    pub(crate) since: Option<String>,
 
     #[arg(long, default_value_t = 10)]
-    limit: usize,
+    pub(crate) limit: usize,
 
     #[arg(long)]
-    all_pages: bool,
+    pub(crate) all_pages: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub(crate) struct AppointmentsFindArgs {
     #[arg(value_name = "QUERY")]
-    query: Vec<String>,
+    pub(crate) query: Vec<String>,
 
     #[arg(long)]
-    patient: Option<String>,
+    pub(crate) patient: Option<String>,
+
+    #[arg(long, alias = "all-providers")]
+    pub(crate) all_accounts: bool,
 
     #[arg(long, default_value = "30d", value_name = "WINDOW")]
-    next: String,
+    pub(crate) next: String,
 
     #[arg(long, default_value_t = 10)]
-    limit: usize,
+    pub(crate) limit: usize,
 
     #[arg(long)]
-    all_pages: bool,
+    pub(crate) all_pages: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) struct AccountUsage {
+    pub(crate) account: String,
+    pub(crate) provider: String,
+    pub(crate) patient_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) struct SkippedAccount {
+    pub(crate) account: String,
+    pub(crate) provider: String,
+    pub(crate) reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct AppointmentRecord {
+    pub(crate) account: String,
+    pub(crate) provider: String,
+    pub(crate) patient_id: String,
+    pub(crate) id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) start: String,
+    pub(crate) end: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) specialty: Vec<String>,
+    pub(crate) location: Option<String>,
+    pub(crate) participants: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct AppointmentsOutput {
+    pub(crate) status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) patient_id: Option<String>,
+    pub(crate) accounts_used: Vec<AccountUsage>,
+    pub(crate) accounts_skipped: Vec<SkippedAccount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) since: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) through: Option<String>,
+    pub(crate) appointments: Vec<AppointmentRecord>,
 }
 
 pub(crate) fn run_appointments(
@@ -59,58 +111,90 @@ pub(crate) fn run_appointments(
     context: &crate::state::ResolvedContext,
 ) -> Result<Value> {
     match command {
-        AppointmentsSubcommand::Upcoming(args) => run_upcoming(args, context),
-        AppointmentsSubcommand::Find(args) => run_find(args, context),
+        AppointmentsSubcommand::Upcoming(args) => render_output(run_upcoming_output(args, context)?),
+        AppointmentsSubcommand::Find(args) => render_output(run_find_output(args, context)?),
     }
 }
 
-fn run_upcoming(args: AppointmentsUpcomingArgs, context: &crate::state::ResolvedContext) -> Result<Value> {
-    let session = open_patient_session(context, args.patient)?;
+pub(crate) fn run_upcoming_output(
+    args: AppointmentsUpcomingArgs,
+    context: &crate::state::ResolvedContext,
+) -> Result<AppointmentsOutput> {
+    let selection = open_patient_sessions(context, args.patient, args.all_accounts)?;
     let floor = resolve_since_floor(args.since.as_deref())?.unwrap_or_else(current_utc_date_string);
-    let mut upcoming = load_upcoming_appointments(&session, args.limit.max(25), args.all_pages, &floor)?
-        .into_iter()
-        .filter_map(|resource| render_appointment(&resource))
-        .collect::<Vec<_>>();
+    let mut upcoming = Vec::new();
 
+    for session in &selection.sessions {
+        upcoming.extend(
+            load_upcoming_appointments(session, args.limit.max(25), args.all_pages, &floor)?
+                .into_iter()
+                .filter_map(|resource| {
+                    let mut appointment = render_appointment(&resource)?;
+                    appointment.account = session.account_name.clone();
+                    appointment.provider = session.provider_name.clone();
+                    appointment.patient_id = session.patient_id.clone();
+                    Some(appointment)
+                }),
+        );
+    }
+
+    upcoming.sort_by(|left, right| left.start.cmp(&right.start));
     upcoming.truncate(args.limit);
 
-    Ok(json!({
-        "status": "ok",
-        "patient_id": session.patient_id,
-        "since": floor,
-        "appointments": upcoming,
-    }))
+    Ok(AppointmentsOutput {
+        status: "ok".into(),
+        patient_id: single_patient_id(&selection),
+        accounts_used: deserialize_account_usage(accounts_used_json(&selection))?,
+        accounts_skipped: deserialize_skipped_accounts(selection.skipped_accounts)?,
+        since: Some(floor),
+        query: None,
+        through: None,
+        appointments: upcoming,
+    })
 }
 
-fn run_find(args: AppointmentsFindArgs, context: &crate::state::ResolvedContext) -> Result<Value> {
-    let session = open_patient_session(context, args.patient)?;
+pub(crate) fn run_find_output(
+    args: AppointmentsFindArgs,
+    context: &crate::state::ResolvedContext,
+) -> Result<AppointmentsOutput> {
+    let selection = open_patient_sessions(context, args.patient, args.all_accounts)?;
     let floor = current_utc_date_string();
     let through = resolve_until_ceiling(Some(&args.next), 30)?;
     let normalized_query = normalize_match_text(&args.query.join(" "));
 
-    let mut appointments = load_upcoming_appointments(&session, args.limit.max(50), args.all_pages, &floor)?
-        .into_iter()
-        .filter(|resource| {
-            let start = first_string(resource, &["/start"]).unwrap_or_default();
-            iso_on_or_before(&start, &through)
-                && (normalized_query.is_empty() || appointment_matches_query(resource, &normalized_query))
-        })
-        .filter_map(|resource| render_appointment(&resource))
-        .collect::<Vec<_>>();
+    let mut appointments = Vec::new();
+    for session in &selection.sessions {
+        appointments.extend(
+            load_upcoming_appointments(session, args.limit.max(50), args.all_pages, &floor)?
+                .into_iter()
+                .filter(|resource| {
+                    let start = first_string(resource, &["/start"]).unwrap_or_default();
+                    iso_on_or_before(&start, &through)
+                        && (normalized_query.is_empty() || appointment_matches_query(resource, &normalized_query))
+                })
+                .filter_map(|resource| {
+                    let mut appointment = render_appointment(&resource)?;
+                    appointment.account = session.account_name.clone();
+                    appointment.provider = session.provider_name.clone();
+                    appointment.patient_id = session.patient_id.clone();
+                    Some(appointment)
+                }),
+        );
+    }
 
+    appointments.sort_by(|left, right| left.start.cmp(&right.start));
     appointments.truncate(args.limit);
 
-    Ok(json!({
-        "status": "ok",
-        "patient_id": session.patient_id,
-        "query": if args.query.is_empty() {
-            Value::Null
-        } else {
-            Value::String(args.query.join(" "))
-        },
-        "through": through,
-        "appointments": appointments,
-    }))
+    Ok(AppointmentsOutput {
+        status: "ok".into(),
+        patient_id: single_patient_id(&selection),
+        accounts_used: deserialize_account_usage(accounts_used_json(&selection))?,
+        accounts_skipped: deserialize_skipped_accounts(selection.skipped_accounts)?,
+        since: None,
+        query: (!args.query.is_empty()).then(|| args.query.join(" ")),
+        through: Some(through),
+        appointments,
+    })
 }
 
 fn load_upcoming_appointments(
@@ -193,7 +277,7 @@ fn appointment_search_text(resource: &Value) -> String {
     fields.join(" ")
 }
 
-fn render_appointment(resource: &Value) -> Option<Value> {
+fn render_appointment(resource: &Value) -> Option<AppointmentRecord> {
     let start = first_string(resource, &["/start"])?;
     let status = first_string(resource, &["/status"]).unwrap_or_else(|| "unknown".into());
     let specialty = resource
@@ -201,7 +285,7 @@ fn render_appointment(resource: &Value) -> Option<Value> {
         .and_then(Value::as_array)
         .map(|values| values.iter().filter_map(concept_text).collect::<Vec<_>>())
         .unwrap_or_default();
-    let providers = resource
+    let participants = resource
         .get("participant")
         .and_then(Value::as_array)
         .map(|participants| {
@@ -213,16 +297,19 @@ fn render_appointment(resource: &Value) -> Option<Value> {
         })
         .unwrap_or_default();
 
-    Some(json!({
-        "id": first_string(resource, &["/id"]),
-        "status": status,
-        "start": start,
-        "end": first_string(resource, &["/end"]),
-        "description": appointment_description(resource),
-        "specialty": specialty,
-        "location": providers.first().cloned(),
-        "participants": providers,
-    }))
+    Some(AppointmentRecord {
+        account: String::new(),
+        provider: String::new(),
+        patient_id: String::new(),
+        id: first_string(resource, &["/id"]),
+        status,
+        start,
+        end: first_string(resource, &["/end"]),
+        description: appointment_description(resource),
+        specialty,
+        location: participants.first().cloned(),
+        participants,
+    })
 }
 
 fn appointment_description(resource: &Value) -> Option<String> {
@@ -244,4 +331,19 @@ fn appointment_status_excluded(status: &str) -> bool {
 
 fn iso_on_or_before(candidate: &str, ceiling: &str) -> bool {
     candidate.chars().take(10).collect::<String>() <= ceiling.chars().take(10).collect::<String>()
+}
+
+fn render_output(output: AppointmentsOutput) -> Result<Value> {
+    serde_json::to_value(output)
+        .map_err(|error| Error::Config(format!("failed to serialize appointments output: {error}")))
+}
+
+fn deserialize_account_usage(value: Vec<Value>) -> Result<Vec<AccountUsage>> {
+    serde_json::from_value(Value::Array(value))
+        .map_err(|error| Error::Config(format!("failed to materialize account usage output: {error}")))
+}
+
+fn deserialize_skipped_accounts(value: Vec<Value>) -> Result<Vec<SkippedAccount>> {
+    serde_json::from_value(Value::Array(value))
+        .map_err(|error| Error::Config(format!("failed to materialize skipped account output: {error}")))
 }

@@ -1,12 +1,14 @@
 mod command;
 mod executor;
 mod locator;
+mod manifest;
 pub(crate) mod passthrough;
 mod probe;
 mod runtime;
 
 pub(crate) use crate::cli::{
-    command::{CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliResponse},
+    command::{CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliExecutableSpec, CliResponse},
+    manifest::{CliCommandHandler, CliProviderCatalog},
     runtime::{CliProviderBackend, CliRuntimeMaterializer},
 };
 
@@ -23,13 +25,13 @@ mod tests {
     fn probes_real_gh_binary() {
         let version = probe_real_binary(
             CliBinarySpec {
-                program: "gh",
-                env_override: Some("SWITCHBOARD_GH_BIN"),
-                version_args: &["--version"],
+                program: "gh".to_owned(),
+                env_override: Some("SWITCHBOARD_GH_BIN".to_owned()),
+                version_args: vec!["--version".to_owned()],
             },
             CliCapabilityProbe {
-                name: "gh-api",
-                args: &["api", "--help"],
+                id: "gh-api".to_owned(),
+                args: vec!["api".to_owned(), "--help".to_owned()],
             },
         );
 
@@ -43,13 +45,13 @@ mod tests {
     fn probes_real_gws_binary() {
         let version = probe_real_binary(
             CliBinarySpec {
-                program: "gws",
-                env_override: Some("SWITCHBOARD_GWS_BIN"),
-                version_args: &["--version"],
+                program: "gws".to_owned(),
+                env_override: Some("SWITCHBOARD_GWS_BIN".to_owned()),
+                version_args: vec!["--version".to_owned()],
             },
             CliCapabilityProbe {
-                name: "gws-calendar",
-                args: &["calendar", "--help"],
+                id: "gws-calendar".to_owned(),
+                args: vec!["calendar".to_owned(), "--help".to_owned()],
             },
         );
 

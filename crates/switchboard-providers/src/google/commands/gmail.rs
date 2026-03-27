@@ -6,53 +6,29 @@ use switchboard_core::{
 };
 
 use crate::{
-    cli::{CliCommandSpec, CliResponse},
-    google::commands::{
-        append_optional_flag, append_optional_value, GWS_BINARY, GWS_GMAIL_DRAFT_CREATE_CAPABILITY,
-        GWS_GMAIL_READ_CAPABILITY, GWS_GMAIL_TRIAGE_CAPABILITY,
-    },
+    cli::{CliCommandHandler, CliResponse},
+    google::commands::{append_optional_flag, append_optional_value},
 };
 
-pub(crate) const MAIL_SEARCH_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.mail.search",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "Search Gmail",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_GMAIL_TRIAGE_CAPABILITY,
+pub(crate) const MAIL_SEARCH_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "mail_search",
     summarize: summarize_mail_search,
-    build_args: build_mail_search_args,
-    decode: decode_mail_search,
+    build_args: Some(build_mail_search_args),
+    decode: Some(decode_mail_search),
 };
 
-pub(crate) const MAIL_READ_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.mail.read",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "Read a Gmail message",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_GMAIL_READ_CAPABILITY,
+pub(crate) const MAIL_READ_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "mail_read",
     summarize: summarize_mail_read,
-    build_args: build_mail_read_args,
-    decode: decode_mail_read,
+    build_args: Some(build_mail_read_args),
+    decode: Some(decode_mail_read),
 };
 
-pub(crate) const MAIL_DRAFT_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.mail.draft",
-        kind: switchboard_core::ToolKind::Write,
-        summary: "Draft a Gmail message",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_GMAIL_DRAFT_CREATE_CAPABILITY,
+pub(crate) const MAIL_DRAFT_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "mail_draft",
     summarize: summarize_mail_draft,
-    build_args: build_mail_draft_args,
-    decode: decode_mail_draft,
+    build_args: Some(build_mail_draft_args),
+    decode: Some(decode_mail_draft),
 };
 
 fn summarize_mail_search(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {

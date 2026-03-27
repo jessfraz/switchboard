@@ -5,42 +5,26 @@ use switchboard_core::{
 };
 
 use crate::{
-    cli::{CliCommandSpec, CliResponse},
-    github::commands::{
-        append_optional_flag, append_optional_value, GH_BINARY, GH_PR_SEARCH_CAPABILITY, GH_PR_VIEW_CAPABILITY,
-    },
+    cli::{CliCommandHandler, CliResponse},
+    github::commands::{append_optional_flag, append_optional_value},
 };
 
 const SEARCH_FIELDS: &str = "id,number,title,state,isDraft,repository,author,createdAt,updatedAt,url";
 const READ_FIELDS: &str =
     "id,number,title,body,state,isDraft,author,assignees,labels,baseRefName,headRefName,reviewDecision,mergeStateStatus,createdAt,updatedAt,url";
 
-pub(crate) const PULL_REQUEST_SEARCH_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "github.pull_request.search",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "Search pull requests",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GH_BINARY,
-    capability: &GH_PR_SEARCH_CAPABILITY,
+pub(crate) const PULL_REQUEST_SEARCH_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "pull_request_search",
     summarize: summarize_pull_request_search,
-    build_args: build_pull_request_search_args,
-    decode: decode_pull_request_search,
+    build_args: Some(build_pull_request_search_args),
+    decode: Some(decode_pull_request_search),
 };
 
-pub(crate) const PULL_REQUEST_READ_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "github.pull_request.read",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "Read a pull request",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GH_BINARY,
-    capability: &GH_PR_VIEW_CAPABILITY,
+pub(crate) const PULL_REQUEST_READ_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "pull_request_read",
     summarize: summarize_pull_request_read,
-    build_args: build_pull_request_read_args,
-    decode: decode_pull_request_read,
+    build_args: Some(build_pull_request_read_args),
+    decode: Some(decode_pull_request_read),
 };
 
 fn summarize_pull_request_search(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {

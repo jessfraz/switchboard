@@ -1,36 +1,19 @@
 use switchboard_core::{ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolOutput, ToolRequest};
 
-use crate::{
-    cli::{passthrough, CliCommandSpec, CliResponse},
-    google::commands::{GWS_BASE_CAPABILITY, GWS_BINARY},
-};
+use crate::cli::{passthrough, CliCommandHandler, CliResponse};
 
-pub(crate) const RAW_READ_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.cli.read",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "Run a raw Google Workspace CLI read command",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_BASE_CAPABILITY,
+pub(crate) const RAW_READ_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "raw_read",
     summarize: summarize_raw_read,
-    build_args: build_raw_args,
-    decode: decode_raw_read,
+    build_args: Some(build_raw_args),
+    decode: Some(decode_raw_read),
 };
 
-pub(crate) const RAW_WRITE_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.cli.write",
-        kind: switchboard_core::ToolKind::Write,
-        summary: "Run a raw Google Workspace CLI write command",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_BASE_CAPABILITY,
+pub(crate) const RAW_WRITE_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "raw_write",
     summarize: summarize_raw_write,
-    build_args: build_raw_args,
-    decode: decode_raw_write,
+    build_args: Some(build_raw_args),
+    decode: Some(decode_raw_write),
 };
 
 fn summarize_raw_read(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {

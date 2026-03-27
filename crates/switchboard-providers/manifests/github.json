@@ -1,0 +1,130 @@
+{
+  "provider": "github",
+  "binaries": [
+    {
+      "id": "gh",
+      "program": "gh",
+      "env_override": "SWITCHBOARD_GH_BIN",
+      "version_args": ["--version"]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "gh_help",
+      "args": ["--help"]
+    },
+    {
+      "id": "gh_api",
+      "args": ["api", "--help"]
+    },
+    {
+      "id": "gh_search_prs",
+      "args": ["search", "prs", "--help"]
+    },
+    {
+      "id": "gh_pr_view",
+      "args": ["pr", "view", "--help"]
+    },
+    {
+      "id": "gh_issue_view",
+      "args": ["issue", "view", "--help"]
+    }
+  ],
+  "commands": [
+    {
+      "name": "github.notifications.list",
+      "kind": "read",
+      "summary": "List notifications for a GitHub namespace",
+      "handler": "notifications_list",
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_api"
+      }
+    },
+    {
+      "name": "github.pull_request.read",
+      "kind": "read",
+      "summary": "Read a pull request",
+      "handler": "pull_request_read",
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_pr_view"
+      }
+    },
+    {
+      "name": "github.pull_request.search",
+      "kind": "read",
+      "summary": "Search pull requests",
+      "handler": "pull_request_search",
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_search_prs"
+      }
+    },
+    {
+      "name": "github.pull_request.comment",
+      "kind": "write",
+      "summary": "Draft or send a pull request comment",
+      "handler": "pull_request_comment",
+      "execution": {
+        "kind": "planning_only"
+      }
+    },
+    {
+      "name": "github.issue.read",
+      "kind": "read",
+      "summary": "Read an issue",
+      "handler": "issue_read",
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_issue_view"
+      }
+    },
+    {
+      "name": "github.issue.comment",
+      "kind": "write",
+      "summary": "Draft or send an issue comment",
+      "handler": "issue_comment",
+      "execution": {
+        "kind": "planning_only"
+      }
+    },
+    {
+      "name": "github.repository.search",
+      "kind": "read",
+      "summary": "Search repositories",
+      "handler": "repository_search",
+      "execution": {
+        "kind": "planning_only"
+      }
+    },
+    {
+      "name": "github.cli.read",
+      "kind": "read",
+      "summary": "Run a raw GitHub CLI read command",
+      "surface": "raw",
+      "handler": "raw_read",
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_help"
+      }
+    },
+    {
+      "name": "github.cli.write",
+      "kind": "write",
+      "summary": "Run a raw GitHub CLI write command",
+      "surface": "raw",
+      "handler": "raw_write",
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_help"
+      }
+    }
+  ]
+}

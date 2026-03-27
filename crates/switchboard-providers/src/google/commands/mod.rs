@@ -1,56 +1,30 @@
 mod calendar;
 mod gmail;
+mod planned;
 mod raw;
 
 use switchboard_core::{Error, Result, ToolArguments};
 
-use crate::cli::{CliBinarySpec, CliCapabilityProbe};
+use crate::cli::CliCommandHandler;
 pub(crate) use crate::google::commands::{
-    calendar::{CALENDAR_CREATE_COMMAND, CALENDAR_DELETE_COMMAND, CALENDAR_LIST_COMMAND},
-    gmail::{MAIL_DRAFT_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
-    raw::{RAW_READ_COMMAND, RAW_WRITE_COMMAND},
+    calendar::{CALENDAR_CREATE_HANDLER, CALENDAR_DELETE_HANDLER, CALENDAR_LIST_HANDLER},
+    gmail::{MAIL_DRAFT_HANDLER, MAIL_READ_HANDLER, MAIL_SEARCH_HANDLER},
+    planned::{DRIVE_SEARCH_HANDLER, MAIL_SEND_HANDLER},
+    raw::{RAW_READ_HANDLER, RAW_WRITE_HANDLER},
 };
 
-pub(crate) const GWS_BINARY: CliBinarySpec = CliBinarySpec {
-    program: "gws",
-    env_override: Some("SWITCHBOARD_GWS_BIN"),
-    version_args: &["--version"],
-};
-
-pub(crate) const GWS_CALENDAR_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "calendar_agenda",
-    args: &["calendar", "--help"],
-};
-
-pub(crate) const GWS_BASE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gws_help",
-    args: &["--help"],
-};
-
-pub(crate) const GWS_CALENDAR_INSERT_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "calendar_insert",
-    args: &["calendar", "+insert", "--help"],
-};
-
-pub(crate) const GWS_CALENDAR_DELETE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "calendar_delete",
-    args: &["calendar", "events", "delete", "--help"],
-};
-
-pub(crate) const GWS_GMAIL_TRIAGE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gmail_triage",
-    args: &["gmail", "+triage", "--help"],
-};
-
-pub(crate) const GWS_GMAIL_READ_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gmail_read",
-    args: &["gmail", "+read", "--help"],
-};
-
-pub(crate) const GWS_GMAIL_DRAFT_CREATE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gmail_draft_create",
-    args: &["gmail", "users", "drafts", "create", "--help"],
-};
+pub(crate) const HANDLERS: &[CliCommandHandler] = &[
+    CALENDAR_LIST_HANDLER,
+    CALENDAR_CREATE_HANDLER,
+    CALENDAR_DELETE_HANDLER,
+    MAIL_SEARCH_HANDLER,
+    MAIL_READ_HANDLER,
+    MAIL_DRAFT_HANDLER,
+    MAIL_SEND_HANDLER,
+    DRIVE_SEARCH_HANDLER,
+    RAW_READ_HANDLER,
+    RAW_WRITE_HANDLER,
+];
 
 pub(super) fn append_optional_flag(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) -> Result<()> {
     if flag_enabled(arguments, name)? {

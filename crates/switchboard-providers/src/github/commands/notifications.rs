@@ -5,22 +5,15 @@ use switchboard_core::{
 };
 
 use crate::{
-    cli::{CliCommandSpec, CliResponse},
-    github::commands::{append_query_bool, append_query_value, GH_API_CAPABILITY, GH_BINARY},
+    cli::{CliCommandHandler, CliResponse},
+    github::commands::{append_query_bool, append_query_value},
 };
 
-pub(crate) const NOTIFICATIONS_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "github.notifications.list",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "List notifications for a GitHub namespace",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GH_BINARY,
-    capability: &GH_API_CAPABILITY,
+pub(crate) const NOTIFICATIONS_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "notifications_list",
     summarize: summarize_notifications,
-    build_args: build_notifications_args,
-    decode: decode_notifications,
+    build_args: Some(build_notifications_args),
+    decode: Some(decode_notifications),
 };
 
 fn summarize_notifications(namespace: &ResolvedNamespace, _request: &ToolRequest) -> Result<String> {

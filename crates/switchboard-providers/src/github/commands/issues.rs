@@ -4,25 +4,15 @@ use switchboard_core::{
     ToolRefKind, ToolRequest,
 };
 
-use crate::{
-    cli::{CliCommandSpec, CliResponse},
-    github::commands::{GH_BINARY, GH_ISSUE_VIEW_CAPABILITY},
-};
+use crate::cli::{CliCommandHandler, CliResponse};
 
 const READ_FIELDS: &str = "id,number,title,body,state,stateReason,author,assignees,labels,createdAt,updatedAt,url";
 
-pub(crate) const ISSUE_READ_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "github.issue.read",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "Read an issue",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GH_BINARY,
-    capability: &GH_ISSUE_VIEW_CAPABILITY,
+pub(crate) const ISSUE_READ_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "issue_read",
     summarize: summarize_issue_read,
-    build_args: build_issue_read_args,
-    decode: decode_issue_read,
+    build_args: Some(build_issue_read_args),
+    decode: Some(decode_issue_read),
 };
 
 fn summarize_issue_read(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {

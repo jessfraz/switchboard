@@ -1,0 +1,152 @@
+{
+  "provider": "google",
+  "binaries": [
+    {
+      "id": "gws",
+      "program": "gws",
+      "env_override": "SWITCHBOARD_GWS_BIN",
+      "version_args": ["--version"]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "gws_help",
+      "args": ["--help"]
+    },
+    {
+      "id": "calendar_agenda",
+      "args": ["calendar", "--help"]
+    },
+    {
+      "id": "calendar_insert",
+      "args": ["calendar", "+insert", "--help"]
+    },
+    {
+      "id": "calendar_delete",
+      "args": ["calendar", "events", "delete", "--help"]
+    },
+    {
+      "id": "gmail_triage",
+      "args": ["gmail", "+triage", "--help"]
+    },
+    {
+      "id": "gmail_read",
+      "args": ["gmail", "+read", "--help"]
+    },
+    {
+      "id": "gmail_draft_create",
+      "args": ["gmail", "users", "drafts", "create", "--help"]
+    }
+  ],
+  "commands": [
+    {
+      "name": "google.mail.search",
+      "kind": "read",
+      "summary": "Search Gmail",
+      "handler": "mail_search",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gmail_triage"
+      }
+    },
+    {
+      "name": "google.mail.read",
+      "kind": "read",
+      "summary": "Read a Gmail message",
+      "handler": "mail_read",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gmail_read"
+      }
+    },
+    {
+      "name": "google.mail.draft",
+      "kind": "write",
+      "summary": "Draft a Gmail message",
+      "handler": "mail_draft",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gmail_draft_create"
+      }
+    },
+    {
+      "name": "google.mail.send",
+      "kind": "write",
+      "summary": "Send a Gmail message",
+      "handler": "mail_send",
+      "execution": {
+        "kind": "planning_only"
+      }
+    },
+    {
+      "name": "google.calendar.list",
+      "kind": "read",
+      "summary": "List calendar events",
+      "handler": "calendar_list",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "calendar_agenda"
+      }
+    },
+    {
+      "name": "google.calendar.create",
+      "kind": "write",
+      "summary": "Create a calendar event",
+      "handler": "calendar_create",
+      "undo_support": "compensating_action",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "calendar_insert"
+      }
+    },
+    {
+      "name": "google.calendar.delete",
+      "kind": "write",
+      "summary": "Delete a calendar event",
+      "handler": "calendar_delete",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "calendar_delete"
+      }
+    },
+    {
+      "name": "google.drive.search",
+      "kind": "read",
+      "summary": "Search Drive files",
+      "handler": "drive_search",
+      "execution": {
+        "kind": "planning_only"
+      }
+    },
+    {
+      "name": "google.cli.read",
+      "kind": "read",
+      "summary": "Run a raw Google Workspace CLI read command",
+      "surface": "raw",
+      "handler": "raw_read",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gws_help"
+      }
+    },
+    {
+      "name": "google.cli.write",
+      "kind": "write",
+      "summary": "Run a raw Google Workspace CLI write command",
+      "surface": "raw",
+      "handler": "raw_write",
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gws_help"
+      }
+    }
+  ]
+}

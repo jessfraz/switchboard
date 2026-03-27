@@ -15,7 +15,7 @@ pub(crate) struct DefaultCliLocator;
 
 impl CliLocator for DefaultCliLocator {
     fn resolve(&self, binary: &CliBinarySpec) -> Result<PathBuf> {
-        if let Some(env_override) = binary.env_override {
+        if let Some(env_override) = binary.env_override.as_deref() {
             if let Some(candidate) = env::var_os(env_override).filter(|value| !value.is_empty()) {
                 let path = PathBuf::from(candidate);
                 if is_executable_candidate(&path) {
@@ -29,12 +29,13 @@ impl CliLocator for DefaultCliLocator {
             }
         }
 
-        resolve_on_path(binary.program).ok_or_else(|| {
+        resolve_on_path(&binary.program).ok_or_else(|| {
             Error::Execution(format!(
                 "failed to locate {} on PATH{}",
                 binary.program,
                 binary
                     .env_override
+                    .as_deref()
                     .map(|name| format!(" or via {name}"))
                     .unwrap_or_default()
             ))
@@ -108,9 +109,9 @@ mod tests {
         env::set_var("SWITCHBOARD_TEST_BIN", fixture.path());
         let locator = DefaultCliLocator;
         let binary = CliBinarySpec {
-            program: "definitely-not-real",
-            env_override: Some("SWITCHBOARD_TEST_BIN"),
-            version_args: &["--version"],
+            program: "definitely-not-real".to_owned(),
+            env_override: Some("SWITCHBOARD_TEST_BIN".to_owned()),
+            version_args: vec!["--version".to_owned()],
         };
 
         let resolved = locator.resolve(&binary).expect("override path should resolve");

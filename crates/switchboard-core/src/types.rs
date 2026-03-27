@@ -827,12 +827,37 @@ fn validate_argument_name(name: String) -> Result<String> {
     Ok(name)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolSurface {
+    Curated,
+    Raw,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolExecutionSupport {
+    PlanningOnly,
+    Executable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolUndoSupport {
+    None,
+    CompensatingAction,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolDescriptor {
-    pub name: &'static str,
+    pub name: String,
     pub kind: ToolKind,
-    pub summary: &'static str,
+    pub summary: String,
     pub backend: BackendKind,
+    pub surface: ToolSurface,
+    pub aggregate_read_supported: bool,
+    pub execution_support: ToolExecutionSupport,
+    pub undo_support: ToolUndoSupport,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -840,21 +865,74 @@ pub struct RegisteredTool {
     pub name: ToolName,
     pub provider: ProviderKind,
     pub kind: ToolKind,
-    pub summary: &'static str,
+    pub summary: String,
     pub backend: BackendKind,
+    pub surface: ToolSurface,
+    pub aggregate_read_supported: bool,
+    pub execution_support: ToolExecutionSupport,
+    pub undo_support: ToolUndoSupport,
+}
+
+impl ToolDescriptor {
+    pub fn new(
+        name: impl Into<String>,
+        kind: ToolKind,
+        summary: impl Into<String>,
+        backend: BackendKind,
+    ) -> Result<Self> {
+        let name = name.into();
+        let summary = summary.into();
+        ToolName::new(&name)?;
+        validate_non_empty("tool summary", &summary)?;
+
+        Ok(Self {
+            name,
+            kind,
+            summary,
+            backend,
+            surface: ToolSurface::Curated,
+            aggregate_read_supported: kind == ToolKind::Read,
+            execution_support: ToolExecutionSupport::Executable,
+            undo_support: ToolUndoSupport::None,
+        })
+    }
+
+    pub fn with_surface(mut self, surface: ToolSurface) -> Self {
+        self.surface = surface;
+        self
+    }
+
+    pub fn with_aggregate_read_supported(mut self, aggregate_read_supported: bool) -> Self {
+        self.aggregate_read_supported = aggregate_read_supported;
+        self
+    }
+
+    pub fn with_execution_support(mut self, execution_support: ToolExecutionSupport) -> Self {
+        self.execution_support = execution_support;
+        self
+    }
+
+    pub fn with_undo_support(mut self, undo_support: ToolUndoSupport) -> Self {
+        self.undo_support = undo_support;
+        self
+    }
 }
 
 impl RegisteredTool {
     pub fn from_descriptor(descriptor: &ToolDescriptor) -> Result<Self> {
-        let name = ToolName::new(descriptor.name)?;
+        let name = ToolName::new(&descriptor.name)?;
         let provider = name.provider()?;
 
         Ok(Self {
             name,
             provider,
             kind: descriptor.kind,
-            summary: descriptor.summary,
+            summary: descriptor.summary.clone(),
             backend: descriptor.backend,
+            surface: descriptor.surface,
+            aggregate_read_supported: descriptor.aggregate_read_supported,
+            execution_support: descriptor.execution_support,
+            undo_support: descriptor.undo_support,
         })
     }
 }

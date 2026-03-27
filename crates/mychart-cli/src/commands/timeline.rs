@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 
 use crate::{
     commands::shared::{
-        bundle_entries, concept_text, first_string, iso_on_or_after, observation_effective_date, open_patient_session,
-        resolve_since_floor, resource_timestamp, value_summary,
+        accounts_used_json, bundle_entries, concept_text, first_string, iso_on_or_after, observation_effective_date,
+        open_patient_sessions, resolve_since_floor, resource_timestamp, single_patient_id, value_summary,
     },
     Result,
 };
@@ -13,6 +13,9 @@ use crate::{
 pub(crate) struct TimelineCommand {
     #[arg(long)]
     patient: Option<String>,
+
+    #[arg(long, alias = "all-providers")]
+    all_accounts: bool,
 
     #[arg(long)]
     since: Option<String>,
@@ -25,7 +28,7 @@ pub(crate) struct TimelineCommand {
 }
 
 pub(crate) fn run_timeline(args: TimelineCommand, context: &crate::state::ResolvedContext) -> Result<Value> {
-    let session = open_patient_session(context, args.patient)?;
+    let selection = open_patient_sessions(context, args.patient, args.all_accounts)?;
     let floor = resolve_since_floor(args.since.as_deref())?;
     let resource_queries = [
         ("Appointment", vec![("_count".into(), "25".into())]),
@@ -41,21 +44,29 @@ pub(crate) fn run_timeline(args: TimelineCommand, context: &crate::state::Resolv
     ];
 
     let mut events = Vec::new();
-    for (resource_type, query) in resource_queries {
-        let Some(bundle) = session.search_resource(resource_type, &query, args.all_pages)? else {
-            continue;
-        };
-        for resource in bundle_entries(&bundle) {
-            let Some(timestamp) = resource_timestamp(&resource) else {
+    for session in &selection.sessions {
+        for (resource_type, query) in &resource_queries {
+            let Some(bundle) = session.search_resource(resource_type, query, args.all_pages)? else {
                 continue;
             };
-            if floor
-                .as_deref()
-                .is_some_and(|floor| !iso_on_or_after(&timestamp, floor))
-            {
-                continue;
+            for resource in bundle_entries(&bundle) {
+                let Some(timestamp) = resource_timestamp(&resource) else {
+                    continue;
+                };
+                if floor
+                    .as_deref()
+                    .is_some_and(|floor| !iso_on_or_after(&timestamp, floor))
+                {
+                    continue;
+                }
+                let mut event = render_event(&resource, &timestamp);
+                if let Some(object) = event.as_object_mut() {
+                    object.insert("account".into(), Value::String(session.account_name.clone()));
+                    object.insert("provider".into(), Value::String(session.provider_name.clone()));
+                    object.insert("patient_id".into(), Value::String(session.patient_id.clone()));
+                }
+                events.push(event);
             }
-            events.push(render_event(&resource, &timestamp));
         }
     }
 
@@ -69,7 +80,9 @@ pub(crate) fn run_timeline(args: TimelineCommand, context: &crate::state::Resolv
 
     Ok(json!({
         "status": "ok",
-        "patient_id": session.patient_id,
+        "patient_id": single_patient_id(&selection),
+        "accounts_used": accounts_used_json(&selection),
+        "accounts_skipped": selection.skipped_accounts,
         "events": events,
     }))
 }

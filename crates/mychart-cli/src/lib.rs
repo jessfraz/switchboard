@@ -46,7 +46,7 @@ const AFTER_HELP: &str = concat!(
     "  mychart labs a1c ferritin tsh --spark\n",
     "  mychart appointments upcoming --limit 5\n",
     "  mychart appointments find derm --next 30d\n",
-    "  mychart meds reconcile\n",
+    "  mychart meds reconcile --all-providers\n",
     "  mychart notes search --query migraine\n",
     "  mychart notes get note-123\n",
     "  mychart claims audit --since 1y\n",
@@ -1142,6 +1142,7 @@ fn parse_oauth_token_response(value: &Value) -> Result<OAuthTokenResponse> {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeMap,
         ffi::OsString,
         fs,
         io::{Read, Write},
@@ -1154,7 +1155,7 @@ mod tests {
     use clap::Parser;
     use serde_json::{json, Value};
 
-    use super::{run, Cli, MyChartState, StateStore};
+    use super::{run, Cli, GlobalArgs, MyChartState, ResolvedContext, StateStore};
 
     #[test]
     fn authorize_url_discovers_smart_endpoints_and_stores_pkce_state() {
@@ -1806,6 +1807,249 @@ mod tests {
     }
 
     #[test]
+    fn meds_reconcile_can_merge_all_provider_accounts() {
+        let server_a = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("MedicationRequest", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "MedicationRequest",
+                            "id": "med-a",
+                            "status": "active",
+                            "intent": "order",
+                            "authoredOn": "2100-01-01",
+                            "medicationCodeableConcept": {"text": "Aspirin"},
+                            "requester": {"display": "Dr. A"}
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let server_b = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("MedicationRequest", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "MedicationRequest",
+                            "id": "med-b",
+                            "status": "active",
+                            "intent": "order",
+                            "authoredOn": "2100-01-02",
+                            "medicationCodeableConcept": {"text": "Aspirin"},
+                            "requester": {"display": "Dr. B"}
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-meds-all-providers");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                current_account: Some("ucla".into()),
+                accounts: BTreeMap::from([
+                    (
+                        "ucla".into(),
+                        crate::state::MyChartAccountState {
+                            api_base_url: Some(server_a.base_url()),
+                            access_token: Some("access-a".into()),
+                            patient_id: Some("patient-a".into()),
+                            discovery: Some(crate::state::AccountDiscoveryState {
+                                brand_name: Some("UCLA Medical Center".into()),
+                                ..crate::state::AccountDiscoveryState::default()
+                            }),
+                            ..crate::state::MyChartAccountState::default()
+                        },
+                    ),
+                    (
+                        "cedars".into(),
+                        crate::state::MyChartAccountState {
+                            api_base_url: Some(server_b.base_url()),
+                            access_token: Some("access-b".into()),
+                            patient_id: Some("patient-b".into()),
+                            discovery: Some(crate::state::AccountDiscoveryState {
+                                brand_name: Some("Cedars-Sinai".into()),
+                                ..crate::state::AccountDiscoveryState::default()
+                            }),
+                            ..crate::state::MyChartAccountState::default()
+                        },
+                    ),
+                    (
+                        "stale".into(),
+                        crate::state::MyChartAccountState {
+                            api_base_url: Some("https://example.invalid/FHIR/R4".into()),
+                            ..crate::state::MyChartAccountState::default()
+                        },
+                    ),
+                ]),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let context = resolved_context(&config_path);
+        let output = crate::commands::meds::run_reconcile_output(
+            crate::commands::meds::MedsReconcileArgs {
+                patient: None,
+                all_accounts: true,
+                since: None,
+                limit: 100,
+                all_pages: false,
+            },
+            &context,
+        )
+        .expect("med reconciliation should succeed");
+
+        assert_eq!(output.status, "ok");
+        assert_eq!(output.patient_id, None);
+        assert_eq!(output.accounts_used.len(), 2);
+        assert_eq!(output.accounts_skipped.len(), 1);
+        assert_eq!(output.duplicate_name_candidates.len(), 1);
+        assert_eq!(output.duplicate_name_candidates[0].name, "aspirin");
+        assert_eq!(output.duplicate_name_candidates[0].count, 2);
+        let accounts = output
+            .medications
+            .iter()
+            .map(|entry| entry.account.as_str())
+            .collect::<Vec<_>>();
+        assert!(accounts.contains(&"ucla"));
+        assert!(accounts.contains(&"cedars"));
+    }
+
+    #[test]
+    fn appointments_upcoming_can_merge_all_provider_accounts() {
+        let server_a = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("Appointment", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Appointment",
+                            "id": "appt-a",
+                            "status": "booked",
+                            "start": "2100-01-01T10:00:00Z",
+                            "description": "UCLA visit"
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let server_b = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[resource_capability("Appointment", &["read", "search-type"])],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Appointment",
+                            "id": "appt-b",
+                            "status": "booked",
+                            "start": "2100-01-02T10:00:00Z",
+                            "description": "Cedars visit"
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-appointments-all-providers");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                current_account: Some("ucla".into()),
+                accounts: BTreeMap::from([
+                    (
+                        "ucla".into(),
+                        crate::state::MyChartAccountState {
+                            api_base_url: Some(server_a.base_url()),
+                            access_token: Some("access-a".into()),
+                            patient_id: Some("patient-a".into()),
+                            discovery: Some(crate::state::AccountDiscoveryState {
+                                brand_name: Some("UCLA Medical Center".into()),
+                                ..crate::state::AccountDiscoveryState::default()
+                            }),
+                            ..crate::state::MyChartAccountState::default()
+                        },
+                    ),
+                    (
+                        "cedars".into(),
+                        crate::state::MyChartAccountState {
+                            api_base_url: Some(server_b.base_url()),
+                            access_token: Some("access-b".into()),
+                            patient_id: Some("patient-b".into()),
+                            discovery: Some(crate::state::AccountDiscoveryState {
+                                brand_name: Some("Cedars-Sinai".into()),
+                                ..crate::state::AccountDiscoveryState::default()
+                            }),
+                            ..crate::state::MyChartAccountState::default()
+                        },
+                    ),
+                ]),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let context = resolved_context(&config_path);
+        let output = crate::commands::appointments::run_upcoming_output(
+            crate::commands::appointments::AppointmentsUpcomingArgs {
+                patient: None,
+                all_accounts: true,
+                since: None,
+                limit: 10,
+                all_pages: false,
+            },
+            &context,
+        )
+        .expect("upcoming appointments should succeed");
+
+        assert_eq!(output.status, "ok");
+        assert_eq!(output.patient_id, None);
+        assert_eq!(output.accounts_used.len(), 2);
+        assert_eq!(output.appointments.len(), 2);
+        assert_eq!(output.appointments[0].account, "ucla");
+        assert_eq!(output.appointments[1].account, "cedars");
+    }
+
+    #[test]
     fn claims_audit_flags_duplicate_and_problem_claims() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(
@@ -2066,6 +2310,23 @@ mod tests {
         let compact = cli.global.compact;
         let (value, _) = run(cli).unwrap_or_else(|(error, _)| panic!("{}", error.render(compact)));
         value
+    }
+
+    fn resolved_context(config_path: &std::path::Path) -> crate::state::ResolvedContext {
+        ResolvedContext::from_global(&GlobalArgs {
+            config: Some(config_path.to_path_buf()),
+            account: None,
+            base_url: None,
+            portal_base_url: None,
+            client_id: None,
+            client_secret: None,
+            redirect_uri: None,
+            access_token: None,
+            refresh_token: None,
+            username: None,
+            compact: true,
+        })
+        .expect("context should resolve")
     }
 
     fn temp_dir(prefix: &str) -> std::path::PathBuf {

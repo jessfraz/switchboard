@@ -58,7 +58,7 @@ impl DefaultCliProbe {
 
         let output = executor.execute(CliInvocation {
             program: program.to_path_buf(),
-            args: binary.version_args.iter().map(ToString::to_string).collect(),
+            args: binary.version_args.clone(),
             runtime: ProcessContext::new(),
         })?;
         let version = output
@@ -93,7 +93,7 @@ impl DefaultCliProbe {
         capability: &CliCapabilityProbe,
         executor: &dyn CliExecutor,
     ) -> Result<()> {
-        let key = format!("{}::{}", program.display(), capability.name);
+        let key = format!("{}::{}", program.display(), capability.id);
         if self
             .capabilities
             .lock()
@@ -105,7 +105,7 @@ impl DefaultCliProbe {
 
         executor.execute(CliInvocation {
             program: program.to_path_buf(),
-            args: capability.args.iter().map(ToString::to_string).collect(),
+            args: capability.args.clone(),
             runtime: ProcessContext::new(),
         })?;
 

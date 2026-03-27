@@ -5,8 +5,9 @@ use serde_json::{json, Value};
 
 use crate::{
     commands::shared::{
-        bundle_entries, concept_text, interpretation_summary, iso_on_or_after, normalize_match_text,
-        observation_effective_date, open_patient_session, resolve_since_floor, value_summary,
+        accounts_used_json, bundle_entries, concept_text, interpretation_summary, iso_on_or_after,
+        normalize_match_text, observation_effective_date, open_patient_sessions, resolve_since_floor,
+        single_patient_id, value_summary,
     },
     DynamicArgs, Error, Result,
 };
@@ -33,6 +34,9 @@ pub(crate) struct LabsTrendArgs {
     #[arg(long)]
     patient: Option<String>,
 
+    #[arg(long, alias = "all-providers")]
+    all_accounts: bool,
+
     #[arg(long)]
     since: Option<String>,
 
@@ -50,6 +54,9 @@ pub(crate) struct LabsTrendArgs {
 pub(crate) struct LabsAbnormalsArgs {
     #[arg(long)]
     patient: Option<String>,
+
+    #[arg(long, alias = "all-providers")]
+    all_accounts: bool,
 
     #[arg(long)]
     since: Option<String>,
@@ -73,22 +80,25 @@ pub(crate) fn run_labs(command: LabsSubcommand, context: &crate::state::Resolved
 }
 
 fn run_trend(args: LabsTrendArgs, context: &crate::state::ResolvedContext) -> Result<Value> {
-    let session = open_patient_session(context, args.patient)?;
+    let selection = open_patient_sessions(context, args.patient, args.all_accounts)?;
     let floor = resolve_since_floor(args.since.as_deref())?;
     let mut query = vec![("_count".into(), args.limit.max(100).to_string())];
-    if session.resource("Observation").is_some_and(|resource| {
-        resource
-            .search_params
-            .iter()
-            .any(|parameter| parameter.name == "category")
+    if selection.sessions.iter().any(|session| {
+        session.resource("Observation").is_some_and(|resource| {
+            resource
+                .search_params
+                .iter()
+                .any(|parameter| parameter.name == "category")
+        })
     }) {
         query.push(("category".into(), "laboratory".into()));
     }
     if let Some(floor) = floor.as_deref() {
-        if session
-            .resource("Observation")
-            .is_some_and(|resource| resource.search_params.iter().any(|parameter| parameter.name == "date"))
-        {
+        if selection.sessions.iter().any(|session| {
+            session
+                .resource("Observation")
+                .is_some_and(|resource| resource.search_params.iter().any(|parameter| parameter.name == "date"))
+        }) {
             query.push(("date".into(), format!("ge{floor}")));
         }
     }
@@ -98,34 +108,39 @@ fn run_trend(args: LabsTrendArgs, context: &crate::state::ResolvedContext) -> Re
         .iter()
         .map(|query| normalize_match_text(query))
         .collect::<Vec<_>>();
-    let observations = session
-        .search_resource("Observation", &query, args.all_pages)?
-        .map(|bundle| bundle_entries(&bundle))
-        .unwrap_or_default();
-
     let mut series = BTreeMap::<String, Vec<Value>>::new();
-    for resource in observations {
-        let label = observation_label(&resource);
-        let normalized_label = normalize_match_text(&label);
-        if !analytes.is_empty() && !analytes.iter().any(|query| normalized_label.contains(query)) {
-            continue;
+    for session in &selection.sessions {
+        let observations = session
+            .search_resource("Observation", &query, args.all_pages)?
+            .map(|bundle| bundle_entries(&bundle))
+            .unwrap_or_default();
+
+        for resource in observations {
+            let label = observation_label(&resource);
+            let normalized_label = normalize_match_text(&label);
+            if !analytes.is_empty() && !analytes.iter().any(|query| normalized_label.contains(query)) {
+                continue;
+            }
+            let observed_at = observation_effective_date(&resource).unwrap_or_else(|| "unknown".into());
+            if floor
+                .as_deref()
+                .is_some_and(|floor| !iso_on_or_after(&observed_at, floor))
+            {
+                continue;
+            }
+            let value = value_summary(&resource);
+            let numeric_value = resource.pointer("/valueQuantity/value").and_then(Value::as_f64);
+            series.entry(label.clone()).or_default().push(json!({
+                "account": session.account_name.clone(),
+                "provider": session.provider_name.clone(),
+                "patient_id": session.patient_id.clone(),
+                "id": resource.get("id").and_then(Value::as_str),
+                "observed_at": observed_at,
+                "value": value,
+                "numeric_value": numeric_value,
+                "interpretation": interpretation_summary(&resource),
+            }));
         }
-        let observed_at = observation_effective_date(&resource).unwrap_or_else(|| "unknown".into());
-        if floor
-            .as_deref()
-            .is_some_and(|floor| !iso_on_or_after(&observed_at, floor))
-        {
-            continue;
-        }
-        let value = value_summary(&resource);
-        let numeric_value = resource.pointer("/valueQuantity/value").and_then(Value::as_f64);
-        series.entry(label.clone()).or_default().push(json!({
-            "id": resource.get("id").and_then(Value::as_str),
-            "observed_at": observed_at,
-            "value": value,
-            "numeric_value": numeric_value,
-            "interpretation": interpretation_summary(&resource),
-        }));
     }
 
     let mut output = series
@@ -158,33 +173,37 @@ fn run_trend(args: LabsTrendArgs, context: &crate::state::ResolvedContext) -> Re
 
     Ok(json!({
         "status": "ok",
-        "patient_id": session.patient_id,
+        "patient_id": single_patient_id(&selection),
+        "accounts_used": accounts_used_json(&selection),
+        "accounts_skipped": selection.skipped_accounts,
         "queries": args.query,
         "series": output,
     }))
 }
 
 fn run_abnormals(args: LabsAbnormalsArgs, context: &crate::state::ResolvedContext) -> Result<Value> {
-    let session = open_patient_session(context, args.patient)?;
+    let selection = open_patient_sessions(context, args.patient, args.all_accounts)?;
     let floor = resolve_since_floor(args.since.as_deref())?;
     let mut query = vec![("_count".into(), args.limit.max(100).to_string())];
-    if session.resource("Observation").is_some_and(|resource| {
-        resource
-            .search_params
-            .iter()
-            .any(|parameter| parameter.name == "category")
+    if selection.sessions.iter().any(|session| {
+        session.resource("Observation").is_some_and(|resource| {
+            resource
+                .search_params
+                .iter()
+                .any(|parameter| parameter.name == "category")
+        })
     }) {
         query.push(("category".into(), "laboratory".into()));
     }
-    let observations = session
-        .search_resource("Observation", &query, args.all_pages)?
-        .map(|bundle| bundle_entries(&bundle))
-        .unwrap_or_default();
 
     let mut grouped = BTreeMap::<String, Value>::new();
-    let mut abnormal_results = observations
-        .into_iter()
-        .filter_map(|resource| {
+    let mut abnormal_results = Vec::new();
+    for session in &selection.sessions {
+        let observations = session
+            .search_resource("Observation", &query, args.all_pages)?
+            .map(|bundle| bundle_entries(&bundle))
+            .unwrap_or_default();
+        abnormal_results.extend(observations.into_iter().filter_map(|resource| {
             let observed_at = observation_effective_date(&resource)?;
             if floor
                 .as_deref()
@@ -198,14 +217,17 @@ fn run_abnormals(args: LabsAbnormalsArgs, context: &crate::state::ResolvedContex
             }
             let label = observation_label(&resource);
             Some(json!({
+                "account": session.account_name.clone(),
+                "provider": session.provider_name.clone(),
+                "patient_id": session.patient_id.clone(),
                 "id": resource.get("id").and_then(Value::as_str),
                 "label": label,
                 "observed_at": observed_at,
                 "value": value_summary(&resource),
                 "interpretation": interpretation,
             }))
-        })
-        .collect::<Vec<_>>();
+        }));
+    }
 
     abnormal_results.sort_by(|left, right| {
         right
@@ -227,7 +249,9 @@ fn run_abnormals(args: LabsAbnormalsArgs, context: &crate::state::ResolvedContex
 
     Ok(json!({
         "status": "ok",
-        "patient_id": session.patient_id,
+        "patient_id": single_patient_id(&selection),
+        "accounts_used": accounts_used_json(&selection),
+        "accounts_skipped": selection.skipped_accounts,
         "abnormals": abnormal_results,
     }))
 }
@@ -239,6 +263,7 @@ fn parse_shorthand(tokens: Vec<OsString>) -> Result<LabsTrendArgs> {
         .collect::<Vec<_>>();
     let mut parsed = DynamicArgs::parse(&tokens)?;
     let patient = parsed.take_optional_single("patient")?;
+    let all_accounts = parsed.take_flag("all-accounts") || parsed.take_flag("all-providers");
     let since = parsed.take_optional_single("since")?;
     let limit = parsed
         .take_optional_single("limit")?
@@ -261,6 +286,7 @@ fn parse_shorthand(tokens: Vec<OsString>) -> Result<LabsTrendArgs> {
     Ok(LabsTrendArgs {
         query: queries,
         patient,
+        all_accounts,
         since,
         spark,
         limit,

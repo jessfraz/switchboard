@@ -15,8 +15,8 @@ use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuditEventId, AuthStore, BackendKind, DispatchOutcome,
     ExecutionMode, NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest,
     ProviderKind, RegisteredTool, ResolvedNamespace, SecretResolver, SecretStore, StoredAuditEvent, StoredOperation,
-    Switchboard, SwitchboardServices, ToolArgument, ToolArguments, ToolKind, ToolName, ToolOutput, ToolRef,
-    ToolRequest,
+    Switchboard, SwitchboardServices, ToolArgument, ToolArguments, ToolExecutionSupport, ToolKind, ToolName,
+    ToolOutput, ToolRef, ToolRequest, ToolSurface, ToolUndoSupport,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
@@ -956,8 +956,10 @@ fn render_tools_human(tools: &[RegisteredTool]) -> String {
             render_tool_kind(tool.kind).to_owned(),
             tool.backend.to_string(),
         ];
-        if is_raw_cli_tool_name(tool.name.as_str()) {
-            qualifiers.push("raw".into());
+        qualifiers.push(render_tool_surface(tool.surface).to_owned());
+        qualifiers.push(render_execution_support(tool.execution_support).to_owned());
+        if tool.undo_support != ToolUndoSupport::None {
+            qualifiers.push(render_undo_support(tool.undo_support).to_owned());
         }
         output.push_str(&format!(
             "- {} [{}] {}\n",
@@ -976,6 +978,12 @@ fn render_tool_detail_human(detail: &ToolCatalogDetail) -> String {
     output.push_str(&format!("Provider: {}\n", detail.provider));
     output.push_str(&format!("Kind: {}\n", render_tool_kind(detail.kind)));
     output.push_str(&format!("Backend: {}\n", detail.backend));
+    output.push_str(&format!("Surface: {}\n", render_tool_surface(detail.surface)));
+    output.push_str(&format!(
+        "Execution: {}\n",
+        render_execution_support(detail.execution_support)
+    ));
+    output.push_str(&format!("Undo: {}\n", render_undo_support(detail.undo_support)));
     output.push_str(&format!("Summary: {}\n", detail.summary));
     output.push_str(&format!(
         "Aggregate reads: {}\n",
@@ -1194,6 +1202,27 @@ fn render_tool_kind(kind: ToolKind) -> &'static str {
     match kind {
         ToolKind::Read => "read",
         ToolKind::Write => "write",
+    }
+}
+
+fn render_tool_surface(surface: ToolSurface) -> &'static str {
+    match surface {
+        ToolSurface::Curated => "curated",
+        ToolSurface::Raw => "raw",
+    }
+}
+
+fn render_execution_support(execution_support: ToolExecutionSupport) -> &'static str {
+    match execution_support {
+        ToolExecutionSupport::PlanningOnly => "planning_only",
+        ToolExecutionSupport::Executable => "executable",
+    }
+}
+
+fn render_undo_support(undo_support: ToolUndoSupport) -> &'static str {
+    match undo_support {
+        ToolUndoSupport::None => "none",
+        ToolUndoSupport::CompensatingAction => "compensating_action",
     }
 }
 
@@ -1473,7 +1502,10 @@ struct ToolCatalogEntry {
     kind: ToolKind,
     backend: BackendKind,
     summary: String,
-    raw: bool,
+    surface: ToolSurface,
+    aggregate_read_supported: bool,
+    execution_support: ToolExecutionSupport,
+    undo_support: ToolUndoSupport,
 }
 
 impl From<&RegisteredTool> for ToolCatalogEntry {
@@ -1484,7 +1516,10 @@ impl From<&RegisteredTool> for ToolCatalogEntry {
             kind: tool.kind,
             backend: tool.backend,
             summary: tool.summary.to_owned(),
-            raw: is_raw_cli_tool_name(tool.name.as_str()),
+            surface: tool.surface,
+            aggregate_read_supported: tool.aggregate_read_supported,
+            execution_support: tool.execution_support,
+            undo_support: tool.undo_support,
         }
     }
 }
@@ -1496,8 +1531,10 @@ struct ToolCatalogDetail {
     kind: ToolKind,
     backend: BackendKind,
     summary: String,
-    raw: bool,
+    surface: ToolSurface,
     aggregate_read_supported: bool,
+    execution_support: ToolExecutionSupport,
+    undo_support: ToolUndoSupport,
     available_namespaces: Vec<NamespaceId>,
     notes: Vec<String>,
     examples: Vec<String>,
@@ -1509,7 +1546,7 @@ impl ToolCatalogDetail {
             .iter()
             .map(|namespace| namespace.id.clone())
             .collect::<Vec<_>>();
-        let raw = is_raw_cli_tool_name(tool.name.as_str());
+        let raw = tool.surface == ToolSurface::Raw;
         let example_namespace = namespaces
             .first()
             .map(|namespace| namespace.id.to_string())
@@ -1518,6 +1555,9 @@ impl ToolCatalogDetail {
             "policy, auth isolation, and audit still apply".to_owned(),
             "repeat --ns for aggregate reads, writes stay single-namespace".to_owned(),
         ];
+        if tool.execution_support == ToolExecutionSupport::PlanningOnly {
+            notes.push("execution is not wired yet, this tool currently plans cleanly but will not apply".to_owned());
+        }
         let examples = if raw {
             notes.push(
                 "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged"
@@ -1535,8 +1575,10 @@ impl ToolCatalogDetail {
             kind: tool.kind,
             backend: tool.backend,
             summary: tool.summary.to_owned(),
-            raw,
-            aggregate_read_supported: tool.kind == ToolKind::Read,
+            surface: tool.surface,
+            aggregate_read_supported: tool.aggregate_read_supported,
+            execution_support: tool.execution_support,
+            undo_support: tool.undo_support,
             available_namespaces,
             notes,
             examples,
@@ -1804,7 +1846,9 @@ mod tests {
     #[derive(Debug, Deserialize)]
     struct JsonToolCatalogEntry {
         name: ToolName,
-        raw: bool,
+        surface: ToolSurface,
+        execution_support: ToolExecutionSupport,
+        undo_support: ToolUndoSupport,
     }
 
     #[derive(Debug, Deserialize)]
@@ -2615,22 +2659,42 @@ mod tests {
             value
                 .tools
                 .iter()
-                .any(|tool| tool.name == ToolName::new("google.mail.search").expect("tool should build") && !tool.raw),
+                .any(|tool| {
+                    tool.name == ToolName::new("google.mail.search").expect("tool should build")
+                        && tool.surface == ToolSurface::Curated
+                        && tool.execution_support == ToolExecutionSupport::Executable
+                }),
             "expected curated google tool in catalog"
         );
         assert!(
             value
                 .tools
                 .iter()
-                .any(|tool| tool.name == ToolName::new("google.cli.write").expect("tool should build") && tool.raw),
+                .any(|tool| {
+                    tool.name == ToolName::new("google.cli.write").expect("tool should build")
+                        && tool.surface == ToolSurface::Raw
+                }),
             "expected raw google write tool in catalog"
         );
         assert!(
             value
                 .tools
                 .iter()
-                .any(|tool| tool.name == ToolName::new("github.cli.read").expect("tool should build") && tool.raw),
+                .any(|tool| {
+                    tool.name == ToolName::new("github.cli.read").expect("tool should build")
+                        && tool.surface == ToolSurface::Raw
+                }),
             "expected raw github read tool in catalog"
+        );
+        assert!(
+            value
+                .tools
+                .iter()
+                .any(|tool| {
+                    tool.name == ToolName::new("google.calendar.create").expect("tool should build")
+                        && tool.undo_support == ToolUndoSupport::CompensatingAction
+                }),
+            "expected undoable calendar create tool in catalog"
         );
     }
 

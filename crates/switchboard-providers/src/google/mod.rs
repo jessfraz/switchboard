@@ -1,95 +1,22 @@
 mod commands;
 mod materializer;
 
+use std::sync::OnceLock;
+
 use switchboard_core::{
-    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedNamespace,
-    Result, ToolArgument, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolArgument,
+    ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
 };
 
 use crate::{
-    cli::{CliCommandSpec, CliProviderBackend},
+    cli::{CliProviderBackend, CliProviderCatalog},
     google::{
-        commands::{
-            CALENDAR_CREATE_COMMAND, CALENDAR_DELETE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_DRAFT_COMMAND,
-            MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND, RAW_READ_COMMAND, RAW_WRITE_COMMAND,
-        },
+        commands::HANDLERS,
         materializer::DefaultGoogleWorkspaceCliMaterializer,
     },
 };
-
-const TOOLS: &[ToolDescriptor] = &[
-    ToolDescriptor {
-        name: "google.mail.search",
-        kind: ToolKind::Read,
-        summary: "Search Gmail",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.mail.read",
-        kind: ToolKind::Read,
-        summary: "Read a Gmail message",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.mail.draft",
-        kind: ToolKind::Write,
-        summary: "Draft an email",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.mail.send",
-        kind: ToolKind::Write,
-        summary: "Send an email",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.calendar.list",
-        kind: ToolKind::Read,
-        summary: "List calendar events",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.calendar.create",
-        kind: ToolKind::Write,
-        summary: "Draft or create a calendar event",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.calendar.delete",
-        kind: ToolKind::Write,
-        summary: "Delete a calendar event",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.drive.search",
-        kind: ToolKind::Read,
-        summary: "Search Drive files",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.cli.read",
-        kind: ToolKind::Read,
-        summary: "Run a raw Google Workspace CLI read command",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "google.cli.write",
-        kind: ToolKind::Write,
-        summary: "Run a raw Google Workspace CLI write command",
-        backend: BackendKind::Cli,
-    },
-];
-
-const COMMANDS: &[&CliCommandSpec] = &[
-    &RAW_READ_COMMAND,
-    &RAW_WRITE_COMMAND,
-    &MAIL_SEARCH_COMMAND,
-    &MAIL_READ_COMMAND,
-    &MAIL_DRAFT_COMMAND,
-    &CALENDAR_LIST_COMMAND,
-    &CALENDAR_CREATE_COMMAND,
-    &CALENDAR_DELETE_COMMAND,
-];
+const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
+static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct GoogleWorkspaceAdapter {
     backend: CliProviderBackend,
@@ -104,39 +31,15 @@ impl Default for GoogleWorkspaceAdapter {
 }
 
 impl GoogleWorkspaceAdapter {
-    fn find_command(tool: &str) -> Option<&'static CliCommandSpec> {
-        COMMANDS.iter().copied().find(|command| command.name() == tool)
+    fn catalog() -> &'static CliProviderCatalog {
+        CATALOG.get_or_init(|| {
+            CliProviderCatalog::from_embedded(MANIFEST_JSON, HANDLERS)
+                .expect("google provider manifest should be valid")
+        })
     }
 
-    fn arg<'a>(request: &'a ToolRequest, key: &'a str) -> Option<&'a str> {
-        request.args.value(key)
-    }
-
-    fn required_arg<'a>(request: &'a ToolRequest, key: &'a str) -> Result<&'a str> {
-        Self::arg(request, key)
-            .ok_or_else(|| Error::InvalidArguments(format!("missing required argument --{key} for {}", request.tool)))
-    }
-
-    fn summary(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {
-        if let Some(command) = Self::find_command(request.tool.as_str()) {
-            return (command.summarize)(namespace, request);
-        }
-
-        let summary = match request.tool.as_str() {
-            "google.mail.send" => {
-                let to = Self::required_arg(request, "to")?;
-                format!("Draft email to {to} from {}", namespace.id)
-            }
-            "google.drive.search" => {
-                let query = Self::required_arg(request, "query")?;
-                format!("Search Google Drive in {} for {query:?}", namespace.id)
-            }
-            _ => {
-                return Err(Error::UnsupportedTool(request.tool.to_string()));
-            }
-        };
-
-        Ok(summary)
+    fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
+        Self::catalog().find_command(tool)
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -158,7 +61,7 @@ impl Adapter for GoogleWorkspaceAdapter {
     }
 
     fn tools(&self) -> &'static [ToolDescriptor] {
-        TOOLS
+        Self::catalog().tools()
     }
 
     fn plan(
@@ -167,7 +70,9 @@ impl Adapter for GoogleWorkspaceAdapter {
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let summary = Self::summary(&target.namespace, request)?;
+        let command = Self::find_command(request.tool.as_str())
+            .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
+        let summary = (command.summarize)(&target.namespace, request)?;
         Ok(PlannedAction::new(
             request,
             target,
@@ -179,17 +84,21 @@ impl Adapter for GoogleWorkspaceAdapter {
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
         if let Some(command) = Self::find_command(action.tool.as_str()) {
-            return self.backend.execute(target, action, command);
+            if let Some(executable) = command.executable.as_ref() {
+                return self.backend.execute(target, action, executable);
+            }
+
+            if matches!(action.kind, ToolKind::Write) {
+                return Err(Error::NotImplemented(format!(
+                    "{} apply path is not wired to Google Workspace yet",
+                    action.tool
+                )));
+            }
+
+            return Ok(Self::stub_output(target, action));
         }
 
-        if matches!(action.kind, ToolKind::Write) {
-            return Err(Error::NotImplemented(format!(
-                "{} apply path is not wired to Google Workspace yet",
-                action.tool
-            )));
-        }
-
-        Ok(Self::stub_output(target, action))
+        Err(Error::UnsupportedTool(action.tool.to_string()))
     }
 
     fn compensation_request(

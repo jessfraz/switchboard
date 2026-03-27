@@ -2,7 +2,7 @@ use switchboard_core::{ExecutionTarget, PlannedAction, Result, ToolOutput};
 
 use crate::{
     cli::{
-        command::{CliCommandSpec, CliResponse},
+        command::{CliExecutableSpec, CliResponse},
         executor::{CliExecutor, CliInvocation, ProcessCliExecutor},
         locator::{CliLocator, DefaultCliLocator},
         probe::{CliProbe, DefaultCliProbe},
@@ -35,12 +35,12 @@ impl CliProviderBackend {
         &self,
         target: &ExecutionTarget,
         action: &PlannedAction,
-        spec: &CliCommandSpec,
+        spec: &CliExecutableSpec,
     ) -> Result<ToolOutput> {
-        let program = self.locator.resolve(spec.binary)?;
+        let program = self.locator.resolve(&spec.binary)?;
         let version = self
             .probe
-            .inspect(spec.binary, &program, spec.capability, self.executor.as_ref())?;
+            .inspect(&spec.binary, &program, &spec.capability, self.executor.as_ref())?;
         let args = (spec.build_args)(action)?;
         let runtime = self.materializer.prepare(target)?;
         let output = self.executor.execute(CliInvocation {

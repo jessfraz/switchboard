@@ -5,53 +5,29 @@ use switchboard_core::{
 };
 
 use crate::{
-    cli::{CliCommandSpec, CliResponse},
-    google::commands::{
-        append_optional_flag, append_optional_value, append_repeatable_values, flag_enabled, GWS_BINARY,
-        GWS_CALENDAR_CAPABILITY, GWS_CALENDAR_DELETE_CAPABILITY, GWS_CALENDAR_INSERT_CAPABILITY,
-    },
+    cli::{CliCommandHandler, CliResponse},
+    google::commands::{append_optional_flag, append_optional_value, append_repeatable_values, flag_enabled},
 };
 
-pub(crate) const CALENDAR_LIST_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.calendar.list",
-        kind: switchboard_core::ToolKind::Read,
-        summary: "List calendar events",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_CALENDAR_CAPABILITY,
+pub(crate) const CALENDAR_LIST_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "calendar_list",
     summarize: summarize_calendar_list,
-    build_args: build_calendar_list_args,
-    decode: decode_calendar_list,
+    build_args: Some(build_calendar_list_args),
+    decode: Some(decode_calendar_list),
 };
 
-pub(crate) const CALENDAR_CREATE_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.calendar.create",
-        kind: switchboard_core::ToolKind::Write,
-        summary: "Create a calendar event",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_CALENDAR_INSERT_CAPABILITY,
+pub(crate) const CALENDAR_CREATE_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "calendar_create",
     summarize: summarize_calendar_create,
-    build_args: build_calendar_create_args,
-    decode: decode_calendar_create,
+    build_args: Some(build_calendar_create_args),
+    decode: Some(decode_calendar_create),
 };
 
-pub(crate) const CALENDAR_DELETE_COMMAND: CliCommandSpec = CliCommandSpec {
-    descriptor: switchboard_core::ToolDescriptor {
-        name: "google.calendar.delete",
-        kind: switchboard_core::ToolKind::Write,
-        summary: "Delete a calendar event",
-        backend: switchboard_core::BackendKind::Cli,
-    },
-    binary: &GWS_BINARY,
-    capability: &GWS_CALENDAR_DELETE_CAPABILITY,
+pub(crate) const CALENDAR_DELETE_HANDLER: CliCommandHandler = CliCommandHandler {
+    id: "calendar_delete",
     summarize: summarize_calendar_delete,
-    build_args: build_calendar_delete_args,
-    decode: decode_calendar_delete,
+    build_args: Some(build_calendar_delete_args),
+    decode: Some(decode_calendar_delete),
 };
 
 fn summarize_calendar_list(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {

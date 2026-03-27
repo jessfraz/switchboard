@@ -64,6 +64,8 @@ pub trait Adapter: Send + Sync {
     }
 
     fn find_tool(&self, name: &ToolName) -> Option<&'static ToolDescriptor> {
-        self.tools().iter().find(|descriptor| descriptor.name == name.as_str())
+        self.tools()
+            .iter()
+            .find(|descriptor| descriptor.name.as_str() == name.as_str())
     }
 }

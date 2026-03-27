@@ -1,18 +1,28 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Method;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::{
-    api_client, client::JsonResponse, ensure_json_success, fetch_capability_summary, merge_bundle_pages,
-    normalize_token, state::ResolvedContext, ApiResourceCapability, CapabilitySummary, Error, Result,
+    api_client,
+    client::JsonResponse,
+    ensure_json_success, fetch_capability_summary, merge_bundle_pages, normalize_token,
+    state::{MyChartAccountState, ResolvedContext},
+    ApiResourceCapability, CapabilitySummary, Error, Result,
 };
 
 pub(crate) struct PatientSession {
+    pub(crate) account_name: String,
+    pub(crate) provider_name: String,
     pub(crate) client: crate::client::MyChartClient,
     pub(crate) capability: CapabilitySummary,
     pub(crate) access_token: String,
     pub(crate) patient_id: String,
+}
+
+pub(crate) struct PatientSessionSelection {
+    pub(crate) sessions: Vec<PatientSession>,
+    pub(crate) skipped_accounts: Vec<Value>,
 }
 
 impl PatientSession {
@@ -99,19 +109,156 @@ pub(crate) fn open_patient_session(
     context: &ResolvedContext,
     patient_override: Option<String>,
 ) -> Result<PatientSession> {
-    let base_url = context.require_api_base_url()?;
-    let access_token = context.require_access_token(None)?;
-    let patient_id = patient_override.or_else(|| context.patient_id.clone()).ok_or_else(|| {
-        Error::Config("missing patient id, use SMART auth that returns one or pass --patient explicitly".into())
-    })?;
+    let persisted = context.describe_account(None).map(|(_, state)| state);
+    build_patient_session(
+        context.account.clone(),
+        persisted.as_ref(),
+        context.api_base_url.clone(),
+        context.access_token.clone(),
+        patient_override.or_else(|| context.patient_id.clone()),
+    )?
+    .ok_or_else(|| {
+        Error::Config("missing MyChart API session for the active account, connect and authenticate it first".into())
+    })
+}
+
+pub(crate) fn open_patient_sessions(
+    context: &ResolvedContext,
+    patient_override: Option<String>,
+    all_accounts: bool,
+) -> Result<PatientSessionSelection> {
+    if !all_accounts {
+        return Ok(PatientSessionSelection {
+            sessions: vec![open_patient_session(context, patient_override)?],
+            skipped_accounts: Vec::new(),
+        });
+    }
+
+    if patient_override.is_some() {
+        return Err(Error::Arguments(
+            "--patient cannot be combined with --all-accounts/--all-providers because patient ids are provider-specific"
+                .into(),
+        ));
+    }
+
+    let mut sessions = Vec::new();
+    let mut skipped_accounts = Vec::new();
+    let accounts = context.list_accounts();
+    if accounts.is_empty() {
+        return Ok(PatientSessionSelection {
+            sessions: vec![open_patient_session(context, None)?],
+            skipped_accounts,
+        });
+    }
+
+    for (account_name, account_state) in accounts {
+        match build_patient_session(
+            account_name.clone(),
+            Some(&account_state),
+            account_state.api_base_url.clone(),
+            account_state.access_token.clone(),
+            account_state.patient_id.clone(),
+        ) {
+            Ok(Some(session)) => sessions.push(session),
+            Ok(None) => skipped_accounts.push(json!({
+                "account": account_name,
+                "provider": provider_name(&account_name, Some(&account_state)),
+                "reason": skipped_account_reason(&account_state),
+            })),
+            Err(error) => skipped_accounts.push(json!({
+                "account": account_name,
+                "provider": provider_name(&account_name, Some(&account_state)),
+                "reason": error.to_string(),
+            })),
+        }
+    }
+
+    if sessions.is_empty() {
+        return Err(Error::Config(
+            "none of the saved MyChart accounts were ready for API use, authenticate them first".into(),
+        ));
+    }
+
+    Ok(PatientSessionSelection {
+        sessions,
+        skipped_accounts,
+    })
+}
+
+pub(crate) fn accounts_used_json(selection: &PatientSessionSelection) -> Vec<Value> {
+    selection
+        .sessions
+        .iter()
+        .map(|session| {
+            json!({
+                "account": session.account_name.clone(),
+                "provider": session.provider_name.clone(),
+                "patient_id": session.patient_id.clone(),
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn single_patient_id(selection: &PatientSessionSelection) -> Option<String> {
+    (selection.sessions.len() == 1).then(|| selection.sessions[0].patient_id.clone())
+}
+
+fn build_patient_session(
+    account_name: String,
+    account_state: Option<&MyChartAccountState>,
+    base_url: Option<String>,
+    access_token: Option<String>,
+    patient_id: Option<String>,
+) -> Result<Option<PatientSession>> {
+    let Some(base_url) = base_url else {
+        return Ok(None);
+    };
+    let Some(access_token) = access_token else {
+        return Ok(None);
+    };
+    let Some(patient_id) = patient_id else {
+        return Ok(None);
+    };
+
     let client = api_client(&base_url)?;
     let capability = fetch_capability_summary(&client)?;
-    Ok(PatientSession {
+    Ok(Some(PatientSession {
+        account_name: account_name.clone(),
+        provider_name: provider_name(&account_name, account_state),
         client,
         capability,
         access_token,
         patient_id,
-    })
+    }))
+}
+
+fn provider_name(account_name: &str, account_state: Option<&MyChartAccountState>) -> String {
+    account_state
+        .and_then(|account_state| {
+            account_state
+                .discovery
+                .as_ref()
+                .and_then(|discovery| discovery.brand_name.clone())
+                .or_else(|| {
+                    account_state
+                        .discovery
+                        .as_ref()
+                        .and_then(|discovery| discovery.managing_organization_name.clone())
+                })
+        })
+        .unwrap_or_else(|| account_name.to_owned())
+}
+
+fn skipped_account_reason(account_state: &MyChartAccountState) -> &'static str {
+    if account_state.api_base_url.is_none() {
+        "missing base url"
+    } else if account_state.access_token.is_none() {
+        "missing access token"
+    } else if account_state.patient_id.is_none() {
+        "missing patient id"
+    } else {
+        "account is not ready for API use"
+    }
 }
 
 pub(crate) fn bundle_entries(body: &Value) -> Vec<Value> {

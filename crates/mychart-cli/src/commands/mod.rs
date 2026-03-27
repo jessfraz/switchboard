@@ -1,10 +1,10 @@
 mod api;
-mod appointments;
+pub(crate) mod appointments;
 mod auth;
 mod claims;
 mod connect;
 mod labs;
-mod meds;
+pub(crate) mod meds;
 mod notes;
 mod pack;
 mod portal;

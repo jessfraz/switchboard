@@ -1,87 +1,19 @@
 mod commands;
 mod materializer;
 
+use std::sync::OnceLock;
+
 use switchboard_core::{
-    Adapter, BackendKind, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedNamespace,
-    Result, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolDescriptor, ToolKind,
+    ToolOutput, ToolRequest,
 };
 
 use crate::{
-    cli::{CliCommandSpec, CliProviderBackend},
-    github::{
-        commands::{
-            ISSUE_READ_COMMAND, NOTIFICATIONS_COMMAND, PULL_REQUEST_READ_COMMAND, PULL_REQUEST_SEARCH_COMMAND,
-            RAW_READ_COMMAND, RAW_WRITE_COMMAND,
-        },
-        materializer::DefaultGitHubCliMaterializer,
-    },
+    cli::{CliProviderBackend, CliProviderCatalog},
+    github::{commands::HANDLERS, materializer::DefaultGitHubCliMaterializer},
 };
-
-const TOOLS: &[ToolDescriptor] = &[
-    ToolDescriptor {
-        name: "github.notifications.list",
-        kind: ToolKind::Read,
-        summary: "List notifications for a GitHub namespace",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.pull_request.read",
-        kind: ToolKind::Read,
-        summary: "Read a pull request",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.pull_request.search",
-        kind: ToolKind::Read,
-        summary: "Search pull requests",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.pull_request.comment",
-        kind: ToolKind::Write,
-        summary: "Draft or send a pull request comment",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.issue.read",
-        kind: ToolKind::Read,
-        summary: "Read an issue",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.issue.comment",
-        kind: ToolKind::Write,
-        summary: "Draft or send an issue comment",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.repository.search",
-        kind: ToolKind::Read,
-        summary: "Search repositories",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.cli.read",
-        kind: ToolKind::Read,
-        summary: "Run a raw GitHub CLI read command",
-        backend: BackendKind::Cli,
-    },
-    ToolDescriptor {
-        name: "github.cli.write",
-        kind: ToolKind::Write,
-        summary: "Run a raw GitHub CLI write command",
-        backend: BackendKind::Cli,
-    },
-];
-
-const COMMANDS: &[&CliCommandSpec] = &[
-    &RAW_READ_COMMAND,
-    &RAW_WRITE_COMMAND,
-    &NOTIFICATIONS_COMMAND,
-    &PULL_REQUEST_SEARCH_COMMAND,
-    &PULL_REQUEST_READ_COMMAND,
-    &ISSUE_READ_COMMAND,
-];
+const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/github.json"));
+static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct GitHubAdapter {
     backend: CliProviderBackend,
@@ -96,45 +28,15 @@ impl Default for GitHubAdapter {
 }
 
 impl GitHubAdapter {
-    fn find_command(tool: &str) -> Option<&'static CliCommandSpec> {
-        COMMANDS.iter().copied().find(|command| command.name() == tool)
+    fn catalog() -> &'static CliProviderCatalog {
+        CATALOG.get_or_init(|| {
+            CliProviderCatalog::from_embedded(MANIFEST_JSON, HANDLERS)
+                .expect("github provider manifest should be valid")
+        })
     }
 
-    fn arg<'a>(request: &'a ToolRequest, key: &'a str) -> Option<&'a str> {
-        request.args.value(key)
-    }
-
-    fn required_arg<'a>(request: &'a ToolRequest, key: &'a str) -> Result<&'a str> {
-        Self::arg(request, key)
-            .ok_or_else(|| Error::InvalidArguments(format!("missing required argument --{key} for {}", request.tool)))
-    }
-
-    fn summary(namespace: &ResolvedNamespace, request: &ToolRequest) -> Result<String> {
-        if let Some(command) = Self::find_command(request.tool.as_str()) {
-            return (command.summarize)(namespace, request);
-        }
-
-        let summary = match request.tool.as_str() {
-            "github.pull_request.comment" => {
-                let repo = Self::required_arg(request, "repo")?;
-                let number = Self::required_arg(request, "number")?;
-                format!("Draft comment for pull request {repo}#{number}")
-            }
-            "github.issue.comment" => {
-                let repo = Self::required_arg(request, "repo")?;
-                let number = Self::required_arg(request, "number")?;
-                format!("Draft comment for issue {repo}#{number}")
-            }
-            "github.repository.search" => {
-                let query = Self::required_arg(request, "query")?;
-                format!("Search GitHub repositories matching {query:?}")
-            }
-            _ => {
-                return Err(Error::UnsupportedTool(request.tool.to_string()));
-            }
-        };
-
-        Ok(summary)
+    fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
+        Self::catalog().find_command(tool)
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -156,7 +58,7 @@ impl Adapter for GitHubAdapter {
     }
 
     fn tools(&self) -> &'static [ToolDescriptor] {
-        TOOLS
+        Self::catalog().tools()
     }
 
     fn plan(
@@ -165,7 +67,9 @@ impl Adapter for GitHubAdapter {
         request: &ToolRequest,
         descriptor: &'static ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let summary = Self::summary(&target.namespace, request)?;
+        let command = Self::find_command(request.tool.as_str())
+            .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
+        let summary = (command.summarize)(&target.namespace, request)?;
         Ok(PlannedAction::new(
             request,
             target,
@@ -177,17 +81,21 @@ impl Adapter for GitHubAdapter {
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
         if let Some(command) = Self::find_command(action.tool.as_str()) {
-            return self.backend.execute(target, action, command);
+            if let Some(executable) = command.executable.as_ref() {
+                return self.backend.execute(target, action, executable);
+            }
+
+            if matches!(action.kind, ToolKind::Write) {
+                return Err(Error::NotImplemented(format!(
+                    "{} apply path is not wired to GitHub yet",
+                    action.tool
+                )));
+            }
+
+            return Ok(Self::stub_output(target, action));
         }
 
-        if matches!(action.kind, ToolKind::Write) {
-            return Err(Error::NotImplemented(format!(
-                "{} apply path is not wired to GitHub yet",
-                action.tool
-            )));
-        }
-
-        Ok(Self::stub_output(target, action))
+        Err(Error::UnsupportedTool(action.tool.to_string()))
     }
 }
 

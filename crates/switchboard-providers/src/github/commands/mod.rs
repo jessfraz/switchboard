@@ -1,48 +1,31 @@
 mod issues;
 mod notifications;
+mod planned;
 mod pull_requests;
 mod raw;
 
 use switchboard_core::{Error, Result, ToolArguments};
 
-use crate::cli::{CliBinarySpec, CliCapabilityProbe};
+use crate::cli::CliCommandHandler;
 pub(crate) use crate::github::commands::{
-    issues::ISSUE_READ_COMMAND,
-    notifications::NOTIFICATIONS_COMMAND,
-    pull_requests::{PULL_REQUEST_READ_COMMAND, PULL_REQUEST_SEARCH_COMMAND},
-    raw::{RAW_READ_COMMAND, RAW_WRITE_COMMAND},
+    issues::ISSUE_READ_HANDLER,
+    notifications::NOTIFICATIONS_HANDLER,
+    planned::{ISSUE_COMMENT_HANDLER, PULL_REQUEST_COMMENT_HANDLER, REPOSITORY_SEARCH_HANDLER},
+    pull_requests::{PULL_REQUEST_READ_HANDLER, PULL_REQUEST_SEARCH_HANDLER},
+    raw::{RAW_READ_HANDLER, RAW_WRITE_HANDLER},
 };
 
-pub(crate) const GH_BINARY: CliBinarySpec = CliBinarySpec {
-    program: "gh",
-    env_override: Some("SWITCHBOARD_GH_BIN"),
-    version_args: &["--version"],
-};
-
-pub(crate) const GH_API_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gh_api",
-    args: &["api", "--help"],
-};
-
-pub(crate) const GH_BASE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gh_help",
-    args: &["--help"],
-};
-
-pub(crate) const GH_PR_SEARCH_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gh_search_prs",
-    args: &["search", "prs", "--help"],
-};
-
-pub(crate) const GH_PR_VIEW_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gh_pr_view",
-    args: &["pr", "view", "--help"],
-};
-
-pub(crate) const GH_ISSUE_VIEW_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gh_issue_view",
-    args: &["issue", "view", "--help"],
-};
+pub(crate) const HANDLERS: &[CliCommandHandler] = &[
+    NOTIFICATIONS_HANDLER,
+    PULL_REQUEST_SEARCH_HANDLER,
+    PULL_REQUEST_READ_HANDLER,
+    PULL_REQUEST_COMMENT_HANDLER,
+    ISSUE_READ_HANDLER,
+    ISSUE_COMMENT_HANDLER,
+    REPOSITORY_SEARCH_HANDLER,
+    RAW_READ_HANDLER,
+    RAW_WRITE_HANDLER,
+];
 
 pub(super) fn append_query_bool(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) -> Result<()> {
     if arguments.has_flag(name) {
