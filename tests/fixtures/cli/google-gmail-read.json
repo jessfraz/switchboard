@@ -1,0 +1,29 @@
+{
+  "thread_id": "1960thread123work",
+  "message_id": "<booking-2026-03-26@doghotel.example>",
+  "references": [
+    "older-booking-2025-11-01@doghotel.example",
+    "followup-2025-11-02@doghotel.example"
+  ],
+  "from": {
+    "name": "Dog Hotel",
+    "email": "reservations@doghotel.example"
+  },
+  "reply_to": [
+    {
+      "name": "Dog Hotel",
+      "email": "reservations@doghotel.example"
+    }
+  ],
+  "to": [
+    {
+      "name": "Jess",
+      "email": "jess@example.com"
+    }
+  ],
+  "cc": null,
+  "subject": "Booking details for June stay",
+  "date": "Wed, 25 Mar 2026 17:42:00 -0700",
+  "body_text": "Hi Jess,\n\nWe can take the dogs June 12 through June 16.\nPickup is before 5 PM.\n\nThanks,\nDog Hotel",
+  "body_html": "<p>Hi Jess,</p><p>We can take the dogs June 12 through June 16.</p><p>Pickup is before 5 PM.</p><p>Thanks,<br>Dog Hotel</p>"
+}

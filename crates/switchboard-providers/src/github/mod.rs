@@ -199,16 +199,15 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-notifications.json"
     ));
+    const GITHUB_SCRIPT_TEMPLATE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/scripts/gh-test.sh"
+    ));
 
     #[test]
     fn notifications_list_executes_through_generic_cli_runtime() {
         let _env_guard = lock_env();
-        let script = TempScript::new(
-            "gh-test",
-            &format!(
-                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gh version 9.9.9-test'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'api help'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"notifications\" ]; then\n  cat > \"$(dirname \"$0\")/env.txt\" <<EOF\nGH_CONFIG_DIR=$GH_CONFIG_DIR\nGH_TOKEN=$GH_TOKEN\nGITHUB_TOKEN=$GITHUB_TOKEN\nARGV=$*\nEOF\n  cat <<'JSON'\n{NOTIFICATIONS_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
-            ),
-        );
+        let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
         let adapter = GitHubAdapter::default();
@@ -249,6 +248,10 @@ mod tests {
         assert!(captured.contains("GH_TOKEN=ghp-test-token"));
         assert!(captured.contains("GITHUB_TOKEN="));
         assert!(captured.contains("ARGV=api notifications -F all=true -F per_page=50"));
+    }
+
+    fn render_github_script() -> String {
+        GITHUB_SCRIPT_TEMPLATE.replace("__NOTIFICATIONS_FIXTURE__", NOTIFICATIONS_FIXTURE)
     }
 
     fn planning_target() -> PlanningTarget {

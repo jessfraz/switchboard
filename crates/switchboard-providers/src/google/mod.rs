@@ -8,7 +8,10 @@ use switchboard_core::{
 
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
-    google::{commands::CALENDAR_LIST_COMMAND, materializer::DefaultGoogleWorkspaceCliMaterializer},
+    google::{
+        commands::{CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
+        materializer::DefaultGoogleWorkspaceCliMaterializer,
+    },
 };
 
 const TOOLS: &[ToolDescriptor] = &[
@@ -56,7 +59,7 @@ const TOOLS: &[ToolDescriptor] = &[
     },
 ];
 
-const COMMANDS: &[&CliCommandSpec] = &[&CALENDAR_LIST_COMMAND];
+const COMMANDS: &[&CliCommandSpec] = &[&MAIL_SEARCH_COMMAND, &MAIL_READ_COMMAND, &CALENDAR_LIST_COMMAND];
 
 pub struct GoogleWorkspaceAdapter {
     backend: CliProviderBackend,
@@ -192,16 +195,23 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-calendar-agenda.json"
     ));
+    const GMAIL_TRIAGE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-gmail-triage.json"
+    ));
+    const GMAIL_READ_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-gmail-read.json"
+    ));
+    const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/scripts/gws-test.sh"
+    ));
 
     #[test]
     fn calendar_list_executes_through_generic_cli_runtime() {
         let _env_guard = lock_env();
-        let script = TempScript::new(
-            "gws-test",
-            &format!(
-                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gws 0.99.0-test'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'calendar help'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"+agenda\" ]; then\n  cat > \"$(dirname \"$0\")/env.txt\" <<EOF\nCONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR\nCLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID\nCLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET\nCREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE\nTOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN\nARGV=$*\nEOF\n  cat <<'JSON'\n{AGENDA_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
-            ),
-        );
+        let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
         let adapter = GoogleWorkspaceAdapter::default();
@@ -244,6 +254,113 @@ mod tests {
         assert!(captured.contains("CREDENTIALS_FILE="));
         assert!(captured.contains("TOKEN="));
         assert!(captured.contains("ARGV=calendar +agenda --format json --today --timezone America/Los_Angeles"));
+    }
+
+    #[test]
+    fn mail_search_executes_through_generic_cli_runtime() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.mail.search",
+            "google.work",
+            ExecutionMode::Auto,
+            vec![
+                ToolArgument::option("query", "from:carwash newer_than:30d").expect("option should build"),
+                ToolArgument::option("max", "5").expect("option should build"),
+                ToolArgument::flag("labels").expect("flag should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(output.summary, "Found 2 Gmail messages for google.work");
+        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].id, "1960abc123work");
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Message);
+        assert_eq!(
+            output
+                .fields
+                .get("messages")
+                .and_then(Value::as_array)
+                .and_then(|messages| messages.first())
+                .and_then(|message| message.get("gmail_message_id"))
+                .and_then(Value::as_str),
+            Some("1960abc123work")
+        );
+
+        let captured = script.capture_contents();
+        assert!(
+            captured.contains("ARGV=gmail +triage --format json --query from:carwash newer_than:30d --max 5 --labels")
+        );
+    }
+
+    #[test]
+    fn mail_read_executes_through_generic_cli_runtime() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.mail.read",
+            "google.work",
+            ExecutionMode::Auto,
+            vec![ToolArgument::option("message-id", "1960abc456work").expect("option should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].id, "1960abc456work");
+        assert_eq!(output.refs[1].id, "1960thread123work");
+        assert_eq!(
+            output
+                .fields
+                .get("message")
+                .and_then(|message| message.get("gmail_message_id"))
+                .and_then(Value::as_str),
+            Some("1960abc456work")
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("message")
+                .and_then(|message| message.get("rfc_message_id"))
+                .and_then(Value::as_str),
+            Some("<booking-2026-03-26@doghotel.example>")
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=gmail +read --id 1960abc456work --format json"));
+    }
+
+    fn google_test_script() -> TempScript {
+        TempScript::new("gws-test", &render_google_script())
+    }
+
+    fn render_google_script() -> String {
+        GOOGLE_SCRIPT_TEMPLATE
+            .replace("__AGENDA_FIXTURE__", AGENDA_FIXTURE)
+            .replace("__GMAIL_TRIAGE_FIXTURE__", GMAIL_TRIAGE_FIXTURE)
+            .replace("__GMAIL_READ_FIXTURE__", GMAIL_READ_FIXTURE)
     }
 
     fn planning_target() -> PlanningTarget {

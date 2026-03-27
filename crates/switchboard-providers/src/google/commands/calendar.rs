@@ -3,17 +3,11 @@ use switchboard_core::{
     Error, ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolArguments, ToolOutput, ToolRequest,
 };
 
-use crate::cli::{CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliResponse};
-
-pub(crate) const GWS_BINARY: CliBinarySpec = CliBinarySpec {
-    program: "gws",
-    env_override: Some("SWITCHBOARD_GWS_BIN"),
-    version_args: &["--version"],
-};
-
-pub(crate) const GWS_CALENDAR_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "calendar_agenda",
-    args: &["calendar", "--help"],
+use crate::{
+    cli::{CliCommandSpec, CliResponse},
+    google::commands::{
+        append_optional_flag, append_optional_value, flag_enabled, GWS_BINARY, GWS_CALENDAR_CAPABILITY,
+    },
 };
 
 pub(crate) const CALENDAR_LIST_COMMAND: CliCommandSpec = CliCommandSpec {
@@ -130,40 +124,4 @@ fn agenda_scope(arguments: &ToolArguments) -> Result<&'static str> {
     }
 
     Ok("upcoming")
-}
-
-fn append_optional_flag(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) -> Result<()> {
-    if flag_enabled(arguments, name)? {
-        args.push(format!("--{name}"));
-    }
-
-    Ok(())
-}
-
-fn append_optional_value(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) {
-    if let Some(value) = arguments.value(name) {
-        args.push(format!("--{name}"));
-        args.push(value.to_owned());
-    }
-}
-
-fn flag_enabled(arguments: &ToolArguments, name: &str) -> Result<bool> {
-    if arguments.has_flag(name) {
-        return Ok(true);
-    }
-
-    match arguments.value(name) {
-        Some(value) => parse_bool(name, value),
-        None => Ok(false),
-    }
-}
-
-fn parse_bool(name: &str, value: &str) -> Result<bool> {
-    match value {
-        "true" | "1" | "yes" => Ok(true),
-        "false" | "0" | "no" => Ok(false),
-        _ => Err(Error::InvalidArguments(format!(
-            "--{name} expects a boolean value, got {value:?}"
-        ))),
-    }
 }

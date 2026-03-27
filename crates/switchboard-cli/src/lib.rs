@@ -13,7 +13,7 @@ use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, AuthStore, BackendKind, DispatchOutcome, ExecutionMode, NamespaceId,
     NamespaceStore, OperationOutcome, OperationRequest, ResolvedNamespace, Result, SecretResolver, SecretStore,
-    Switchboard, ToolArgument, ToolName, ToolOutput, ToolRequest,
+    Switchboard, ToolArgument, ToolName, ToolOutput, ToolRef, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, SwitchboardConfig};
@@ -385,6 +385,27 @@ fn render_output_human(output: &ToolOutput) -> String {
             }
         }
     }
+    if !output.refs.is_empty() {
+        rendered.push_str("Refs:\n");
+        for tool_ref in &output.refs {
+            rendered.push_str(&format!("- {}\n", render_ref_human(tool_ref)));
+        }
+    }
+
+    rendered
+}
+
+fn render_ref_human(tool_ref: &ToolRef) -> String {
+    let mut rendered = format!("{}:{} id={}", tool_ref.provider, tool_ref.kind, tool_ref.id);
+    if let Some(parent_id) = &tool_ref.parent_id {
+        rendered.push_str(&format!(" parent={parent_id}"));
+    }
+    if let Some(label) = &tool_ref.label {
+        rendered.push_str(&format!(" label={label:?}"));
+    }
+    if let Some(web_url) = &tool_ref.web_url {
+        rendered.push_str(&format!(" url={web_url}"));
+    }
 
     rendered
 }
@@ -563,6 +584,7 @@ enum DispatchResponse<'a> {
         namespace: &'a NamespaceId,
         summary: &'a str,
         fields: &'a BTreeMap<String, JsonValue>,
+        refs: &'a [ToolRef],
     },
 }
 
@@ -591,6 +613,7 @@ impl<'a> DispatchResponse<'a> {
             namespace: &output.namespace,
             summary: &output.summary,
             fields: &output.fields,
+            refs: &output.refs,
         }
     }
 }
@@ -645,9 +668,25 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-calendar-agenda.json"
     ));
+    const GOOGLE_GMAIL_TRIAGE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-gmail-triage.json"
+    ));
+    const GOOGLE_GMAIL_READ_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-gmail-read.json"
+    ));
     const GITHUB_NOTIFICATIONS_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-notifications.json"
+    ));
+    const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/scripts/gws-test.sh"
+    ));
+    const GITHUB_SCRIPT_TEMPLATE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/scripts/gh-test.sh"
     ));
     const GOOGLE_PERSONAL_OAUTH_JSON: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -704,11 +743,11 @@ mod tests {
     }
 
     #[test]
-    fn read_requests_execute_into_stub_results() {
+    fn unwired_read_requests_execute_into_stub_results() {
         let environment = TestEnvironment::new();
         let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
         let request = ToolRequest::new(
-            "google.mail.search",
+            "google.drive.search",
             "google.work",
             ExecutionMode::Auto,
             BTreeMap::from([("query".into(), "from:finance".into())]),
@@ -752,6 +791,36 @@ mod tests {
         assert_eq!(value["status"], "executed");
         assert_eq!(value["tool"], "google.mail.search");
         assert_eq!(value["namespace"], "google.work");
+        assert_eq!(value["fields"]["count"], 2);
+        assert_eq!(value["refs"][0]["kind"], "message");
+    }
+
+    #[test]
+    fn gmail_read_returns_stable_message_and_thread_refs() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.mail.read",
+            "--ns",
+            "google.work",
+            "--message-id",
+            "1960abc456work",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "executed");
+        assert_eq!(value["tool"], "google.mail.read");
+        assert_eq!(value["fields"]["message"]["gmail_message_id"], "1960abc456work");
+        assert_eq!(value["fields"]["message"]["gmail_thread_id"], "1960thread123work");
+        assert_eq!(value["refs"][0]["kind"], "message");
+        assert_eq!(value["refs"][1]["kind"], "thread");
     }
 
     #[test]
@@ -909,6 +978,31 @@ mod tests {
     }
 
     #[test]
+    fn human_output_renders_refs_without_hiding_them_in_json_soup() {
+        let output = ToolOutput::new(
+            ToolName::new("google.mail.read").expect("tool should build"),
+            NamespaceId::new("google.work").expect("namespace should build"),
+            "read gmail message",
+        )
+        .with_ref(
+            switchboard_core::ToolRef::new(
+                switchboard_core::ProviderKind::GoogleWorkspace,
+                NamespaceId::new("google.work").expect("namespace should build"),
+                switchboard_core::ToolRefKind::Message,
+                "1960abc456work",
+            )
+            .expect("tool ref should build")
+            .with_label("Booking details for June stay")
+            .expect("tool ref label should build"),
+        );
+
+        let rendered = super::render_output_human(&output);
+
+        assert!(rendered.contains("Refs:"));
+        assert!(rendered.contains("google:message id=1960abc456work"));
+    }
+
+    #[test]
     fn config_path_selection_prefers_explicit_paths_first() {
         let selected = select_config_path(ConfigPathCandidates {
             explicit: Some(PathBuf::from("/explicit.toml")),
@@ -948,18 +1042,8 @@ mod tests {
             fs::create_dir_all(&directory).expect("temp dir should be created");
             env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_ID", "google-work-client-id");
             env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET", "google-work-client-secret");
-            let gws_script = TempScript::new(
-                "gws-test",
-                &format!(
-                    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gws 0.99.0-test'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'calendar help'\n  exit 0\nfi\nif [ \"$1\" = \"calendar\" ] && [ \"$2\" = \"+agenda\" ]; then\n  cat >> \"$(dirname \"$0\")/env.txt\" <<EOF\nCONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR\nCLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID\nCLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET\nCREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE\nTOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN\nARGV=$*\n---\nEOF\n  cat <<'JSON'\n{GOOGLE_CALENDAR_AGENDA_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
-                ),
-            );
-            let gh_script = TempScript::new(
-                "gh-test",
-                &format!(
-                    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo 'gh version 9.9.9-test'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"--help\" ]; then\n  echo 'api help'\n  exit 0\nfi\nif [ \"$1\" = \"api\" ] && [ \"$2\" = \"notifications\" ]; then\n  cat >> \"$(dirname \"$0\")/env.txt\" <<EOF\nGH_CONFIG_DIR=$GH_CONFIG_DIR\nGH_TOKEN=$GH_TOKEN\nGITHUB_TOKEN=$GITHUB_TOKEN\nARGV=$*\n---\nEOF\n  cat <<'JSON'\n{GITHUB_NOTIFICATIONS_FIXTURE}\nJSON\n  exit 0\nfi\necho \"unexpected args: $*\" >&2\nexit 1\n"
-                ),
-            );
+            let gws_script = TempScript::new("gws-test", &render_google_script_template());
+            let gh_script = TempScript::new("gh-test", &render_github_script_template());
             env::set_var("SWITCHBOARD_GWS_BIN", gws_script.path());
             env::set_var("SWITCHBOARD_GH_BIN", gh_script.path());
             let oauth_path = directory.join("google-personal-oauth.json");
@@ -1009,5 +1093,16 @@ mod tests {
             .expect("system time should be after unix epoch")
             .as_nanos();
         env::temp_dir().join(format!("switchboard-test-{}-{stamp}", std::process::id()))
+    }
+
+    fn render_google_script_template() -> String {
+        GOOGLE_SCRIPT_TEMPLATE
+            .replace("__AGENDA_FIXTURE__", GOOGLE_CALENDAR_AGENDA_FIXTURE)
+            .replace("__GMAIL_TRIAGE_FIXTURE__", GOOGLE_GMAIL_TRIAGE_FIXTURE)
+            .replace("__GMAIL_READ_FIXTURE__", GOOGLE_GMAIL_READ_FIXTURE)
+    }
+
+    fn render_github_script_template() -> String {
+        GITHUB_SCRIPT_TEMPLATE.replace("__NOTIFICATIONS_FIXTURE__", GITHUB_NOTIFICATIONS_FIXTURE)
     }
 }

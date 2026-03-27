@@ -16,6 +16,6 @@ pub use crate::{
         AuditEvent, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, ExecutionMode, ExecutionTarget,
         NamespaceId, PlannedAction, PlanningTarget, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedCredentials,
         ResolvedNamespace, ResolvedSecret, SecretRef, SecretSource, SecretString, ToolArgument, ToolArguments,
-        ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRequest,
+        ToolDescriptor, ToolKind, ToolName, ToolOutput, ToolRef, ToolRefKind, ToolRequest,
     },
 };

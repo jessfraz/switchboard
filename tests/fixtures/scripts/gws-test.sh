@@ -1,0 +1,71 @@
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo 'gws 0.99.0-test'
+  exit 0
+fi
+
+if [ "$1" = "calendar" ] && [ "$2" = "--help" ]; then
+  echo 'calendar help'
+  exit 0
+fi
+
+if [ "$1" = "gmail" ] && [ "$2" = "+triage" ] && [ "$3" = "--help" ]; then
+  echo 'gmail triage help'
+  exit 0
+fi
+
+if [ "$1" = "gmail" ] && [ "$2" = "+read" ] && [ "$3" = "--help" ]; then
+  echo 'gmail read help'
+  exit 0
+fi
+
+if [ "$1" = "calendar" ] && [ "$2" = "+agenda" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__AGENDA_FIXTURE__
+JSON
+  exit 0
+fi
+
+if [ "$1" = "gmail" ] && [ "$2" = "+triage" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__GMAIL_TRIAGE_FIXTURE__
+JSON
+  exit 0
+fi
+
+if [ "$1" = "gmail" ] && [ "$2" = "+read" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__GMAIL_READ_FIXTURE__
+JSON
+  exit 0
+fi
+
+echo "unexpected args: $*" >&2
+exit 1

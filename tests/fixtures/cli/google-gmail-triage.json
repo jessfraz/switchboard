@@ -1,0 +1,20 @@
+{
+  "messages": [
+    {
+      "id": "1960abc123work",
+      "from": "City Car Wash <service@carwash.example>",
+      "subject": "Your wash is confirmed for Friday",
+      "date": "Thu, 26 Mar 2026 08:15:00 -0700",
+      "labels": ["INBOX", "UNREAD"]
+    },
+    {
+      "id": "1960abc456work",
+      "from": "Dog Hotel <reservations@doghotel.example>",
+      "subject": "Booking details for June stay",
+      "date": "Wed, 25 Mar 2026 17:42:00 -0700",
+      "labels": ["INBOX"]
+    }
+  ],
+  "resultSizeEstimate": 24,
+  "query": "from:carwash newer_than:30d"
+}

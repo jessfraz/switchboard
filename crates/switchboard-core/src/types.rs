@@ -638,12 +638,99 @@ impl PlannedAction {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolRefKind {
+    Message,
+    Thread,
+    Event,
+    Notification,
+    PullRequest,
+    Issue,
+    Repository,
+}
+
+impl Display for ToolRefKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            Self::Message => "message",
+            Self::Thread => "thread",
+            Self::Event => "event",
+            Self::Notification => "notification",
+            Self::PullRequest => "pull_request",
+            Self::Issue => "issue",
+            Self::Repository => "repository",
+        };
+
+        write!(f, "{value}")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ToolRef {
+    pub provider: ProviderKind,
+    pub namespace: NamespaceId,
+    pub kind: ToolRefKind,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_url: Option<String>,
+}
+
+impl ToolRef {
+    pub fn new(
+        provider: ProviderKind,
+        namespace: NamespaceId,
+        kind: ToolRefKind,
+        id: impl Into<String>,
+    ) -> Result<Self> {
+        let id = id.into();
+        validate_non_empty("tool ref id", &id)?;
+
+        Ok(Self {
+            provider,
+            namespace,
+            kind,
+            id,
+            parent_id: None,
+            label: None,
+            web_url: None,
+        })
+    }
+
+    pub fn with_parent_id(mut self, parent_id: impl Into<String>) -> Result<Self> {
+        let parent_id = parent_id.into();
+        validate_non_empty("tool ref parent id", &parent_id)?;
+        self.parent_id = Some(parent_id);
+        Ok(self)
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Result<Self> {
+        let label = label.into();
+        validate_non_empty("tool ref label", &label)?;
+        self.label = Some(label);
+        Ok(self)
+    }
+
+    pub fn with_web_url(mut self, web_url: impl Into<String>) -> Result<Self> {
+        let web_url = web_url.into();
+        validate_non_empty("tool ref web url", &web_url)?;
+        self.web_url = Some(web_url);
+        Ok(self)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ToolOutput {
     pub tool: ToolName,
     pub namespace: NamespaceId,
     pub summary: String,
     pub fields: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<ToolRef>,
 }
 
 impl ToolOutput {
@@ -653,6 +740,7 @@ impl ToolOutput {
             namespace,
             summary: summary.into(),
             fields: BTreeMap::new(),
+            refs: Vec::new(),
         }
     }
 
@@ -663,6 +751,16 @@ impl ToolOutput {
 
     pub fn with_value_field(mut self, key: impl Into<String>, value: Value) -> Self {
         self.fields.insert(key.into(), value);
+        self
+    }
+
+    pub fn with_ref(mut self, tool_ref: ToolRef) -> Self {
+        self.refs.push(tool_ref);
+        self
+    }
+
+    pub fn with_refs(mut self, tool_refs: impl IntoIterator<Item = ToolRef>) -> Self {
+        self.refs.extend(tool_refs);
         self
     }
 }
