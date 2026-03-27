@@ -1097,7 +1097,7 @@ That page only does three things:
 
 1. reads the OAuth callback URL
 1. scrubs the code from the browser address bar
-1. gives you a copyable `mychart finish 'https://...'` command
+1. gives you a copyable login code plus a fallback `mychart finish ...` command
 
 Typical MyChart production flow:
 
@@ -1105,11 +1105,11 @@ Typical MyChart production flow:
 mychart login ucla
 ```
 
-Finish the browser login, let Epic redirect to the GitHub Pages callback, then either paste the callback URL back
-into the waiting `mychart login` process or use the fallback command the page gives you:
+Finish the browser login, let Epic redirect to the GitHub Pages callback, then either paste the copied login code
+back into the waiting `mychart login` process or use the fallback command the page gives you:
 
 ```text
-mychart --account ucla finish 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'
+mychart --account ucla finish '<auth-code>'
 ```
 
 Built-in presets currently include:

@@ -101,7 +101,7 @@ pub(crate) struct AuthExchangeCodeArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct AuthExchangeUrlArgs {
-    pub(crate) callback_url: String,
+    pub(crate) callback_input: String,
 
     #[arg(long)]
     pub(crate) no_store: bool,
@@ -372,7 +372,7 @@ fn run_authorize_url(args: AuthAuthorizeUrlArgs, context: &mut ResolvedContext) 
         "browser_open_attempted": browser_launch.attempted,
         "opened_browser": browser_launch.opened,
         "browser_open_error": browser_launch.error,
-        "next_step": "After the browser finishes, run `mychart finish '<callback-url>'` in this repo.",
+        "next_step": "After the browser finishes, paste the copied login code into the waiting terminal, or run `mychart finish '<auth-code>'` in this repo.",
     }))
 }
 
@@ -493,7 +493,7 @@ fn interactive_auth_bootstrap(context: &mut ResolvedContext) -> Result<ApiSessio
         context,
         output,
         None,
-        "Finish the browser login, paste the callback URL back into this terminal, or run `mychart finish '<callback-url>'` later, then rerun the original command.",
+        "Finish the browser login, paste the copied login code back into this terminal, or run `mychart finish '<auth-code>'` later, then rerun the original command.",
     )? {
         HostedAuthorizationOutcome::Completed(_) => Ok(ApiSessionBootstrap::Ready),
         HostedAuthorizationOutcome::Pending(output) => Ok(ApiSessionBootstrap::Pending(output)),
@@ -509,7 +509,7 @@ pub(crate) fn complete_or_wait_for_hosted_authorization(
     if let Some(callback_url) = callback_url.or_else(prompt_for_callback_url) {
         let output = exchange_url(
             AuthExchangeUrlArgs {
-                callback_url,
+                callback_input: callback_url,
                 no_store: false,
             },
             context,
@@ -586,14 +586,14 @@ fn exchange_code(
 }
 
 fn exchange_url(args: AuthExchangeUrlArgs, context: &mut ResolvedContext) -> Result<Value> {
-    let parsed_url = Url::parse(&args.callback_url).map_err(|error| {
-        Error::Arguments(format!(
-            "callback URL must be an absolute URL copied from the browser redirect: {error}"
-        ))
-    })?;
     let redirect_uri = context.require_redirect_uri(None)?;
     let expected_redirect_uri = Url::parse(&redirect_uri)
         .map_err(|error| Error::Config(format!("invalid stored redirect URI {redirect_uri:?}: {error}")))?;
+    let parsed_url = parse_callback_input(
+        &args.callback_input,
+        &expected_redirect_uri,
+        context.pending_oauth_state.as_deref(),
+    )?;
     let mut normalized_callback = parsed_url.clone();
     normalized_callback.set_query(None);
     normalized_callback.set_fragment(None);
@@ -1138,32 +1138,107 @@ fn prompt_for_callback_url() -> Option<String> {
     }
 
     eprintln!(
-        "Finish the browser login. When the callback page loads, paste the full callback URL here and press Enter."
+        "Finish the browser login. When the callback page loads, paste the copied callback payload here, or paste the full callback URL if you insist."
     );
-    eprint!("Callback URL> ");
+    eprint!("Callback> ");
     let _ = io::stderr().flush();
 
     let mut input = String::new();
     match io::stdin().read_line(&mut input) {
         Ok(0) => None,
-        Ok(_) => extract_callback_url(&input),
+        Ok(_) => extract_callback_input(&input),
         Err(_) => None,
     }
 }
 
-fn extract_callback_url(input: &str) -> Option<String> {
+fn parse_callback_input(input: &str, expected_redirect_uri: &Url, expected_state: Option<&str>) -> Result<Url> {
+    let candidate = extract_callback_input(input).ok_or_else(|| {
+        Error::Arguments(
+            "callback input must include either the redirected URL or the callback payload copied from the page".into(),
+        )
+    })?;
+
+    if candidate.starts_with("https://") || candidate.starts_with("http://") {
+        return Url::parse(&candidate).map_err(|error| {
+            Error::Arguments(format!(
+                "callback URL must be an absolute URL copied from the browser redirect: {error}"
+            ))
+        });
+    }
+
+    let mut callback_url = expected_redirect_uri.clone();
+    callback_url.set_query(None);
+    callback_url.set_fragment(None);
+    {
+        let mut pairs = callback_url.query_pairs_mut();
+        let trimmed = candidate.trim().trim_start_matches('?');
+        if trimmed.is_empty() {
+            return Err(Error::Arguments(
+                "callback payload was empty, copy it again from the callback page".into(),
+            ));
+        }
+
+        if trimmed.contains('=') {
+            let parsed_pairs = Url::parse(&format!("https://callback.invalid/?{trimmed}"))
+                .map_err(|error| Error::Arguments(format!("callback payload was malformed: {error}")))?;
+            let mut has_state = false;
+            for (key, value) in parsed_pairs.query_pairs() {
+                has_state |= key == "state";
+                pairs.append_pair(&key, &value);
+            }
+            if !has_state && parsed_pairs.query_pairs().any(|(key, _)| key == "code") {
+                let expected_state = expected_state.ok_or_else(|| {
+                    Error::Config("missing pending OAuth state, run mychart login or authorize-url first".into())
+                })?;
+                pairs.append_pair("state", expected_state);
+            }
+        } else {
+            let expected_state = expected_state.ok_or_else(|| {
+                Error::Config("missing pending OAuth state, run mychart login or authorize-url first".into())
+            })?;
+            pairs.append_pair("code", trimmed);
+            pairs.append_pair("state", expected_state);
+        }
+    }
+    Ok(callback_url)
+}
+
+fn extract_callback_input(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    let start = trimmed.find("https://").or_else(|| trimmed.find("http://"))?;
-    let candidate = trimmed[start..]
-        .trim()
-        .trim_matches(|character| matches!(character, '\'' | '"' | '`' | ')' | ']' | '}'))
+    if let Some(start) = trimmed.find("https://").or_else(|| trimmed.find("http://")) {
+        let candidate = trimmed[start..]
+            .trim()
+            .trim_matches(|character| matches!(character, '\'' | '"' | '`' | ')' | ']' | '}'))
+            .trim_end_matches(';')
+            .to_owned();
+        return (!candidate.is_empty()).then_some(candidate);
+    }
+
+    if let Some(query_start) = trimmed
+        .find("code=")
+        .or_else(|| trimmed.find("error="))
+        .or_else(|| trimmed.find("state="))
+        .or_else(|| trimmed.starts_with('?').then_some(0))
+    {
+        let candidate = trimmed[query_start..]
+            .trim()
+            .trim_matches(|character| matches!(character, '\'' | '"' | '`'))
+            .trim_end_matches(';')
+            .to_owned();
+        if !candidate.is_empty() {
+            return Some(candidate);
+        }
+    }
+
+    let bare_candidate = trimmed
+        .trim_matches(|character| matches!(character, '\'' | '"' | '`'))
         .trim_end_matches(';')
         .to_owned();
-    (!candidate.is_empty()).then_some(candidate)
+    (!bare_candidate.is_empty()).then_some(bare_candidate)
 }
 
 fn current_epoch_seconds() -> u64 {

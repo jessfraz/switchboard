@@ -18,6 +18,7 @@ pub(crate) struct PatientSession {
     pub(crate) capability: CapabilitySummary,
     pub(crate) access_token: String,
     pub(crate) patient_id: String,
+    granted_scopes: Vec<String>,
 }
 
 pub(crate) struct PatientSessionSelection {
@@ -30,6 +31,9 @@ impl PatientSession {
         let Some(resource) = self.capability.resolve_resource(resource_token) else {
             return Ok(None);
         };
+        if !self.scope_allows_resource(&resource.resource_type) {
+            return Ok(None);
+        }
 
         if resource.supports("read") {
             let response = self.client.execute_bearer_json(
@@ -65,6 +69,9 @@ impl PatientSession {
         let Some(resource) = self.capability.resolve_resource(resource_token) else {
             return Ok(None);
         };
+        if !self.scope_allows_resource(&resource.resource_type) {
+            return Ok(None);
+        }
         if !resource.supports("search-type") {
             return Ok(None);
         }
@@ -91,7 +98,9 @@ impl PatientSession {
     }
 
     pub(crate) fn resource(&self, resource_token: &str) -> Option<ApiResourceCapability> {
-        self.capability.resolve_resource(resource_token)
+        self.capability
+            .resolve_resource(resource_token)
+            .filter(|resource| self.scope_allows_resource(&resource.resource_type))
     }
 
     pub(crate) fn fetch_url(&self, url: &str) -> Result<JsonResponse> {
@@ -102,6 +111,18 @@ impl PatientSession {
             self.client
                 .execute_bearer_json(Method::GET, url, &[], &self.access_token, None)
         }
+    }
+
+    fn scope_allows_resource(&self, resource_type: &str) -> bool {
+        if self.granted_scopes.is_empty() {
+            return true;
+        }
+
+        let patient_read = format!("patient/{resource_type}.read");
+        let user_read = format!("user/{resource_type}.read");
+        self.granted_scopes.iter().any(|scope| {
+            scope == "patient/*.read" || scope == "user/*.read" || scope == &patient_read || scope == &user_read
+        })
     }
 }
 
@@ -116,6 +137,7 @@ pub(crate) fn open_patient_session(
         context.api_base_url.clone(),
         context.access_token.clone(),
         patient_override.or_else(|| context.patient_id.clone()),
+        context.scope.clone(),
     )?
     .ok_or_else(|| {
         Error::Config("missing MyChart API session for the active account, connect and authenticate it first".into())
@@ -158,6 +180,7 @@ pub(crate) fn open_patient_sessions(
             account_state.api_base_url.clone(),
             account_state.access_token.clone(),
             account_state.patient_id.clone(),
+            account_state.scope.clone(),
         ) {
             Ok(Some(session)) => sessions.push(session),
             Ok(None) => skipped_accounts.push(json!({
@@ -209,6 +232,7 @@ fn build_patient_session(
     base_url: Option<String>,
     access_token: Option<String>,
     patient_id: Option<String>,
+    scope: Option<String>,
 ) -> Result<Option<PatientSession>> {
     let Some(base_url) = base_url else {
         return Ok(None);
@@ -232,7 +256,17 @@ fn build_patient_session(
         capability,
         access_token,
         patient_id,
+        granted_scopes: parse_scope_list(scope),
     }))
+}
+
+fn parse_scope_list(scope: Option<String>) -> Vec<String> {
+    scope
+        .unwrap_or_default()
+        .split_whitespace()
+        .filter(|scope| !scope.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn provider_name(account_name: &str, account_state: Option<&MyChartAccountState>) -> String {

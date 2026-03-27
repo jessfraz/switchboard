@@ -44,7 +44,7 @@ use crate::{
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  mychart login ucla\n",
-    "  mychart finish 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'\n",
+    "  mychart finish '<auth-code>'\n",
     "  mychart connect search ucla\n",
     "  mychart connect ucla\n",
     "  mychart connect epic-sandbox\n",
@@ -54,7 +54,7 @@ const AFTER_HELP: &str = concat!(
     "  mychart auth login --dynamic-client --scope patient/*.read\n",
     "  mychart auth authorize-url --base-url https://fhir.example.org/api/FHIR/R4 \\\n",
     "    --client-id <id> --redirect-uri http://127.0.0.1:8910/callback\n",
-    "  mychart auth exchange-url 'https://jessfraz.github.io/switchboard/mychart-callback/?code=...&state=...'\n",
+    "  mychart auth exchange-url '<auth-code>'\n",
     "  mychart timeline --limit 25\n",
     "  mychart labs a1c ferritin tsh --spark\n",
     "  mychart appointments upcoming --limit 5\n",
@@ -241,7 +241,7 @@ struct LoginCommand {
 
 #[derive(Debug, Args)]
 struct FinishCommand {
-    callback_url: String,
+    callback_input: String,
 
     #[arg(long)]
     no_store: bool,
@@ -282,7 +282,7 @@ fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Resul
         context,
         output,
         command.callback_url,
-        "Finish the browser login, paste the callback URL back into this terminal, or run `mychart finish '<callback-url>'` later.",
+        "Finish the browser login, paste the copied login code back into this terminal, or run `mychart finish '<auth-code>'` later.",
     )? {
         HostedAuthorizationOutcome::Completed(output) => Ok(output),
         HostedAuthorizationOutcome::Pending(output) => Ok(output),
@@ -292,7 +292,7 @@ fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Resul
 fn run_easy_finish(command: FinishCommand, context: &mut ResolvedContext) -> Result<Value> {
     run_exchange_url_command(
         AuthExchangeUrlArgs {
-            callback_url: command.callback_url,
+            callback_input: command.callback_input,
             no_store: command.no_store,
         },
         context,
@@ -1442,6 +1442,54 @@ mod tests {
     }
 
     #[test]
+    fn top_level_finish_accepts_bare_authorization_code() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-finish-compact-payload");
+        let config_path = temp_dir.join("config.json");
+        let redirect_uri = "https://jessfraz.github.io/switchboard/mychart-callback/";
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                client_id: Some("client-123".into()),
+                redirect_uri: Some(redirect_uri.into()),
+                pending_oauth_state: Some("test-state".into()),
+                pending_code_verifier: Some("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK".into()),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "finish",
+            "oauth-code",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+        let requests = server.requests();
+        let token_request = requests.get(1).expect("token request should be captured");
+        assert!(
+            token_request.contains("redirect_uri=https%3A%2F%2Fjessfraz.github.io%2Fswitchboard%2Fmychart-callback%2F")
+        );
+    }
+
+    #[test]
     fn exchange_code_uses_basic_auth_for_confidential_clients() {
         let server = TestServer::spawn(vec![
             ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
@@ -1769,6 +1817,52 @@ mod tests {
             .expect("default account should be persisted");
         assert_eq!(account.access_token.as_deref(), Some("access-token"));
         assert_eq!(account.patient_id.as_deref(), Some("patient-123"));
+    }
+
+    #[test]
+    fn top_level_login_with_hosted_redirect_can_finish_with_bare_authorization_code() {
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "patient/*.read",
+                    "patient": "patient-123",
+                    "expires_in": 3600
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-easy-login-hosted-complete-compact");
+        let config_path = temp_dir.join("config.json");
+
+        let output = run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--base-url",
+            &format!("{}/", server.base_url()),
+            "--client-id",
+            "client-123",
+            "--redirect-uri",
+            "https://jessfraz.github.io/switchboard/mychart-callback/",
+            "--compact",
+            "login",
+            "--no-open",
+            "--callback-url",
+            "oauth-code",
+            "--state",
+            "test-state",
+            "--code-verifier",
+            "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK",
+        ]);
+
+        assert_eq!(output["status"], "authenticated");
+        assert_eq!(output["patient_id"], "patient-123");
     }
 
     #[test]
@@ -2374,6 +2468,159 @@ mod tests {
             .get("epic-sandbox")
             .expect("epic-sandbox account should be stored");
         assert!(account.client_secret.is_none());
+    }
+
+    #[test]
+    fn timeline_skips_resources_not_granted_by_token_scope() {
+        #[derive(Debug, serde::Deserialize)]
+        struct TimelineOutput {
+            status: String,
+            events: Vec<TimelineEvent>,
+        }
+
+        #[derive(Debug, serde::Deserialize)]
+        struct TimelineEvent {
+            resource_type: String,
+        }
+
+        let server = TestServer::spawn(vec![
+            ResponseSpec::json(
+                200,
+                capability_statement_json(
+                    "http://placeholder",
+                    &[
+                        resource_capability("Appointment", &["read", "search-type"]),
+                        resource_capability("Encounter", &["read", "search-type"]),
+                        resource_capability("Observation", &["read", "search-type"]),
+                        resource_capability("DiagnosticReport", &["read", "search-type"]),
+                        resource_capability("MedicationRequest", &["read", "search-type"]),
+                        resource_capability("DocumentReference", &["read", "search-type"]),
+                        resource_capability("ExplanationOfBenefit", &["read", "search-type"]),
+                    ],
+                ),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Encounter",
+                            "id": "enc-1",
+                            "period": {"start": "2100-01-01"},
+                            "status": "finished",
+                            "type": [{"text": "Office visit"}]
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "Observation",
+                            "id": "obs-1",
+                            "effectiveDateTime": "2100-01-02T08:00:00Z",
+                            "code": {"text": "Ferritin"},
+                            "valueQuantity": {"value": 14.0, "unit": "ng/mL"}
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "DiagnosticReport",
+                            "id": "report-1",
+                            "issued": "2100-01-03T08:00:00Z",
+                            "code": {"text": "CBC"},
+                            "conclusion": "Normal"
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "MedicationRequest",
+                            "id": "med-1",
+                            "authoredOn": "2100-01-04",
+                            "status": "active",
+                            "medicationCodeableConcept": {"text": "Topiramate"}
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "resourceType": "Bundle",
+                    "entry": [{
+                        "resource": {
+                            "resourceType": "DocumentReference",
+                            "id": "note-1",
+                            "date": "2100-01-05",
+                            "type": {"text": "Progress Note"},
+                            "description": "Neurology note"
+                        }
+                    }]
+                }),
+                Vec::new(),
+            ),
+        ]);
+        let temp_dir = temp_dir("mychart-timeline-scope-filter");
+        let config_path = temp_dir.join("config.json");
+        StateStore::new(config_path.clone())
+            .save(&MyChartState {
+                api_base_url: Some(server.base_url()),
+                access_token: Some("access-token".into()),
+                patient_id: Some("patient-123".into()),
+                scope: Some(
+                    "openid patient/Encounter.read patient/Observation.read patient/DiagnosticReport.read \
+                     patient/MedicationRequest.read patient/DocumentReference.read"
+                        .into(),
+                ),
+                ..MyChartState::default()
+            })
+            .expect("state should save");
+
+        let output: TimelineOutput = serde_json::from_value(run_command(&[
+            "mychart",
+            "--config",
+            config_path.to_str().expect("config path should be utf-8"),
+            "--compact",
+            "timeline",
+            "--limit",
+            "25",
+        ]))
+        .expect("timeline output should deserialize");
+
+        assert_eq!(output.status, "ok");
+        assert_eq!(output.events.len(), 5);
+        assert!(output
+            .events
+            .iter()
+            .all(|event| event.resource_type != "Appointment" && event.resource_type != "ExplanationOfBenefit"));
+
+        let requests = server.requests();
+        assert_eq!(requests.len(), 6);
+        assert!(!requests.iter().any(|request| request.contains("/Appointment?")));
+        assert!(!requests
+            .iter()
+            .any(|request| request.contains("/ExplanationOfBenefit?")));
     }
 
     #[test]

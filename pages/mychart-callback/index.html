@@ -222,27 +222,26 @@
       <section class="panel strong stack">
         <div>
           <div id="status-pill" class="status">Waiting for callback</div>
-          <h1>MyChart callback, without the clown car.</h1>
+          <h1>Finish MyChart login.</h1>
           <p id="lead">
-            This page reads the OAuth redirect, scrubs the browser URL, and gives you the exact CLI command to finish
-            auth locally.
+            This page only exists to hand the OAuth callback back to the CLI, without making a meal out of it.
           </p>
         </div>
 
         <div class="stack">
           <div>
-            <label for="account-name">Optional account name</label>
-            <input id="account-name" name="account-name" placeholder="ucla" autocomplete="off">
+            <label for="callback-payload">Paste This Into The Waiting Terminal</label>
+            <textarea id="callback-payload" readonly></textarea>
           </div>
 
           <div>
-            <label for="exchange-command">CLI command</label>
+            <label for="exchange-command">Fallback Command</label>
             <textarea id="exchange-command" readonly></textarea>
           </div>
 
           <div class="actions">
-            <button id="copy-command" type="button">Copy command</button>
-            <button id="copy-url" class="secondary" type="button">Copy callback URL</button>
+            <button id="copy-payload" type="button">Copy login code</button>
+            <button id="copy-command" class="secondary" type="button">Copy finish command</button>
           </div>
         </div>
       </section>
@@ -282,14 +281,14 @@
         const storageKey = "mychart_callback_url";
         const statusPill = document.getElementById("status-pill");
         const lead = document.getElementById("lead");
-        const accountInput = document.getElementById("account-name");
+        const callbackPayload = document.getElementById("callback-payload");
         const exchangeCommand = document.getElementById("exchange-command");
         const redirectUri = document.getElementById("redirect-uri");
         const codeStatus = document.getElementById("code-status");
         const stateStatus = document.getElementById("state-status");
         const errorStatus = document.getElementById("error-status");
+        const copyPayload = document.getElementById("copy-payload");
         const copyCommand = document.getElementById("copy-command");
-        const copyUrl = document.getElementById("copy-url");
 
         const currentUrl = new URL(window.location.href);
         const hasQuery = currentUrl.search.length > 1;
@@ -304,14 +303,32 @@
           return "'" + value.replace(/'/g, "'\"'\"'") + "'";
         }
 
+        function buildCallbackPayload(parsed) {
+          const code = parsed.searchParams.get("code");
+          if (code) {
+            return code;
+          }
+
+          const params = new URLSearchParams();
+          ["code", "state", "error", "error_description"].forEach((key) => {
+            const value = parsed.searchParams.get(key);
+            if (value) {
+              params.set(key, value);
+            }
+          });
+          return params.toString();
+        }
+
         function render() {
           if (!callbackUrl) {
             statusPill.textContent = "No callback data";
             statusPill.className = "status";
             lead.textContent =
-              "Open this page only through the OAuth redirect, otherwise there is nothing useful to extract.";
+              "Open this page only through the OAuth redirect, otherwise there is nothing useful to paste back.";
+            callbackPayload.value =
+              "eyJhbGciOi...";
             exchangeCommand.value =
-              "Run `mychart login ucla` or `mychart auth authorize-url`, finish the browser login, then come back here from the redirect.";
+              "mychart finish 'eyJhbGciOi...'";
             redirectUri.textContent = window.location.origin + window.location.pathname;
             codeStatus.textContent = "Missing";
             stateStatus.textContent = "Missing";
@@ -324,32 +341,35 @@
           const state = parsed.searchParams.get("state");
           const error = parsed.searchParams.get("error");
           const errorDescription = parsed.searchParams.get("error_description");
-          const account = accountInput.value.trim();
-          const accountPrefix = account ? "--account " + shellQuote(account) + " " : "";
+          const payload = buildCallbackPayload(parsed);
 
           redirectUri.textContent = parsed.origin + parsed.pathname;
           codeStatus.textContent = code ? "Present (" + code.length + " chars)" : "Missing";
           stateStatus.textContent = state ? "Present (" + state.length + " chars)" : "Missing";
           errorStatus.textContent = error ? error + (errorDescription ? ": " + errorDescription : "") : "None";
+          callbackPayload.value = payload;
 
           if (error) {
             statusPill.textContent = "OAuth error";
             statusPill.className = "status bad";
             lead.textContent =
-              "Epic sent an OAuth error back instead of an authorization code. Copy the callback URL if you want the terminal to print the exact failure details.";
+              "Epic sent an OAuth error back instead of an authorization code. Copy the payload, paste it into the waiting terminal, and let the CLI print the ugly details.";
+            copyPayload.textContent = "Copy error payload";
           } else if (code && state) {
             statusPill.textContent = "Ready to exchange";
             statusPill.className = "status good";
             lead.textContent =
-              "The callback URL was captured and scrubbed from the address bar. If `mychart login` is waiting in your terminal, click Copy callback URL and paste it there. Otherwise use the fallback command below.";
+              "If `mychart login` is waiting in the terminal, click Copy login code and paste it there. If not, use the fallback command below.";
+            copyPayload.textContent = "Copy login code";
           } else {
             statusPill.textContent = "Incomplete callback";
             statusPill.className = "status";
             lead.textContent =
               "The redirect landed here, but it did not contain the usual code and state parameters. That usually means OAuth died upstream.";
+            copyPayload.textContent = "Copy callback payload";
           }
 
-          exchangeCommand.value = "mychart " + accountPrefix + "finish " + shellQuote(callbackUrl);
+          exchangeCommand.value = "mychart finish " + shellQuote(payload || callbackUrl);
         }
 
         async function copyText(text, button, successLabel) {
@@ -365,12 +385,8 @@
           }, 1500);
         }
 
-        accountInput.addEventListener("input", render);
+        copyPayload.addEventListener("click", () => copyText(callbackPayload.value, copyPayload, "Copied"));
         copyCommand.addEventListener("click", () => copyText(exchangeCommand.value, copyCommand, "Copied"));
-        copyUrl.addEventListener("click", () => {
-          const value = callbackUrl || "";
-          copyText(value, copyUrl, "Copied");
-        });
 
         render();
       })();
