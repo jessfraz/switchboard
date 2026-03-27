@@ -1973,26 +1973,26 @@ mod tests {
                 "brands": [
                     {
                         "brand_id": "brand-1",
-                        "brand_name": "UCLA Medical Center",
-                        "account_slug": "ucla-medical-center",
-                        "fhir_base_url": "https://arrprox.mednet.ucla.edu/FHIRPRD/api/FHIR/R4",
+                        "brand_name": "Acme Clinics East",
+                        "account_slug": "acme-clinics-east",
+                        "fhir_base_url": "https://east.example.org/FHIR/R4",
                         "endpoint_id": "endpoint-1",
-                        "endpoint_name": "UCLA Medical Center",
-                        "managing_organization_id": "341",
-                        "managing_organization_name": "UCLA Health",
+                        "endpoint_name": "Acme Clinics East",
+                        "managing_organization_id": "east",
+                        "managing_organization_name": "Acme Health",
                         "state": "CA",
-                        "country": "USA",
+                        "country": "US",
                         "facilities": []
                     },
                     {
                         "brand_id": "brand-2",
-                        "brand_name": "UCLA Health Medicare Advantage Plan",
-                        "account_slug": "ucla-health-medicare-advantage-plan",
-                        "fhir_base_url": "https://arrprox.mednet.ucla.edu/FHIRPRD/HEALTHPLAN/api/FHIR/R4",
+                        "brand_name": "Acme Clinics West",
+                        "account_slug": "acme-clinics-west",
+                        "fhir_base_url": "https://west.example.org/FHIR/R4",
                         "endpoint_id": "endpoint-2",
-                        "endpoint_name": "UCLA Health Medicare Advantage Plan",
-                        "managing_organization_id": "341",
-                        "managing_organization_name": "UCLA Health",
+                        "endpoint_name": "Acme Clinics West",
+                        "managing_organization_id": "west",
+                        "managing_organization_name": "Acme Health",
                         "state": null,
                         "country": null,
                         "facilities": []
@@ -2002,7 +2002,7 @@ mod tests {
         );
 
         let mut context = resolved_context(&config_path);
-        let output = crate::commands::connect::run_resolve_output(vec!["ucla".into(), "health".into()], &mut context)
+        let output = crate::commands::connect::run_resolve_output(vec!["acme".into(), "clinics".into()], &mut context)
             .expect("connect resolve should succeed");
 
         assert_eq!(output.status, "ambiguous");

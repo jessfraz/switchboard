@@ -12,6 +12,7 @@ use std::sync::Arc;
 use switchboard_core::AdapterRegistry;
 
 pub use crate::{github::GitHubAdapter, google::GoogleWorkspaceAdapter};
+pub use crate::cli::manifest::validate_manifest_json;
 
 pub fn default_registry() -> AdapterRegistry {
     let mut adapters = AdapterRegistry::default();

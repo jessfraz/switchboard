@@ -220,20 +220,15 @@ fn build_inventory_raw_command(
     let tool_name = inventory_tool_name(&inventory.provider, &command.path);
     let kind = inventory_tool_kind(command.operation_kind);
     let summary = format!("Run raw {} command {}", inventory.program, command.command);
+    let raw_args = CliArgsStrategy::RawInventory {
+        prefix: command.path.clone(),
+    };
     let descriptor = ToolDescriptor::new(tool_name, kind, summary, switchboard_core::BackendKind::Cli)?
         .with_surface(ToolSurface::Raw)
         .with_aggregate_read_supported(kind == ToolKind::Read)
         .with_execution_support(ToolExecutionSupport::Executable)
         .with_undo_support(ToolUndoSupport::None)
-        .with_arguments(vec![
-            crate::cli::command::CliArgsStrategy::RawInventory {
-                prefix: command.path.clone(),
-            }
-            .argument_specs()?
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::Config(format!("inventory raw tool {} is missing argv metadata", command.command)))?,
-        ]);
+        .with_arguments(raw_args.argument_specs()?);
     let capability = CliCapabilityProbe {
         id: format!("inventory:{}", command.command),
         args: command.help_args.clone(),
@@ -248,9 +243,7 @@ fn build_inventory_raw_command(
         executable: Some(CliExecutableSpec {
             binary: binary.clone(),
             capability,
-            args: CliArgsStrategy::RawInventory {
-                prefix: command.path.clone(),
-            },
+            args: raw_args,
             decode: CliDecodeStrategy::RawInventory {
                 program: inventory.program.clone(),
                 prefix: command.path.clone(),
@@ -804,4 +797,71 @@ fn validate_manifest_aliases(context: &str, aliases: Vec<String>) -> Result<Vec<
     }
 
     Ok(aliases)
+}
+
+#[cfg(test)]
+mod tests {
+    use switchboard_core::{ProviderKind, ToolArgumentTransport, ToolArgumentValueKind, ToolName};
+
+    use crate::{
+        cli::manifest::{validate_manifest_json, CliProviderCatalog},
+        inventory::embedded_inventory,
+    };
+
+    const GOOGLE_MANIFEST_JSON: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../manifests/google.json"
+    ));
+
+    #[test]
+    fn google_mail_draft_arguments_are_typed_from_manifest() {
+        let inventory = embedded_inventory(ProviderKind::GoogleWorkspace).expect("inventory should load");
+        let catalog = CliProviderCatalog::from_embedded(GOOGLE_MANIFEST_JSON, &inventory)
+            .expect("catalog should build");
+        let descriptor = catalog
+            .tools()
+            .iter()
+            .find(|tool| tool.name == "google.mail.draft")
+            .expect("google.mail.draft should exist");
+
+        let to = descriptor
+            .arguments
+            .iter()
+            .find(|argument| argument.name == "to")
+            .expect("to argument should exist");
+        assert!(to.required);
+        assert!(to.repeated);
+        assert_eq!(to.transport, ToolArgumentTransport::JsonField);
+        assert_eq!(to.value_kind, ToolArgumentValueKind::String);
+
+        let raw_tool = catalog
+            .find_command(ToolName::new("google.cli.read").expect("tool name should build").as_str())
+            .expect("raw google read tool should exist");
+        assert_eq!(raw_tool.descriptor.arguments.len(), 1);
+        assert_eq!(raw_tool.descriptor.arguments[0].name, "argv");
+        assert_eq!(
+            raw_tool.descriptor.arguments[0].transport,
+            ToolArgumentTransport::PassthroughArgv
+        );
+    }
+
+    #[test]
+    fn manifest_validation_rejects_unknown_fields() {
+        let inventory = embedded_inventory(ProviderKind::GoogleWorkspace).expect("inventory should load");
+        let invalid_manifest = r#"
+        {
+          "provider": "google",
+          "binaries": [],
+          "capabilities": [],
+          "commands": [],
+          "extra": true
+        }
+        "#;
+
+        let error = validate_manifest_json(invalid_manifest, &inventory).expect_err("manifest should fail");
+        assert!(
+            error.to_string().contains("unknown field"),
+            "expected unknown field error, got {error}"
+        );
+    }
 }

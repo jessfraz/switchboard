@@ -1261,6 +1261,25 @@ fn render_undo_support(undo_support: ToolUndoSupport) -> &'static str {
     }
 }
 
+fn render_tool_argument_transport(argument: &ToolArgumentSpec) -> &'static str {
+    match argument.transport {
+        switchboard_core::ToolArgumentTransport::Positional => "positional",
+        switchboard_core::ToolArgumentTransport::Option => "option",
+        switchboard_core::ToolArgumentTransport::KeyValueOption => "key_value_option",
+        switchboard_core::ToolArgumentTransport::Flag => "flag",
+        switchboard_core::ToolArgumentTransport::JsonField => "json_field",
+        switchboard_core::ToolArgumentTransport::PassthroughArgv => "passthrough_argv",
+    }
+}
+
+fn render_tool_argument_value_kind(argument: &ToolArgumentSpec) -> &'static str {
+    match argument.value_kind {
+        switchboard_core::ToolArgumentValueKind::String => "string",
+        switchboard_core::ToolArgumentValueKind::Boolean => "boolean",
+        switchboard_core::ToolArgumentValueKind::Json => "json",
+    }
+}
+
 fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
     let mode_flag = match tool.kind {
         ToolKind::Read => "--json",
@@ -1607,6 +1626,7 @@ struct ToolCatalogDetail {
     aggregate_read_supported: bool,
     execution_support: ToolExecutionSupport,
     undo_support: ToolUndoSupport,
+    arguments: Vec<ToolArgumentSpec>,
     available_namespaces: Vec<NamespaceId>,
     notes: Vec<String>,
     examples: Vec<String>,
@@ -1651,6 +1671,7 @@ impl ToolCatalogDetail {
             aggregate_read_supported: tool.aggregate_read_supported,
             execution_support: tool.execution_support,
             undo_support: tool.undo_support,
+            arguments: tool.arguments.clone(),
             available_namespaces,
             notes,
             examples,
@@ -1926,6 +1947,32 @@ mod tests {
         surface: ToolSurface,
         execution_support: ToolExecutionSupport,
         undo_support: ToolUndoSupport,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct JsonToolCatalogDetailEnvelope {
+        status: String,
+        tool: JsonToolCatalogDetail,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct JsonToolCatalogDetail {
+        name: ToolName,
+        execution_support: ToolExecutionSupport,
+        undo_support: ToolUndoSupport,
+        arguments: Vec<JsonToolArgumentSpec>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct JsonToolArgumentSpec {
+        name: String,
+        aliases: Vec<String>,
+        transport: switchboard_core::ToolArgumentTransport,
+        value_kind: switchboard_core::ToolArgumentValueKind,
+        required: bool,
+        repeated: bool,
+        forwarded_flag: Option<String>,
+        forwarded_key: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -2823,9 +2870,58 @@ mod tests {
         let output = run(cli).expect("tools describe should succeed");
 
         assert!(output.contains("Tool: google.cli.write"));
+        assert!(output.contains("Arguments:\n- argv [transport=passthrough_argv, type=string, repeated]"));
         assert!(output.contains("policy, auth isolation, and audit still apply"));
         assert!(output.contains("put switchboard flags before --"));
         assert!(output.contains("switchboard google.cli.write --ns google."));
+    }
+
+    #[test]
+    fn tools_describe_curated_tool_includes_typed_arguments() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "tools",
+            "describe",
+            "google.mail.draft",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("tools describe should succeed");
+        let value: JsonToolCatalogDetailEnvelope = parse_json(&output);
+
+        assert_eq!(value.status, "ok");
+        assert_eq!(
+            value.tool.name,
+            ToolName::new("google.mail.draft").expect("tool should build")
+        );
+        assert_eq!(value.tool.execution_support, ToolExecutionSupport::Executable);
+        assert_eq!(value.tool.undo_support, ToolUndoSupport::None);
+
+        let to = value
+            .tool
+            .arguments
+            .iter()
+            .find(|argument| argument.name == "to")
+            .expect("typed to argument should exist");
+        assert!(to.required);
+        assert!(to.repeated);
+        assert_eq!(to.transport, switchboard_core::ToolArgumentTransport::JsonField);
+        assert_eq!(to.value_kind, switchboard_core::ToolArgumentValueKind::String);
+
+        let thread_id = value
+            .tool
+            .arguments
+            .iter()
+            .find(|argument| argument.name == "thread-id")
+            .expect("thread-id argument should exist");
+        assert_eq!(thread_id.transport, switchboard_core::ToolArgumentTransport::JsonField);
+        assert_eq!(thread_id.aliases, Vec::<String>::new());
+        assert!(!thread_id.required);
     }
 
     #[test]
