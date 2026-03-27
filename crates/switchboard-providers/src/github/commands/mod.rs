@@ -5,7 +5,6 @@ mod pull_requests;
 use switchboard_core::{Error, Result, ToolArguments};
 
 use crate::cli::{CliBinarySpec, CliCapabilityProbe};
-
 pub(crate) use crate::github::commands::{
     issues::ISSUE_READ_COMMAND,
     notifications::NOTIFICATIONS_COMMAND,

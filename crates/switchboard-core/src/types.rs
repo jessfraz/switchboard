@@ -4,12 +4,12 @@ use std::{
     path::PathBuf,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{Error, Result};
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ProviderKind {
     #[serde(rename = "github")]
     GitHub,
@@ -59,7 +59,7 @@ impl Display for ProviderKind {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct NamespaceId(String);
 
@@ -513,7 +513,7 @@ pub struct ExecutionTarget {
     pub credentials: ResolvedCredentials,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolArgument {
     Flag { name: String },
@@ -548,7 +548,7 @@ impl ToolArgument {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ToolArguments(Vec<ToolArgument>);
 
@@ -668,7 +668,7 @@ impl PlannedAction {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolRefKind {
     Message,
@@ -696,7 +696,7 @@ impl Display for ToolRefKind {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ToolRef {
     pub provider: ProviderKind,
     pub namespace: NamespaceId,
@@ -865,7 +865,7 @@ impl AuditEvent {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct OperationEffect {
     pub refs: Vec<ToolRef>,
     pub undoable: bool,

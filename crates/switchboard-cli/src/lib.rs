@@ -17,7 +17,8 @@ use switchboard_core::{
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
-    DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, MemoryOperationStore, SwitchboardConfig,
+    resolve_operation_store_path, DefaultPolicyEngine, LocalSecretResolver, MemoryAuditSink, SqliteOperationStore,
+    SwitchboardConfig,
 };
 
 #[cfg(test)]
@@ -36,12 +37,14 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
     let config = SwitchboardConfig::from_file(&config_path)?;
     let (namespaces, auth, secrets) = config.into_stores();
+    let operations = SqliteOperationStore::open(resolve_operation_store_path(&config_path))?;
 
     Ok(build_switchboard(
         Arc::new(namespaces),
         Arc::new(auth),
         Arc::new(secrets),
         Arc::new(LocalSecretResolver::default()),
+        Arc::new(operations),
     ))
 }
 
@@ -50,10 +53,10 @@ fn build_switchboard(
     auth: Arc<dyn AuthStore>,
     secrets: Arc<dyn SecretStore>,
     secret_resolver: Arc<dyn SecretResolver>,
+    operations: Arc<dyn switchboard_core::OperationStore>,
 ) -> Switchboard {
     let policy = Arc::new(DefaultPolicyEngine);
     let audit = Arc::new(MemoryAuditSink::default());
-    let operations = Arc::new(MemoryOperationStore::default());
     let adapters = default_registry();
 
     Switchboard::new(
@@ -1167,6 +1170,7 @@ mod tests {
             let gh_script = TempScript::new("gh-test", &render_github_script_template());
             env::set_var("SWITCHBOARD_GWS_BIN", gws_script.path());
             env::set_var("SWITCHBOARD_GH_BIN", gh_script.path());
+            env::set_var("SWITCHBOARD_STATE_DIR", directory.join("state"));
             let oauth_path = directory.join("google-personal-oauth.json");
             fs::write(&oauth_path, GOOGLE_PERSONAL_OAUTH_JSON).expect("oauth fixture should be written");
             let path = directory.join("switchboard.toml");
@@ -1204,6 +1208,7 @@ mod tests {
             env::remove_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET");
             env::remove_var("SWITCHBOARD_GWS_BIN");
             env::remove_var("SWITCHBOARD_GH_BIN");
+            env::remove_var("SWITCHBOARD_STATE_DIR");
             let _ = fs::remove_dir_all(&self.directory);
         }
     }

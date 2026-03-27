@@ -1,0 +1,24 @@
+[package]
+name = "momence-cli"
+description = "CLI for Momence member workflows, booking Pilates classes, and handling account tasks"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "momence_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "momence"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -72,15 +72,31 @@
         cargo = pkgs.rustToolchain;
         rustc = pkgs.rustToolchain;
       };
-    in {
-      zoo = naersk-lib.buildPackage {
-        pname = "switchboard";
-        version = "0.1.0";
-        release = true;
-        src = ./.;
+      buildCli = {
+        cargoPackage,
+        pname,
+      }:
+        naersk-lib.buildPackage {
+          inherit pname;
+          version = "0.1.0";
+          release = true;
+          src = ./.;
 
-        buildInputs = [pkgs.openssl pkgs.pkg-config];
+          cargoBuildOptions = options: options ++ ["-p" cargoPackage];
+          cargoTestOptions = options: options ++ ["-p" cargoPackage];
+
+          buildInputs = [pkgs.openssl pkgs.pkg-config];
+        };
+    in {
+      switchboard = buildCli {
+        cargoPackage = "switchboard-cli";
+        pname = "switchboard";
       };
+      momence = buildCli {
+        cargoPackage = "momence-cli";
+        pname = "momence";
+      };
+      zoo = self.packages.${system}.switchboard;
       default = self.packages.${system}.zoo;
     });
   };

@@ -307,9 +307,8 @@ mod tests {
         ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolRequest,
     };
 
-    use crate::cli::CliResponse;
-
     use super::decode_mail_search;
+    use crate::cli::CliResponse;
 
     #[test]
     fn mail_search_treats_empty_stdout_as_no_results() {

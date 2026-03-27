@@ -4,7 +4,6 @@ mod gmail;
 use switchboard_core::{Error, Result, ToolArguments};
 
 use crate::cli::{CliBinarySpec, CliCapabilityProbe};
-
 pub(crate) use crate::google::commands::{
     calendar::CALENDAR_LIST_COMMAND,
     gmail::{MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
