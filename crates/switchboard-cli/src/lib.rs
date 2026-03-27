@@ -60,15 +60,16 @@ where
 }
 
 fn run(cli: Cli) -> std::result::Result<String, RunError> {
+    let json_requested = cli.json_requested();
     let switchboard = default_switchboard().map_err(|error| RunError {
         message: error.to_string(),
-        json: cli.json_requested(),
+        json: json_requested,
     })?;
 
     match cli.command.into_runtime_command()? {
         CommandKind::NamespaceList => {
             let namespaces = switchboard.list_namespaces();
-            if cli.json_requested() {
+            if json_requested {
                 render_json(&NamespaceListResponse { namespaces }, true)
             } else {
                 Ok(render_namespaces_human(&namespaces))
@@ -77,10 +78,10 @@ fn run(cli: Cli) -> std::result::Result<String, RunError> {
         CommandKind::Tool(request) => {
             let outcome = switchboard.dispatch(request).map_err(|error| RunError {
                 message: error.to_string(),
-                json: cli.json_requested(),
+                json: json_requested,
             })?;
 
-            if cli.json_requested() {
+            if json_requested {
                 render_json_dispatch(&outcome)
             } else {
                 Ok(render_dispatch_human(&outcome))

@@ -406,6 +406,60 @@ Fail-closed rule:
 - if the event fields are incomplete, it should ask
 - if the request is a write, it should draft first instead of firing blindly
 
+Aggregate read rule:
+
+- one low-level tool invocation targets one namespace
+- one high-level user request may expand into multiple read invocations
+
+Example user request:
+
+> tell me everything on my agenda today
+
+That should mean:
+
+1. the model recognizes this as an aggregate calendar read
+1. the model resolves all allowed calendar namespaces, for example `google.work` and `google.personal`
+1. the model calls `google.calendar.list` once per namespace
+1. `switchboard` returns structured results for each namespace
+1. the model merges, sorts, and summarizes the events for the user
+
+```text
+User
+  |
+  | "tell me everything on my agenda today"
+  v
+Model
+  |
+  | decides:
+  | - intent = aggregate calendar read
+  | - namespaces = google.work + google.personal
+  v
+switchboard call #1
+  |
+  +--> google.calendar.list --ns google.work
+  v
+work events
+
+switchboard call #2
+  |
+  +--> google.calendar.list --ns google.personal
+  v
+personal events
+
+Model
+  |
+  +--> merge results
+  +--> sort by start time
+  +--> summarize for user
+  v
+agenda for today
+```
+
+Important:
+
+- aggregate fan-out is fine for reads
+- writes should still resolve to one namespace unless the user explicitly asks for multiple writes
+
 ## Initial provider surface
 
 ### GitHub
