@@ -10,13 +10,7 @@ use clap::{Args, Subcommand};
 use reqwest::{Method, Url};
 use serde_json::{json, Value};
 
-use crate::{
-    api_client, build_authorize_url, dedupe_preserving_order, default_patient_scopes, ensure_code_verifier,
-    ensure_json_success, expires_at_epoch_seconds, fetch_capability_summary, generate_nonce,
-    parse_oauth_token_response, split_scopes,
-    state::{ApiSessionState, ResolvedContext},
-    Error, Result,
-};
+pub(crate) use self::callback::redirect_uri_uses_loopback;
 use self::{
     callback::{
         launch_browser_for_authorization, loopback_bind_address, open_browser, parse_callback_input,
@@ -24,7 +18,13 @@ use self::{
     },
     dynamic_client::{exchange_dynamic_client_token, login_with_dynamic_client},
 };
-pub(crate) use self::callback::redirect_uri_uses_loopback;
+use crate::{
+    api_client, build_authorize_url, dedupe_preserving_order, default_patient_scopes, ensure_code_verifier,
+    ensure_json_success, expires_at_epoch_seconds, fetch_capability_summary, generate_nonce,
+    parse_oauth_token_response, split_scopes,
+    state::{ApiSessionState, ResolvedContext},
+    Error, Result,
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct AuthCommand {

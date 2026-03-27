@@ -1,14 +1,36 @@
-use std::{collections::BTreeMap, env, io::IsTerminal, process::Command, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Mutex,
+};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
 
 use crate::secrets::{env_secret::normalize_secret, SecretBackend};
 
-#[derive(Default)]
 pub(super) struct OnePasswordSecretBackend {
     sessions: Mutex<BTreeMap<String, String>>,
     items: Mutex<BTreeMap<OnePasswordItemKey, BTreeMap<String, SecretString>>>,
+    session_cache_path: Option<PathBuf>,
+}
+
+impl Default for OnePasswordSecretBackend {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+impl OnePasswordSecretBackend {
+    pub(super) fn new(session_cache_path: Option<PathBuf>) -> Self {
+        Self {
+            sessions: Mutex::new(BTreeMap::new()),
+            items: Mutex::new(BTreeMap::new()),
+            session_cache_path,
+        }
+    }
 }
 
 impl SecretBackend for OnePasswordSecretBackend {
@@ -35,7 +57,7 @@ impl SecretBackend for OnePasswordSecretBackend {
             return Ok(value);
         }
 
-        let session = ensure_session(&secret.id, &self.sessions, account)?;
+        let session = ensure_session(&secret.id, &self.sessions, self.session_cache_path.as_deref(), account)?;
         match fetch_item_fields(&secret.id, &item_key, session.as_deref()) {
             Ok(fields) => {
                 cache_item_fields(&self.items, &item_key, &fields);
@@ -142,6 +164,12 @@ impl OnePasswordItemField {
     }
 }
 
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct SessionCacheFile {
+    #[serde(default)]
+    sessions: BTreeMap<String, String>,
+}
+
 fn fetch_item_fields(
     secret_ref: &SecretRef,
     item_key: &OnePasswordItemKey,
@@ -179,27 +207,38 @@ fn parse_item_fields(secret_ref: &SecretRef, output: &str) -> Result<BTreeMap<St
 fn ensure_session(
     secret_ref: &SecretRef,
     sessions: &Mutex<BTreeMap<String, String>>,
+    session_cache_path: Option<&Path>,
     account: &str,
 ) -> Result<Option<String>> {
-    if env::var("OP_BIOMETRIC_UNLOCK_ENABLED").unwrap_or_default() != "false" {
-        return Ok(None);
-    }
-
     if let Some(token) = cached_session(sessions, account) {
-        return Ok(Some(token));
+        if whoami(account, Some(&token))? {
+            return Ok(Some(token));
+        }
+        forget_session(sessions, session_cache_path, account);
     }
 
-    if whoami(account, None)? {
-        return Ok(env::var("OP_SESSION").ok().filter(|token| !token.trim().is_empty()));
+    if let Some(token) = cached_session_on_disk(session_cache_path, account) {
+        if whoami(account, Some(&token))? {
+            cache_session(sessions, session_cache_path, account, &token);
+            return Ok(Some(token));
+        }
+        forget_session(sessions, session_cache_path, account);
     }
 
-    if !std::io::stdin().is_terminal() {
-        return Err(Error::SecretResolution {
-            secret_ref: secret_ref.to_string(),
-            reason: format!("1Password account {account} is not signed in and no TTY is available for `op signin`"),
-        });
+    if let Some(token) = env_session() {
+        if whoami(account, Some(&token))? {
+            cache_session(sessions, session_cache_path, account, &token);
+            return Ok(Some(token));
+        }
     }
 
+    let token = sign_in(secret_ref, account)?;
+    cache_session(sessions, session_cache_path, account, &token);
+
+    Ok(Some(token))
+}
+
+fn sign_in(secret_ref: &SecretRef, account: &str) -> Result<String> {
     let output = op_command()
         .args(["signin", "--account", account, "--raw"])
         .output()
@@ -223,10 +262,7 @@ fn ensure_session(
         reason: format!("`op signin --account {account} --raw` produced non-UTF-8 output: {error}"),
     })?;
     let token = normalize_secret(secret_ref, token)?;
-    let token_value = token.expose().to_owned();
-    cache_session(sessions, account, &token_value);
-
-    Ok(Some(token_value))
+    Ok(token.expose().to_owned())
 }
 
 fn whoami(account: &str, session: Option<&str>) -> Result<bool> {
@@ -236,11 +272,11 @@ fn whoami(account: &str, session: Option<&str>) -> Result<bool> {
         command.env("OP_SESSION", session);
     }
 
-    let status = command
-        .status()
+    let output = command
+        .output()
         .map_err(|error| Error::Config(format!("failed to run `op whoami --account {account}`: {error}")))?;
 
-    Ok(status.success())
+    Ok(output.status.success())
 }
 
 fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>) -> Result<String> {
@@ -279,6 +315,10 @@ fn op_command() -> Command {
     }
 }
 
+fn env_session() -> Option<String> {
+    env::var("OP_SESSION").ok().filter(|token| !token.trim().is_empty())
+}
+
 fn cached_session(sessions: &Mutex<BTreeMap<String, String>>, account: &str) -> Option<String> {
     match sessions.lock() {
         Ok(sessions) => sessions.get(account).cloned(),
@@ -286,7 +326,12 @@ fn cached_session(sessions: &Mutex<BTreeMap<String, String>>, account: &str) -> 
     }
 }
 
-fn cache_session(sessions: &Mutex<BTreeMap<String, String>>, account: &str, token: &str) {
+fn cache_session(
+    sessions: &Mutex<BTreeMap<String, String>>,
+    session_cache_path: Option<&Path>,
+    account: &str,
+    token: &str,
+) {
     match sessions.lock() {
         Ok(mut sessions) => {
             sessions.insert(account.to_owned(), token.to_owned());
@@ -295,6 +340,74 @@ fn cache_session(sessions: &Mutex<BTreeMap<String, String>>, account: &str, toke
             poisoned.into_inner().insert(account.to_owned(), token.to_owned());
         }
     }
+
+    let _ = write_session_cache(session_cache_path, account, Some(token));
+}
+
+fn forget_session(sessions: &Mutex<BTreeMap<String, String>>, session_cache_path: Option<&Path>, account: &str) {
+    match sessions.lock() {
+        Ok(mut sessions) => {
+            sessions.remove(account);
+        }
+        Err(poisoned) => {
+            poisoned.into_inner().remove(account);
+        }
+    }
+
+    let _ = write_session_cache(session_cache_path, account, None);
+}
+
+fn cached_session_on_disk(session_cache_path: Option<&Path>, account: &str) -> Option<String> {
+    let cache = read_session_cache(session_cache_path?)?;
+    cache
+        .sessions
+        .get(account)
+        .cloned()
+        .filter(|token| !token.trim().is_empty())
+}
+
+fn read_session_cache(path: &Path) -> Option<SessionCacheFile> {
+    let contents = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&contents).ok()
+}
+
+fn write_session_cache(session_cache_path: Option<&Path>, account: &str, token: Option<&str>) -> std::io::Result<()> {
+    let Some(path) = session_cache_path else {
+        return Ok(());
+    };
+
+    let mut cache = read_session_cache(path).unwrap_or_default();
+    match token {
+        Some(token) if !token.trim().is_empty() => {
+            cache.sessions.insert(account.to_owned(), token.to_owned());
+        }
+        _ => {
+            cache.sessions.remove(account);
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let serialized = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
+    let temp_path = path.with_extension("tmp");
+    fs::write(&temp_path, serialized)?;
+    set_owner_only_permissions(&temp_path)?;
+    fs::rename(&temp_path, path)?;
+    set_owner_only_permissions(path)
+}
+
+#[cfg(unix)]
+fn set_owner_only_permissions(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_permissions(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn cached_item_field(
@@ -364,6 +477,7 @@ mod tests {
         path::PathBuf,
         process,
         sync::atomic::{AtomicU64, Ordering},
+        sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -371,6 +485,7 @@ mod tests {
 
     use super::{item_args, OnePasswordSecretBackend, SecretBackend};
 
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
     static TEMP_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
@@ -395,7 +510,11 @@ mod tests {
     }
 
     #[test]
-    fn resolves_multiple_fields_from_the_same_item_with_one_op_call() {
+    fn resolves_multiple_fields_from_the_same_item_with_one_item_get_call() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         let fixture = TempFixtureDir::new();
         let op_script = fixture.write_executable(
             "op",
@@ -403,7 +522,11 @@ mod tests {
 set -eu
 printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
 case " $* " in
+  *" whoami --account my.1password.com "*)
+    [ "${OP_SESSION-}" = "session-token" ]
+    ;;
   *" --format json "*)
+    [ "${OP_SESSION-}" = "session-token" ]
     cat <<'EOF'
 {"fields":[
   {"label":"username","value":"personal-client-id"},
@@ -423,7 +546,7 @@ esac
 
         let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
         let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
-        let _biometric_guard = EnvVarGuard::remove("OP_BIOMETRIC_UNLOCK_ENABLED");
+        let _op_session_guard = EnvVarGuard::set("OP_SESSION", "session-token".into());
 
         let backend = OnePasswordSecretBackend::default();
         let client_id_secret = ResolvedSecret::new(
@@ -458,9 +581,80 @@ esac
             fs::read_to_string(&log_path)
                 .expect("log should be readable")
                 .lines()
+                .filter(|line| line.contains("item get"))
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn persists_sessions_across_backend_instances() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s|%s\n' "${OP_SESSION-}" "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" signin --account my.1password.com --raw "*)
+    printf 'persisted-session\n'
+    ;;
+  *" whoami --account my.1password.com "*)
+    [ "${OP_SESSION-}" = "persisted-session" ]
+    ;;
+  *" --format json "*)
+    [ "${OP_SESSION-}" = "persisted-session" ]
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"personal-client-secret"}
+]}
+EOF
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let cache_path = fixture.path.join("onepassword-sessions.json");
+        let log_path = fixture.path.join("op.log");
+        fs::write(&log_path, "").expect("log file should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
+
+        let secret = ResolvedSecret::new(
+            "google_personal_client_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "gws cli".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let first = OnePasswordSecretBackend::new(Some(cache_path.clone()));
+        let second = OnePasswordSecretBackend::new(Some(cache_path.clone()));
+
+        let first_value = first.resolve(&secret).expect("first backend should resolve");
+        let second_value = second.resolve(&secret).expect("second backend should resolve");
+
+        assert_eq!(first_value.expose(), "personal-client-secret");
+        assert_eq!(second_value.expose(), "personal-client-secret");
+
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 1);
+        assert_eq!(log.lines().filter(|line| line.contains("whoami --account")).count(), 1);
+        assert!(fs::read_to_string(&cache_path)
+            .expect("cache file should exist")
+            .contains("persisted-session"));
     }
 
     struct TempFixtureDir {

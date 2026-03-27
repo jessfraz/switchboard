@@ -41,6 +41,11 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let policy = config.policy_engine();
     let (namespaces, auth, secrets) = config.into_stores();
     let state_db_path = resolve_operation_store_path(&config_path);
+    let one_password_session_cache = state_db_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("onepassword-sessions.json");
     let operations = SqliteOperationStore::open(&state_db_path).context("failed to open operation store")?;
     let audit = SqliteAuditStore::open(&state_db_path).context("failed to open audit store")?;
 
@@ -48,7 +53,9 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
         Arc::new(namespaces),
         Arc::new(auth),
         Arc::new(secrets),
-        Arc::new(LocalSecretResolver::default()),
+        Arc::new(LocalSecretResolver::with_one_password_session_cache(Some(
+            one_password_session_cache,
+        ))),
         Arc::new(policy),
         Arc::new(audit),
         Arc::new(operations),

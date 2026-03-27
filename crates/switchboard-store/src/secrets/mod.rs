@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 mod env_secret;
 mod file_secret;
 mod one_password;
@@ -15,11 +17,19 @@ pub struct LocalSecretResolver {
 
 impl Default for LocalSecretResolver {
     fn default() -> Self {
+        Self::with_one_password_session_cache(None)
+    }
+}
+
+impl LocalSecretResolver {
+    pub fn with_one_password_session_cache(one_password_session_cache_path: Option<PathBuf>) -> Self {
         Self {
             backends: vec![
                 Box::new(env_secret::EnvSecretBackend),
                 Box::new(file_secret::FileSecretBackend),
-                Box::new(one_password::OnePasswordSecretBackend::default()),
+                Box::new(one_password::OnePasswordSecretBackend::new(
+                    one_password_session_cache_path,
+                )),
             ],
         }
     }
