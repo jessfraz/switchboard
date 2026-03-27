@@ -9,7 +9,10 @@ use switchboard_core::{
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
     github::{
-        commands::{ISSUE_READ_COMMAND, NOTIFICATIONS_COMMAND, PULL_REQUEST_READ_COMMAND, PULL_REQUEST_SEARCH_COMMAND},
+        commands::{
+            ISSUE_READ_COMMAND, NOTIFICATIONS_COMMAND, PULL_REQUEST_READ_COMMAND, PULL_REQUEST_SEARCH_COMMAND,
+            RAW_READ_COMMAND, RAW_WRITE_COMMAND,
+        },
         materializer::DefaultGitHubCliMaterializer,
     },
 };
@@ -57,9 +60,23 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "Search repositories",
         backend: BackendKind::Cli,
     },
+    ToolDescriptor {
+        name: "github.cli.read",
+        kind: ToolKind::Read,
+        summary: "Run a raw GitHub CLI read command",
+        backend: BackendKind::Cli,
+    },
+    ToolDescriptor {
+        name: "github.cli.write",
+        kind: ToolKind::Write,
+        summary: "Run a raw GitHub CLI write command",
+        backend: BackendKind::Cli,
+    },
 ];
 
 const COMMANDS: &[&CliCommandSpec] = &[
+    &RAW_READ_COMMAND,
+    &RAW_WRITE_COMMAND,
     &NOTIFICATIONS_COMMAND,
     &PULL_REQUEST_SEARCH_COMMAND,
     &PULL_REQUEST_READ_COMMAND,
@@ -159,15 +176,15 @@ impl Adapter for GitHubAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+        if let Some(command) = Self::find_command(action.tool.as_str()) {
+            return self.backend.execute(target, action, command);
+        }
+
         if matches!(action.kind, ToolKind::Write) {
             return Err(Error::NotImplemented(format!(
                 "{} apply path is not wired to GitHub yet",
                 action.tool
             )));
-        }
-
-        if let Some(command) = Self::find_command(action.tool.as_str()) {
-            return self.backend.execute(target, action, command);
         }
 
         Ok(Self::stub_output(target, action))
@@ -204,6 +221,10 @@ mod tests {
     const ISSUE_READ_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-issue-read.json"
+    ));
+    const REPO_VIEW_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-repo-view.json"
     ));
     const GITHUB_SCRIPT_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -399,12 +420,62 @@ mod tests {
         assert!(captured.contains("ARGV=issue view 77 --repo openai/codex --json"));
     }
 
+    #[test]
+    fn raw_cli_read_executes_arbitrary_gh_command() {
+        let _env_guard = lock_env();
+        let script = TempScript::new("gh-test", &render_github_script());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
+
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.cli.read",
+            "github.personal",
+            ExecutionMode::Auto,
+            vec![ToolArgument::option(
+                "argv-json",
+                serde_json::json!(["repo", "view", "openai/codex", "--json", "name,owner,isPrivate"]).to_string(),
+            )
+            .expect("option should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output
+                .fields
+                .get("response")
+                .and_then(|response| response.get("name"))
+                .and_then(Value::as_str),
+            Some("codex")
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("response")
+                .and_then(|response| response.get("owner"))
+                .and_then(|owner| owner.get("login"))
+                .and_then(Value::as_str),
+            Some("openai")
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=repo view openai/codex --json name,owner,isPrivate"));
+    }
+
     fn render_github_script() -> String {
         GITHUB_SCRIPT_TEMPLATE
             .replace("__NOTIFICATIONS_FIXTURE__", NOTIFICATIONS_FIXTURE)
             .replace("__PR_SEARCH_FIXTURE__", PR_SEARCH_FIXTURE)
             .replace("__PR_READ_FIXTURE__", PR_READ_FIXTURE)
             .replace("__ISSUE_READ_FIXTURE__", ISSUE_READ_FIXTURE)
+            .replace("__REPO_VIEW_FIXTURE__", REPO_VIEW_FIXTURE)
     }
 
     fn planning_target() -> PlanningTarget {

@@ -1,0 +1,8 @@
+{
+  "name": "codex",
+  "owner": {
+    "login": "openai"
+  },
+  "isPrivate": false,
+  "description": "OpenAI Codex"
+}

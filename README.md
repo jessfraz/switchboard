@@ -355,8 +355,15 @@ Examples:
 - `google.calendar.list`
 - `google.calendar.create`
 - `google.drive.search`
+- `github.cli.read`
+- `github.cli.write`
+- `google.cli.read`
+- `google.cli.write`
 
 All write tools should support `--plan`, `--draft`, or both.
+
+Curated tools are the nice normalized layer.
+Raw `*.cli.read` and `*.cli.write` tools are the coverage layer, they let the model reach the full underlying CLI surface immediately while still staying inside namespace resolution, auth isolation, policy, and audit.
 
 ## Operation lifecycle
 

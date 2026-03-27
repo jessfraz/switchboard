@@ -1,6 +1,7 @@
 mod command;
 mod executor;
 mod locator;
+pub(crate) mod passthrough;
 mod probe;
 mod runtime;
 

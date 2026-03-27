@@ -970,6 +970,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-gmail-read.json"
     ));
+    const GOOGLE_GMAIL_DRAFT_CREATE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-gmail-draft-create.json"
+    ));
     const GOOGLE_CALENDAR_CREATE_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-calendar-create.json"
@@ -989,6 +993,10 @@ mod tests {
     const GITHUB_ISSUE_READ_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-issue-read.json"
+    ));
+    const GITHUB_REPO_VIEW_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-repo-view.json"
     ));
     const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1158,6 +1166,38 @@ mod tests {
         assert_eq!(value["status"], "executed");
         assert_eq!(value["effect"]["undoable"], true);
         assert_eq!(value["refs"][0]["kind"], "event");
+    }
+
+    #[test]
+    fn raw_google_cli_write_accepts_argv_json_and_executes() {
+        let environment = TestEnvironment::with_config_template(ALLOW_WRITES_CONFIG_TEMPLATE);
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "google.cli.write",
+            "--ns",
+            "google.work",
+            "--argv-json",
+            r#"["gmail","users","drafts","create","--params","{\"userId\":\"me\"}","--json","{\"message\":{\"raw\":\"SGVsbG8sIHdvcmxkIQ==\"}}","--format","json"]"#,
+            "--apply",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("raw cli write should execute");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "executed");
+        assert_eq!(value["tool"], "google.cli.write");
+        assert_eq!(value["fields"]["response"]["id"], "draft-1960work");
+        assert!(
+            environment
+                .gws_capture_contents()
+                .contains("ARGV=gmail users drafts create --params {\"userId\":\"me\"}"),
+            "expected raw gws argv to reach the provider backend"
+        );
     }
 
     #[test]
@@ -1583,6 +1623,7 @@ mod tests {
             .replace("__AGENDA_FIXTURE__", GOOGLE_CALENDAR_AGENDA_FIXTURE)
             .replace("__GMAIL_TRIAGE_FIXTURE__", GOOGLE_GMAIL_TRIAGE_FIXTURE)
             .replace("__GMAIL_READ_FIXTURE__", GOOGLE_GMAIL_READ_FIXTURE)
+            .replace("__GMAIL_DRAFT_CREATE_FIXTURE__", GOOGLE_GMAIL_DRAFT_CREATE_FIXTURE)
             .replace("__CALENDAR_CREATE_FIXTURE__", GOOGLE_CALENDAR_CREATE_FIXTURE)
     }
 
@@ -1592,5 +1633,6 @@ mod tests {
             .replace("__PR_SEARCH_FIXTURE__", GITHUB_PR_SEARCH_FIXTURE)
             .replace("__PR_READ_FIXTURE__", GITHUB_PR_READ_FIXTURE)
             .replace("__ISSUE_READ_FIXTURE__", GITHUB_ISSUE_READ_FIXTURE)
+            .replace("__REPO_VIEW_FIXTURE__", GITHUB_REPO_VIEW_FIXTURE)
     }
 }

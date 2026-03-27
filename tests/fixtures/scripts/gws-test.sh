@@ -4,6 +4,11 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 
+if [ "$1" = "--help" ]; then
+  echo 'gws help'
+  exit 0
+fi
+
 if [ "$1" = "calendar" ] && [ "$2" = "--help" ]; then
   echo 'calendar help'
   exit 0
@@ -84,6 +89,22 @@ ARGV=$*
 EOF
   cat <<'JSON'
 __GMAIL_READ_FIXTURE__
+JSON
+  exit 0
+fi
+
+if [ "$1" = "gmail" ] && [ "$2" = "users" ] && [ "$3" = "drafts" ] && [ "$4" = "create" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__GMAIL_DRAFT_CREATE_FIXTURE__
 JSON
   exit 0
 fi

@@ -1,5 +1,6 @@
 mod calendar;
 mod gmail;
+mod raw;
 
 use switchboard_core::{Error, Result, ToolArguments};
 
@@ -7,6 +8,7 @@ use crate::cli::{CliBinarySpec, CliCapabilityProbe};
 pub(crate) use crate::google::commands::{
     calendar::{CALENDAR_CREATE_COMMAND, CALENDAR_LIST_COMMAND},
     gmail::{MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
+    raw::{RAW_READ_COMMAND, RAW_WRITE_COMMAND},
 };
 
 pub(crate) const GWS_BINARY: CliBinarySpec = CliBinarySpec {
@@ -18,6 +20,11 @@ pub(crate) const GWS_BINARY: CliBinarySpec = CliBinarySpec {
 pub(crate) const GWS_CALENDAR_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
     name: "calendar_agenda",
     args: &["calendar", "--help"],
+};
+
+pub(crate) const GWS_BASE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
+    name: "gws_help",
+    args: &["--help"],
 };
 
 pub(crate) const GWS_CALENDAR_INSERT_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {

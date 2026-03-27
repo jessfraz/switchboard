@@ -1,0 +1,26 @@
+[package]
+name = "mindbody-cli"
+description = "CLI for booking Pilates classes and handling Mindbody member workflows"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "mindbody_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mindbody"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

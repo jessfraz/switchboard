@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/mychart-cli",
+    "crates/mindbody-cli",
     "crates/momence-cli",
     "crates/switchboard-cli",
     "crates/switchboard-core",

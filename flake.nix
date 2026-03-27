@@ -96,6 +96,10 @@
         cargoPackage = "mychart-cli";
         pname = "mychart";
       };
+      mindbody = buildCli {
+        cargoPackage = "mindbody-cli";
+        pname = "mindbody";
+      };
       momence = buildCli {
         cargoPackage = "momence-cli";
         pname = "momence";

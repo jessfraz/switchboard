@@ -4,6 +4,11 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 
+if [ "$1" = "--help" ]; then
+  echo 'gh help'
+  exit 0
+fi
+
 if [ "$1" = "api" ] && [ "$2" = "--help" ]; then
   echo 'api help'
   exit 0
@@ -76,6 +81,20 @@ ARGV=$*
 EOF
   cat <<'JSON'
 __ISSUE_READ_FIXTURE__
+JSON
+  exit 0
+fi
+
+if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+GH_CONFIG_DIR=$GH_CONFIG_DIR
+GH_TOKEN=$GH_TOKEN
+GITHUB_TOKEN=$GITHUB_TOKEN
+ARGV=$*
+---
+EOF
+  cat <<'JSON'
+__REPO_VIEW_FIXTURE__
 JSON
   exit 0
 fi

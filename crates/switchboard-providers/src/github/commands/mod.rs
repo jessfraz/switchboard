@@ -1,6 +1,7 @@
 mod issues;
 mod notifications;
 mod pull_requests;
+mod raw;
 
 use switchboard_core::{Error, Result, ToolArguments};
 
@@ -9,6 +10,7 @@ pub(crate) use crate::github::commands::{
     issues::ISSUE_READ_COMMAND,
     notifications::NOTIFICATIONS_COMMAND,
     pull_requests::{PULL_REQUEST_READ_COMMAND, PULL_REQUEST_SEARCH_COMMAND},
+    raw::{RAW_READ_COMMAND, RAW_WRITE_COMMAND},
 };
 
 pub(crate) const GH_BINARY: CliBinarySpec = CliBinarySpec {
@@ -20,6 +22,11 @@ pub(crate) const GH_BINARY: CliBinarySpec = CliBinarySpec {
 pub(crate) const GH_API_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
     name: "gh_api",
     args: &["api", "--help"],
+};
+
+pub(crate) const GH_BASE_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
+    name: "gh_help",
+    args: &["--help"],
 };
 
 pub(crate) const GH_PR_SEARCH_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {

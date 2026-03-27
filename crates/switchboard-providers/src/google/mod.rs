@@ -9,7 +9,10 @@ use switchboard_core::{
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
     google::{
-        commands::{CALENDAR_CREATE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND},
+        commands::{
+            CALENDAR_CREATE_COMMAND, CALENDAR_LIST_COMMAND, MAIL_READ_COMMAND, MAIL_SEARCH_COMMAND, RAW_READ_COMMAND,
+            RAW_WRITE_COMMAND,
+        },
         materializer::DefaultGoogleWorkspaceCliMaterializer,
     },
 };
@@ -57,9 +60,23 @@ const TOOLS: &[ToolDescriptor] = &[
         summary: "Search Drive files",
         backend: BackendKind::Cli,
     },
+    ToolDescriptor {
+        name: "google.cli.read",
+        kind: ToolKind::Read,
+        summary: "Run a raw Google Workspace CLI read command",
+        backend: BackendKind::Cli,
+    },
+    ToolDescriptor {
+        name: "google.cli.write",
+        kind: ToolKind::Write,
+        summary: "Run a raw Google Workspace CLI write command",
+        backend: BackendKind::Cli,
+    },
 ];
 
 const COMMANDS: &[&CliCommandSpec] = &[
+    &RAW_READ_COMMAND,
+    &RAW_WRITE_COMMAND,
     &MAIL_SEARCH_COMMAND,
     &MAIL_READ_COMMAND,
     &CALENDAR_LIST_COMMAND,
@@ -194,6 +211,10 @@ mod tests {
     const GMAIL_READ_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/google-gmail-read.json"
+    ));
+    const GMAIL_DRAFT_CREATE_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/google-gmail-draft-create.json"
     ));
     const CALENDAR_CREATE_FIXTURE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -408,6 +429,67 @@ mod tests {
         assert!(captured.contains("--attendee alice@example.com --attendee bob@example.com --meet"));
     }
 
+    #[test]
+    fn raw_cli_write_executes_arbitrary_gws_command() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![ToolArgument::option(
+                "argv-json",
+                serde_json::json!([
+                    "gmail",
+                    "users",
+                    "drafts",
+                    "create",
+                    "--params",
+                    "{\"userId\":\"me\"}",
+                    "--json",
+                    "{\"message\":{\"raw\":\"SGVsbG8sIHdvcmxkIQ==\"}}",
+                    "--format",
+                    "json"
+                ])
+                .to_string(),
+            )
+            .expect("option should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output
+                .fields
+                .get("response")
+                .and_then(|response| response.get("id"))
+                .and_then(Value::as_str),
+            Some("draft-1960work")
+        );
+        assert_eq!(
+            output
+                .fields
+                .get("argv")
+                .and_then(Value::as_array)
+                .map(|argv| argv.len()),
+            Some(10)
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=gmail users drafts create --params {\"userId\":\"me\"}"));
+        assert!(captured.contains("--json {\"message\":{\"raw\":\"SGVsbG8sIHdvcmxkIQ==\"}} --format json"));
+    }
+
     fn google_test_script() -> TempScript {
         TempScript::new("gws-test", &render_google_script())
     }
@@ -417,6 +499,7 @@ mod tests {
             .replace("__AGENDA_FIXTURE__", AGENDA_FIXTURE)
             .replace("__GMAIL_TRIAGE_FIXTURE__", GMAIL_TRIAGE_FIXTURE)
             .replace("__GMAIL_READ_FIXTURE__", GMAIL_READ_FIXTURE)
+            .replace("__GMAIL_DRAFT_CREATE_FIXTURE__", GMAIL_DRAFT_CREATE_FIXTURE)
             .replace("__CALENDAR_CREATE_FIXTURE__", CALENDAR_CREATE_FIXTURE)
     }
 
