@@ -98,22 +98,9 @@ impl GoogleWorkspaceAdapter {
         }
 
         let summary = match request.tool.as_str() {
-            "google.mail.search" => {
-                let query = Self::required_arg(request, "query")?;
-                format!("Search Gmail in {} for {query:?}", namespace.id)
-            }
-            "google.mail.read" => {
-                let message_id = Self::required_arg(request, "message-id")?;
-                format!("Read Gmail message {message_id}")
-            }
             "google.mail.draft" | "google.mail.send" => {
                 let to = Self::required_arg(request, "to")?;
                 format!("Draft email to {to} from {}", namespace.id)
-            }
-            "google.calendar.create" => {
-                let title = Self::required_arg(request, "title")?;
-                let start = Self::required_arg(request, "start")?;
-                format!("Draft calendar event {title:?} starting at {start}")
             }
             "google.drive.search" => {
                 let query = Self::required_arg(request, "query")?;

@@ -464,7 +464,7 @@ Example draft result:
   "status": "planned",
   "tool": "google.calendar.create",
   "namespace": "google.personal",
-  "summary": "Draft calendar event \"Dinner with Sam\" starting at 2026-03-30T19:00:00-07:00",
+  "summary": "Draft calendar event \"Dinner with Sam\" starting at 2026-03-30T19:00:00-07:00 for google.personal",
   "backend": "cli",
   "operation_id": "op_7f0b6e6c0cf54d7f8d1baf1d0d7a4abc",
   "approval_required": true,
@@ -483,6 +483,9 @@ switchboard google.calendar.create \
   --apply \
   --json
 ```
+
+Today, that second call still remains planned until approval state exists in the product.
+The important part is that the operation already has a durable ID and the execution path can return an undoable receipt once the approval layer is real.
 
 Fail-closed rule:
 

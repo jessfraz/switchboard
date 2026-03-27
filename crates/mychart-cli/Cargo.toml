@@ -1,0 +1,24 @@
+[package]
+name = "mychart-cli"
+description = "CLI for UCLA Health MyChart auth flows and authenticated portal requests"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "mychart_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mychart"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

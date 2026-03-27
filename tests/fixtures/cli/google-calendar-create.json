@@ -1,0 +1,28 @@
+{
+  "id": "event-1960budgetwork",
+  "status": "confirmed",
+  "summary": "Budget review",
+  "description": "Review the Q2 budget plan",
+  "location": "Conference Room B",
+  "htmlLink": "https://calendar.google.com/calendar/event?eid=event-1960budgetwork",
+  "hangoutLink": "https://meet.google.com/abc-defg-hij",
+  "start": {
+    "dateTime": "2026-03-30T15:00:00-07:00"
+  },
+  "end": {
+    "dateTime": "2026-03-30T15:30:00-07:00"
+  },
+  "organizer": {
+    "email": "primary"
+  },
+  "attendees": [
+    {
+      "email": "alice@example.com",
+      "responseStatus": "needsAction"
+    },
+    {
+      "email": "bob@example.com",
+      "responseStatus": "accepted"
+    }
+  ]
+}
