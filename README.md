@@ -2,319 +2,249 @@
 
 Rust-first, model-agnostic local automation plane.
 
+Stable CLI contract, explicit namespaces, safe writes, audit trail.
+
 ## What this is
 
-`switchboard` is a local-first Rust daemon and CLI that exposes trusted, auditable automation tools for:
+`switchboard` is a local CLI, with an optional local daemon, that gives humans, scripts, and models a boring way to do useful work across:
 
-- multiple Google accounts
-- multiple Slack workspaces
-- Ramp
 - GitHub
-- iMessage
-- WhatsApp
-- future internal/work tools
-- future wrapper integrations for services that do not yet have proper tooling
+- Google Workspace
 
-The intent is **not** to build another chat UI or another agent shell.
+The point is not to build another chat UI.
+The point is not to build another agent shell.
 
-The intent is to build a **boring, trustworthy backend** that any model can use through a CLI contract.
+The point is to build the trust layer those tools are usually missing:
+
+- account isolation
+- explicit authority
+- draft-first writes
+- approvals
+- auditability
+- backend swapability without changing the command contract
 
 Codex is the preferred operator today.
 Claude should work too.
-Anything else that can execute a CLI and read structured output should work too.
+Humans and shell scripts should work just fine.
+
+## What we are building first
+
+V1 is intentionally narrow.
+
+Start with:
+
+- GitHub cloud-state workflows
+- Google Workspace workflows
+- local namespaces
+- draft and approval flows
+- audit logging
+
+Do not start with:
+
+- Slack
+- Ramp
+- iMessage
+- WhatsApp
+- browser bridges
+- "universal everything bus" nonsense
+
+Those can come later if the core is good.
+Right now the job is to ship something real, sharp, and trustworthy.
 
 ## Core thesis
 
-The stable interface should be a **CLI**, not a chat protocol.
+The durable interface should be a CLI, not a chat protocol.
 
 Why:
 
-- CLIs are durable
-- CLIs compose well with shells, scripts, agents, cron, and humans
+- CLIs compose with humans, scripts, cron, and models
 - CLIs are easy to inspect, test, replay, and debug
 - CLIs do not care which model is calling them
-- MCP can be added later as a thin compatibility shim if ever needed
+- CLIs survive ecosystem churn better than model-specific glue
+- MCP can exist later as a shim, it should not be the center of the design
 
-So the architecture should optimize for:
+```text
+           Models / Humans / Scripts / Cron
+                        |
+                        | shell out
+                        v
+              +----------------------+
+              |     switchboard      |
+              |   stable CLI contract|
+              +----------------------+
+                        |
+                        v
+              +----------------------+
+              |   local trust layer  |
+              | ns + policy + audit  |
+              +----------------------+
+                        |
+             +----------+----------+
+             |                     |
+             v                     v
+      GitHub backend         Google backend
+```
 
-- `switchboard` as the primary interface
-- structured JSON output
-- explicit namespaces
-- safe writes
-- auditability
-- pluggable provider backends
+If a model vendor changes strategy next month, fine.
+The CLI survives.
 
-Not for:
+## The real problem
 
-- model-specific SDK glue
-- MCP-first design
-- provider-specific prompt magic
+Most agent setups are fine at reasoning and bad at authority boundaries.
 
-## Why this exists
+The actual hard parts are:
 
-Most agent setups are fine at reasoning and bad at trust boundaries.
+- separating work and personal identities
+- handling multiple accounts cleanly
+- keeping credentials out of prompt soup
+- making writes explicit
+- generating a real audit trail
+- swapping ugly temporary integrations out later without breaking the surface
 
-The real hard problems are:
-
-- separating work and personal identities cleanly
-- handling multiple accounts per provider
-- using the same tools from Codex, Claude, or anything else
-- keeping secrets out of prompt soup
-- making writes safe and explicit
-- producing a real audit trail
-- supporting ugly services that have no real CLI or API yet
-- replacing temporary hacks cleanly when native integrations arrive
-
-This project solves that layer.
-
-## Design goals
-
-1. **Rust-native**
-
-   - No JS daemon as the core control plane.
-   - Lean on Rust for correctness, typing, concurrency, and fewer haunted dependency trees.
-
-1. **Model-agnostic**
-
-   - Any model that can call a CLI can use Switchboard.
-   - Codex is preferred today.
-   - Claude should work.
-   - Future agents should work without architectural changes.
-
-1. **CLI-first**
-
-   - The CLI is the product surface.
-   - The daemon backs the CLI.
-   - JSON in, JSON out.
-   - MCP is optional and non-core.
-
-1. **Local-first**
-
-   - Runs on the user’s machine or a user-owned box.
-   - Secrets stay local by default.
-   - No vendor relay required.
-
-1. **Multi-account by design**
-
-   - Multiple Google accounts.
-   - Multiple Slack workspaces.
-   - Multiple identities per provider.
-   - No “sent from the wrong account” nonsense.
-
-1. **Safe writes**
-
-   - Every outbound or destructive action goes through explicit planning and approval.
-   - Draft-first by default.
-   - Dry-run first.
-
-1. **Auditable**
-
-   - Every tool call gets logged with actor, namespace, action, arguments hash, approval state, and result.
-
-1. **Replaceable backends**
-
-   - Start with whatever works.
-   - Prefer native CLIs where available.
-   - Fall back to direct APIs.
-   - Fall back to browser or OS automation where necessary.
-   - Replace temporary adapters later without breaking the user-facing CLI contract.
-
-1. **Boring over clever**
-
-   - Prefer explicit routing and typed tools over “AI figures it out.”
-   - The model should not infer hidden authority.
+The product is not "AI does tasks."
+The product is "automation with sane trust boundaries."
 
 ## Non-goals
 
 - building a new agent shell
 - replacing Codex, Claude, or ChatGPT
 - forcing everything through MCP
-- pretending all services have clean APIs
-- pretending iMessage or WhatsApp are normal stable developer platforms
-- building a cloud sync product in v1
+- shipping browser automation in v1
+- pretending every provider has a clean API
+- building cloud sync in v1
 
 ## Mental model
 
-- **Model** = operator
-- **Switchboard CLI** = stable control surface
-- **Switchboard daemon** = local trust boundary and execution engine
-- **Adapters** = provider-specific backends
-- **Namespaces** = account isolation
-- **Policies** = safety rules
-- **Approvals** = human confirmation for writes
-
-## High-level architecture
+- `switchboard` CLI = product surface
+- local core = trust boundary
+- namespaces = account isolation
+- policies = authority rules
+- approvals = human confirmation for risky writes
+- adapters = provider-specific behavior
 
 ```text
-                ┌────────────────────────────────────┐
-                │   Codex / Claude / other models    │
-                │    or humans / scripts / cron      │
-                └────────────────┬───────────────────┘
-                                 │
-                                 │ shell out to CLI
-                                 v
-                ┌────────────────────────────────────┐
-                │            switchboard             │
-                │      human + agent-facing CLI      │
-                │      JSON output, stable verbs     │
-                └────────────────┬───────────────────┘
-                                 │
-                                 v
-                ┌────────────────────────────────────┐
-                │          switchboardd              │
-                │------------------------------------│
-                │ router                             │
-                │ policy engine                      │
-                │ approvals                          │
-                │ scheduler                          │
-                │ audit log                          │
-                │ namespace resolver                 │
-                │ adapter registry                   │
-                └───────────────┬────────────────────┘
-                                │
-             ┌──────────────────┼──────────────────┬───────────────────┐
-             │                  │                  │                   │
-             v                  v                  v                   v
-    ┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-    │ native CLI     │ │ direct API     │ │ browser bridge │ │ local OS node  │
-    │ adapters       │ │ adapters       │ │ adapters       │ │ adapters       │
-    └────────────────┘ └────────────────┘ └────────────────┘ └────────────────┘
+           one command
+               |
+               v
+    +------------------------+
+    | switchboard CLI        |
+    +------------------------+
+               |
+               v
+    +------------------------+
+    | switchboard core       |
+    |------------------------|
+    | namespace resolver     |
+    | policy engine          |
+    | planner                |
+    | audit recorder         |
+    +------------------------+
+          |             |
+          |             +----------------------+
+          |                                    |
+          v                                    v
+ +-------------------+                +------------------+
+ | github adapter    |                | google adapter   |
+ +-------------------+                +------------------+
+     |        |                           |         |
+     |        +--> GitHub API             |         +--> Google APIs
+     |
+     +--> gh
 ```
 
-## Integration strategy
+A long-running daemon is useful for approvals, auth refresh, caching, and background jobs.
+It is not the product.
+The product is still the CLI.
 
-Every service should be integrated through one of four backend types.
+## Core invariants
 
-### 1. Native CLI adapter
+1. Every command resolves to exactly one namespace.
+1. If namespace resolution is ambiguous, fail closed.
+1. Reads may use defaults.
+1. Writes should require explicit namespace unless a very strict safe default exists.
+1. Writes are plan or draft first.
+1. Outbound or destructive writes require approval by default.
+1. Every action gets audited.
+1. The user-facing command contract stays stable even if the backend changes.
 
-Use this whenever possible.
-
-Examples:
-
-- `gh`
-- future Google Workspace CLI
-- future Slack CLI if one exists
-- internal company CLIs
-
-Best properties:
-
-- easiest to debug
-- easiest to test manually
-- naturally model-agnostic
-- often already solves auth
-
-### 2. Direct API adapter
-
-Use when there is a sane API and no good CLI.
-
-Examples:
-
-- Ramp
-- GitHub cloud-state actions if `gh` is not enough
-- Google APIs when CLI support is incomplete
-- Slack API for advanced message/thread features
-
-### 3. Browser bridge adapter
-
-Use when the service is useful but has no CLI/API worth trusting.
-
-Examples:
-
-- WhatsApp personal
-- random SaaS admin panels
-- weird internal vendor dashboards
-- consumer tools with no public automation surface
-
-Important:
-
-- treat this as temporary or second-class
-- explicit approval for writes
-- brittle by definition
-
-### 4. Local OS node adapter
-
-Use when integration depends on a local signed-in device.
-
-Examples:
-
-- iMessage
-- local notifications
-- local app control
-- AppleScript / Shortcuts based automations
-
-Important:
-
-- separate failure model
-- not portable
-- best-effort only
-
-## Contract stability rule
-
-The user-facing command contract should stay stable even if the backend changes.
-
-Example:
-
-```bash
-switchboard google.mail.search --ns google.work --query 'from:billing'
-```
-
-That command should survive backend changes like:
-
-- direct Google API today
-- Google Workspace CLI tomorrow
-- official Google tool later
-
-Same for WhatsApp, Slack, or anything else.
-
-The adapter is replaceable.
-The command contract is the product.
-
-## Why not MCP-first
-
-MCP can still exist as a tiny shim if needed later.
-
-But it should not be the center of the design.
-
-Reasons:
-
-- CLI is simpler
-- CLI is more durable
-- CLI works with any model
-- CLI works with scripts and humans too
-- MCP lock-in is not worth architecting around
-- if a model ecosystem changes, the CLI survives
-
-So:
-
-- build CLI first
-- build daemon second
-- add MCP only if it becomes tactically useful
-- never make MCP the core abstraction
-
-## Account model
+## Namespaces
 
 Every provider identity is referenced through an explicit namespace.
 
 Examples:
 
+- `github.personal`
 - `google.work`
 - `google.personal`
-- `google.ops`
-- `slack.zoo`
-- `slack.community`
-- `slack.customer-success`
-- `ramp.zoo`
-- `github.jess`
-- `imessage.personal`
-- `whatsapp.personal`
 
-Rules:
+```text
+          same machine, different authority domains
 
-1. Every tool invocation must resolve to exactly one namespace.
-1. If ambiguous, fail closed.
-1. Reads may support default namespaces.
-1. Writes should require explicit namespace unless a strict safe default exists.
-1. Cross-account operations must be explicit.
+   +------------------+   +------------------+   +--------------------+
+   | github.personal  |   | google.work      |   | google.personal    |
+   | personal account |   | work mailbox     |   | personal mailbox   |
+   +------------------+   +------------------+   +--------------------+
+
+   A command must land in exactly one box.
+```
+
+Example config:
+
+```toml
+[namespace.github.personal]
+provider = "github"
+account = "jessfraz"
+auth = "gh"
+default_read = true
+
+[namespace.google.work]
+provider = "google"
+account = "jess@company.com"
+auth = "oauth"
+default_read = true
+
+[namespace.google.personal]
+provider = "google"
+account = "jess@example.com"
+auth = "oauth"
+default_read = false
+```
+
+The model should never infer hidden authority.
+If it wants to write, it should say where.
+
+GitHub may start single-account while Google starts multi-account.
+That is fine, keep the namespace contract consistent anyway.
+
+## Contract stability rule
+
+The command contract is the product.
+Backends are replaceable.
+
+Example:
+
+```bash
+switchboard google.mail.search --ns google.work --query 'from:billing newer_than:7d'
+```
+
+That command should survive backend changes like:
+
+- Google API today
+- Google Workspace CLI tomorrow
+- some better official tool later
+
+Same story for GitHub.
+
+```text
+ user command stays the same
+             |
+             v
+ switchboard google.mail.search --ns google.work ...
+             |
+             +--> backend A today
+             +--> backend B later
+             +--> backend C after that
+```
 
 ## Tool naming
 
@@ -326,23 +256,20 @@ Pattern:
 
 Examples:
 
+- `github.notifications.list`
+- `github.pull_request.read`
+- `github.issue.read`
+- `github.issue.comment`
+- `github.pull_request.comment`
 - `google.mail.search`
 - `google.mail.read`
 - `google.mail.draft`
 - `google.mail.send`
 - `google.calendar.list`
 - `google.calendar.create`
-- `slack.message.search`
-- `slack.thread.read`
-- `slack.message.draft`
-- `slack.message.send`
-- `ramp.transaction.search`
-- `github.notifications.list`
-- `github.pr.comment`
-- `imessage.message.send`
-- `whatsapp.message.send`
+- `google.drive.search`
 
-All write tools should support plan or draft mode.
+All write tools should support `--plan`, `--draft`, or both.
 
 ## Operation lifecycle
 
@@ -350,447 +277,318 @@ Every action follows the same shape:
 
 1. resolve namespace
 1. load auth context
-1. choose adapter backend
 1. validate policy
-1. generate plan
-1. show preview or draft
+1. plan the action
+1. preview or draft if needed
 1. require approval if needed
 1. execute
 1. audit
-1. return structured result
-
-The important bit is step 3:
-the same logical tool may execute through a native CLI, direct API, browser bridge, or local OS node.
-
-## Core components
-
-### `switchboard`
-
-Primary CLI interface.
-
-Responsibilities:
-
-- all human and model-facing commands
-- JSON output
-- bootstrap auth
-- inspect namespaces
-- inspect approvals
-- inspect audit records
-- direct execution against daemon
-
-### `switchboardd`
-
-Long-running local daemon.
-
-Responsibilities:
-
-- local RPC
-- adapter registry
-- namespace resolution
-- policy evaluation
-- approval queue
-- scheduling
-- audit persistence
-- caching
-- retries and backoff
-
-### `switchboard-types`
-
-Shared request/response types.
-
-### `switchboard-policy`
-
-Allow/deny/approval rules.
-
-### `switchboard-store`
-
-SQLite persistence.
-
-### `switchboard-auth`
-
-Credential loading and refresh.
-
-### `switchboard-audit`
-
-Audit event recording.
-
-### Adapter crates
-
-Examples:
-
-- `switchboard-google`
-- `switchboard-slack`
-- `switchboard-ramp`
-- `switchboard-github`
-- `switchboard-imessage-node`
-- `switchboard-whatsapp-node`
-
-### Backend driver crates
-
-Examples:
-
-- `switchboard-driver-cli`
-- `switchboard-driver-http`
-- `switchboard-driver-browser`
-- `switchboard-driver-localos`
-
-These are reusable execution primitives, not provider-specific tools.
-
-## Suggested Cargo workspace
+1. return structured output
 
 ```text
-switchboard/
-├─ Cargo.toml
-├─ crates/
-│  ├─ switchboard-types/
-│  ├─ switchboard-core/
-│  ├─ switchboard-cli/
-│  ├─ switchboard-daemon/
-│  ├─ switchboard-store/
-│  ├─ switchboard-auth/
-│  ├─ switchboard-policy/
-│  ├─ switchboard-audit/
-│  ├─ switchboard-scheduler/
-│  ├─ switchboard-driver-cli/
-│  ├─ switchboard-driver-http/
-│  ├─ switchboard-driver-browser/
-│  ├─ switchboard-driver-localos/
-│  ├─ switchboard-google/
-│  ├─ switchboard-slack/
-│  ├─ switchboard-ramp/
-│  ├─ switchboard-github/
-│  ├─ switchboard-imessage-node/
-│  └─ switchboard-whatsapp-node/
-└─ docs/
+READ PATH
+---------
+request -> resolve ns -> policy -> execute -> audit -> result
+
+WRITE PATH
+----------
+request -> resolve ns -> plan -> preview -> approval -> execute -> audit -> result
 ```
 
-## Internal interfaces
+The important bit is that planning and approval are first-class.
+The model does not get silent write authority just because it sounds confident.
 
-```rust
-pub trait Adapter: Send + Sync {
-    fn provider(&self) -> ProviderKind;
-    async fn capabilities(&self, ns: &Namespace) -> Result<Vec<Capability>>;
-    async fn plan(&self, ctx: &ToolContext, req: ToolRequest) -> Result<PlannedAction>;
-    async fn execute(&self, ctx: &ExecutionContext, plan: PlannedAction) -> Result<ToolResult>;
-}
+## Initial provider surface
 
-pub trait Driver: Send + Sync {
-    fn kind(&self) -> DriverKind;
-    async fn invoke(&self, req: DriverRequest) -> Result<DriverResponse>;
-}
+### GitHub
 
-pub trait PolicyEngine: Send + Sync {
-    async fn evaluate(&self, ctx: &PolicyContext, action: &PlannedAction) -> Result<PolicyDecision>;
-}
+Start with cloud-state workflows, not local git plumbing.
 
-pub trait AuditSink: Send + Sync {
-    async fn record(&self, event: AuditEvent) -> Result<()>;
-}
-```
+Initial read flows:
 
-Important split:
+- notifications list and inspect
+- pull request read
+- pull request files and checks
+- issue list and read
+- repository and PR search
 
-- **Adapters** know provider semantics
-- **Drivers** know how to execute via CLI, HTTP, browser, or local OS
+Initial write flows:
 
-That lets you swap backend strategy without rewriting the provider surface.
-
-## Provider strategy
-
-### Google
-
-Namespaces:
-
-- `google.work`
-- `google.personal`
-- `google.ops`
+- draft PR comment
+- submit PR comment after approval
+- draft issue comment
+- submit issue comment after approval
 
 Preferred backend order:
 
-1. native CLI when it is good enough
-1. direct API when needed
-1. never bake auth assumptions into the core
+1. `gh` for obvious flows
+1. GitHub API when `gh` is awkward or incomplete
 
-Support:
+Example commands:
+
+```bash
+switchboard github.notifications.list --ns github.work --json
+
+switchboard github.pull_request.read \
+  --ns github.personal \
+  --repo owner/repo \
+  --number 123 \
+  --json
+
+switchboard github.pull_request.comment \
+  --ns github.personal \
+  --repo owner/repo \
+  --number 123 \
+  --body 'I think this needs a regression test.' \
+  --draft \
+  --json
+```
+
+### Google Workspace
+
+Start with the boring, high-value stuff:
 
 - Gmail
 - Calendar
 - Drive
-- Docs
 
-### Slack
+Docs can come after the core flows are solid.
 
-Namespaces:
+Initial read flows:
 
-- `slack.zoo`
-- `slack.community`
-- `slack.partner`
+- mail search
+- mail read
+- calendar list
+- drive file search
 
-Preferred backend order:
+Initial write flows:
 
-1. native CLI if it ever exists
-1. direct API
-1. browser fallback only if absolutely necessary
-
-Support:
-
-- channel search
-- message search
-- thread read
-- draft reply
-- post reply
-
-### Ramp
-
-Namespaces:
-
-- `ramp.zoo`
+- draft email
+- send email after approval
+- draft calendar event
+- create calendar event after approval
 
 Preferred backend order:
 
-1. direct API
-1. browser fallback only for missing admin workflows
+1. direct Google APIs or official workspace tooling
+1. a provider-specific CLI if it becomes the better option later
 
-Start read-only.
+Example commands:
 
-### GitHub
+```bash
+switchboard google.mail.search \
+  --ns google.work \
+  --query 'from:finance newer_than:7d has:attachment' \
+  --json
 
-Namespaces:
+switchboard google.mail.read \
+  --ns google.work \
+  --message-id 18c7f6... \
+  --json
 
-- `github.jess`
-
-Preferred backend order:
-
-1. `gh` CLI for obvious flows
-1. direct API for anything `gh` does poorly
-
-Focus on cloud state, not local git plumbing.
-
-### iMessage
-
-Namespaces:
-
-- `imessage.personal`
-
-Preferred backend order:
-
-1. local OS node
-1. AppleScript / Shortcuts / local bridge
-
-This is a node integration, not a cloud API.
-
-### WhatsApp
-
-Namespaces:
-
-- `whatsapp.personal`
-
-Preferred backend order:
-
-1. business API if applicable
-1. browser bridge for personal use
-
-This should be treated as unstable and approval-heavy.
-
-## Services with no proper tools yet
-
-This matters a lot.
-
-Switchboard should explicitly support “temporary ugly integrations” without polluting the long-term architecture.
-
-Examples:
-
-- browser-only SaaS tools
-- internal dashboards
-- admin panels
-- consumer messaging products
-- vendor portals
-
-These should be integrated through a clear adapter status model:
-
-- `native`
-- `api`
-- `bridge`
-- `experimental`
-
-And every tool should be able to report its backend mode.
-
-Example output:
-
-```json
-{
-  "tool": "whatsapp.message.send",
-  "namespace": "whatsapp.personal",
-  "backend": "bridge",
-  "status": "experimental",
-  "approval_required": true
-}
+switchboard google.calendar.create \
+  --ns google.work \
+  --title 'Budget review' \
+  --start '2026-03-30T15:00:00-07:00' \
+  --end '2026-03-30T15:30:00-07:00' \
+  --draft \
+  --json
 ```
-
-That way the system tells the truth instead of pretending all integrations are equally trustworthy.
 
 ## Security model
 
-### Principles
+Principles:
 
 - least privilege
 - separate credentials per namespace
 - no raw tokens in prompts
 - no silent writes
 - local secret storage
-- explicit approvals for outbound or destructive actions
+- approval by default for risky writes
 - log redaction
 
-### Approval defaults
+Approval defaults:
 
-Reads:
+- reads are usually allowed and still logged
+- writes are previewed first
+- outbound or destructive actions require approval by default
 
-- usually allowed
-- still logged
+## Audit model
 
-Writes:
+Every tool call should emit an audit record.
 
-- draft or preview first
-- approval required by default
+Minimum useful fields:
 
-Experimental / bridge integrations:
+- timestamp
+- actor
+- namespace
+- tool
+- arguments hash
+- plan summary
+- approval state
+- backend used
+- result status
 
-- stricter approval
-- maybe human confirmation every time
+Example:
 
-## Execution model
-
-- Tokio runtime
-- one daemon
-- bounded concurrency
-- retries only when safe
-- idempotency keys for writes
-- structured JSON output for all commands
-- machine-readable errors
-- human-readable summaries as optional formatting layer
-
-## CLI examples
-
-```bash
-switchboard ns list --json
-
-switchboard google.mail.search \
-  --ns google.work \
-  --query 'from:billing newer_than:7d' \
-  --json
-
-switchboard slack.thread.read \
-  --ns slack.zoo \
-  --channel C123 \
-  --thread-ts 1712345678.1234 \
-  --json
-
-switchboard github.notifications.list \
-  --ns github.jess \
-  --json
-
-switchboard google.calendar.create \
-  --ns google.personal \
-  --title 'Dinner' \
-  --start '2026-03-30T19:00:00-07:00' \
-  --end '2026-03-30T21:00:00-07:00' \
-  --draft \
-  --json
-
-switchboard whatsapp.message.send \
-  --ns whatsapp.personal \
-  --to '+15551234567' \
-  --body 'Running 10 min late' \
-  --draft \
-  --json
+```json
+{
+  "timestamp": "2026-03-26T19:15:00-07:00",
+  "actor": "codex",
+  "namespace": "github.personal",
+  "tool": "github.pull_request.comment",
+  "arguments_hash": "sha256:...",
+  "plan_summary": "Draft comment on owner/repo#123",
+  "approval_state": "approved",
+  "backend": "gh",
+  "result": "ok"
+}
 ```
 
-## Model usage guidance
+If the system does something important, there should be a receipt.
 
-Codex may be the main operator today, but the tool should not know or care.
+## Output contract
 
-Expected use patterns:
+Commands should return structured JSON by default or with `--json`.
 
-- Codex shells out to `switchboard`
-- Claude shells out to `switchboard`
-- shell scripts shell out to `switchboard`
-- cron shells out to `switchboard`
-- humans shell out to `switchboard`
+Human-readable text can exist as a formatting layer, but JSON is the integration surface.
 
-The JSON contract is the integration surface.
+Example:
 
-## Suggested AGENTS.md
-
-```markdown
-- Use switchboard via CLI, not through a model-specific protocol.
-- Prefer explicit namespaces for all writes.
-- Prefer draft/plan mode before apply.
-- Never send outbound messages without approval.
-- Treat personal and work namespaces as separate security domains.
-- Prefer native CLI-backed adapters when available.
-- Use direct API adapters where CLI support is missing.
-- Use bridge adapters only when necessary, and treat them as less reliable.
-- Never print secrets or raw tokens.
-- Summarize side effects before apply.
+```json
+{
+  "tool": "google.mail.search",
+  "namespace": "google.work",
+  "items": [
+    {
+      "id": "18c7f6...",
+      "from": "finance@company.com",
+      "subject": "Q2 budget review",
+      "received_at": "2026-03-26T08:12:11-07:00"
+    }
+  ]
+}
 ```
 
-## Phase plan
+## Suggested workspace
 
-### Phase 0
+Do not over-split the codebase on day one.
+Start with a small number of crates and split when the seams become real.
 
-- workspace skeleton
-- CLI
-- daemon
+```text
+switchboard/
+├─ Cargo.toml
+├─ crates/
+│  ├─ switchboard-cli/
+│  ├─ switchboard-core/
+│  ├─ switchboard-store/
+│  ├─ switchboard-github/
+│  ├─ switchboard-google/
+│  └─ switchboard-daemon/
+└─ docs/
+```
+
+Possible responsibilities:
+
+- `switchboard-cli`: argument parsing, human-facing entrypoint, JSON formatting
+- `switchboard-core`: namespace resolution, policy, planning, approval hooks, shared types
+- `switchboard-store`: SQLite persistence, audit, config
+- `switchboard-github`: GitHub adapter
+- `switchboard-google`: Google Workspace adapter
+- `switchboard-daemon`: optional local RPC, approval queue, background jobs
+
+Keep the architecture honest.
+If a crate exists, it should solve a real boundary, not just look tidy in a tree view.
+
+## V1 success criteria
+
+V1 is successful if it can do these reliably:
+
+1. list what needs attention on GitHub for a work account
+1. list what needs attention on GitHub for a personal account
+1. search and read work email safely
+1. draft a GitHub comment and require approval before posting
+1. draft an email or calendar event and require approval before sending or creating
+1. keep personal and work namespaces from bleeding into each other
+1. produce an audit trail for everything that matters
+
+If it cannot do those things cleanly, adding more providers is just expanding the blast radius.
+
+## Rollout plan
+
+### Phase 0, core contract
+
+- CLI skeleton
 - namespace config
-- policy engine
-- approval queue
+- auth loading
+- SQLite store
 - audit log
-- JSON request/response types
+- shared JSON request and response types
+- policy and approval hooks
 
-### Phase 1
+### Phase 1, GitHub reads
 
-- driver layer
-  - CLI driver
-  - HTTP driver
-  - browser driver
-  - local OS driver
+- notifications
+- pull request read flows
+- issue read flows
+- repository and PR search
 
-### Phase 2
+### Phase 2, Google Workspace reads
 
-- GitHub
-- Google
+- Gmail search and read
+- Calendar list
+- Drive search
+
+### Phase 3, safe writes
+
+- GitHub comment draft and apply
+- Gmail draft and send
+- Calendar draft and create
+- approval UX that is not annoying
+
+### Phase 4, optional daemon extras
+
+- background jobs
+- auth refresh
+- caching
+- local approval UI if needed
+- optional MCP shim if it earns its keep
+
+### Phase 5, new providers
+
+Only after v1 is good:
+
 - Slack
-- Ramp read-only
+- Ramp
+- iMessage
+- WhatsApp
+- browser-backed internal tools
 
-### Phase 3
+## Later, if this works
 
-- safe write flows
-- approvals
-- draft/send split
-- adapter status reporting
+The architecture should make these possible later:
 
-### Phase 4
+- Slack
+- Ramp
+- local OS automations
+- ugly internal vendor tools
+- browser bridges for systems with no sane API
 
-- iMessage node
-- WhatsApp bridge
-- scheduler
-- recurring summaries / life-admin flows
+But those are follow-ons, not the current mission.
 
-### Phase 5
+```text
+now:
+  GitHub + Google Workspace + trust boundaries
 
-- optional MCP shim if useful
-- tiny local approval UI if needed
-- richer scheduling and replay tools
+later:
+  everything else, if deserved
+```
 
 ## Summary
 
-Build a Rust daemon and CLI, not an MCP-centric platform.
+Build a Rust-first local automation layer for GitHub and Google Workspace.
 Make the CLI the stable contract.
-Keep it model-agnostic.
-Prefer native CLIs when possible.
-Support direct APIs when needed.
-Support browser or OS bridges for missing tools.
-Replace ugly adapters later without breaking commands.
-Make namespaces explicit.
-Make writes safe.
-Make everything auditable.
+Keep namespaces explicit.
+Make writes draft-first and approval-heavy.
+Audit everything important.
+Ship the smallest version that is actually useful.
