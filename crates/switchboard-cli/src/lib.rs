@@ -680,6 +680,18 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-notifications.json"
     ));
+    const GITHUB_PR_SEARCH_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-pull-request-search.json"
+    ));
+    const GITHUB_PR_READ_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-pull-request-read.json"
+    ));
+    const GITHUB_ISSUE_READ_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-issue-read.json"
+    ));
     const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/scripts/gws-test.sh"
@@ -821,6 +833,66 @@ mod tests {
         assert_eq!(value["fields"]["message"]["gmail_thread_id"], "1960thread123work");
         assert_eq!(value["refs"][0]["kind"], "message");
         assert_eq!(value["refs"][1]["kind"], "thread");
+    }
+
+    #[test]
+    fn github_pull_request_search_returns_stable_refs() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "github.pull_request.search",
+            "--ns",
+            "github.personal",
+            "--query",
+            "is:open review-requested:@me",
+            "--repo",
+            "openai/codex",
+            "--limit",
+            "10",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "executed");
+        assert_eq!(value["tool"], "github.pull_request.search");
+        assert_eq!(value["fields"]["count"], 2);
+        assert_eq!(value["refs"][0]["kind"], "pull_request");
+        assert_eq!(value["refs"][0]["parent_id"], "openai/codex");
+    }
+
+    #[test]
+    fn github_issue_read_returns_stable_issue_refs() {
+        let environment = TestEnvironment::new();
+        let config_path = environment.path_string();
+        let cli = Cli::try_parse_from([
+            "switchboard",
+            "--config",
+            &config_path,
+            "github.issue.read",
+            "--ns",
+            "github.personal",
+            "--repo",
+            "openai/codex",
+            "--number",
+            "77",
+            "--json",
+        ])
+        .expect("cli should parse");
+
+        let output = run(cli).expect("command should run");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("output should be valid json");
+
+        assert_eq!(value["status"], "executed");
+        assert_eq!(value["tool"], "github.issue.read");
+        assert_eq!(value["fields"]["issue"]["number"], 77);
+        assert_eq!(value["refs"][0]["kind"], "issue");
+        assert_eq!(value["refs"][0]["parent_id"], "openai/codex");
     }
 
     #[test]
@@ -1103,6 +1175,10 @@ mod tests {
     }
 
     fn render_github_script_template() -> String {
-        GITHUB_SCRIPT_TEMPLATE.replace("__NOTIFICATIONS_FIXTURE__", GITHUB_NOTIFICATIONS_FIXTURE)
+        GITHUB_SCRIPT_TEMPLATE
+            .replace("__NOTIFICATIONS_FIXTURE__", GITHUB_NOTIFICATIONS_FIXTURE)
+            .replace("__PR_SEARCH_FIXTURE__", GITHUB_PR_SEARCH_FIXTURE)
+            .replace("__PR_READ_FIXTURE__", GITHUB_PR_READ_FIXTURE)
+            .replace("__ISSUE_READ_FIXTURE__", GITHUB_ISSUE_READ_FIXTURE)
     }
 }

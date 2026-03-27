@@ -1,0 +1,24 @@
+{
+  "id": "I_kwDOOpenAI77",
+  "number": 77,
+  "title": "Support stable refs in GitHub issue reads",
+  "body": "Issue reads should return refs the model can hand back into later calls.",
+  "state": "OPEN",
+  "stateReason": null,
+  "author": {
+    "login": "jessfraz"
+  },
+  "assignees": [
+    {
+      "login": "jessfraz"
+    }
+  ],
+  "labels": [
+    {
+      "name": "enhancement"
+    }
+  ],
+  "createdAt": "2026-03-22T09:20:00Z",
+  "updatedAt": "2026-03-26T20:11:00Z",
+  "url": "https://github.com/openai/codex/issues/77"
+}

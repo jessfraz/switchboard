@@ -1,19 +1,12 @@
 use serde_json::{json, Value};
 use switchboard_core::{
-    Error, ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolArguments, ToolOutput, ToolRequest,
+    Error, ExecutionTarget, NamespaceId, PlannedAction, ProviderKind, ResolvedNamespace, Result, ToolOutput, ToolRef,
+    ToolRefKind, ToolRequest,
 };
 
-use crate::cli::{CliBinarySpec, CliCapabilityProbe, CliCommandSpec, CliResponse};
-
-pub(crate) const GH_BINARY: CliBinarySpec = CliBinarySpec {
-    program: "gh",
-    env_override: Some("SWITCHBOARD_GH_BIN"),
-    version_args: &["--version"],
-};
-
-pub(crate) const GH_API_CAPABILITY: CliCapabilityProbe = CliCapabilityProbe {
-    name: "gh_api",
-    args: &["api", "--help"],
+use crate::{
+    cli::{CliCommandSpec, CliResponse},
+    github::commands::{append_query_bool, append_query_value, GH_API_CAPABILITY, GH_BINARY},
 };
 
 pub(crate) const NOTIFICATIONS_COMMAND: CliCommandSpec = CliCommandSpec {
@@ -58,13 +51,12 @@ fn decode_notifications(target: &ExecutionTarget, action: &PlannedAction, respon
             action.tool
         ))
     })?;
-    let notifications = value
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .map(simplify_notification)
-        .collect::<Vec<_>>();
+    let raw_notifications = value.as_array().cloned().unwrap_or_default();
+    let notifications = raw_notifications.iter().map(simplify_notification).collect::<Vec<_>>();
+    let refs = raw_notifications
+        .iter()
+        .filter_map(|notification| notification_ref(&action.namespace, notification))
+        .collect::<Result<Vec<_>>>()?;
     let count = notifications.len();
 
     let mut output = ToolOutput::new(
@@ -77,7 +69,8 @@ fn decode_notifications(target: &ExecutionTarget, action: &PlannedAction, respon
     .with_field("auth", target.auth.id.to_string())
     .with_field("cli_version", version)
     .with_value_field("count", json!(count))
-    .with_value_field("notifications", Value::Array(notifications));
+    .with_value_field("notifications", Value::Array(notifications))
+    .with_refs(refs);
 
     if !stderr.trim().is_empty() {
         output = output.with_field("cli_stderr", stderr);
@@ -86,7 +79,7 @@ fn decode_notifications(target: &ExecutionTarget, action: &PlannedAction, respon
     Ok(output)
 }
 
-fn simplify_notification(notification: Value) -> Value {
+fn simplify_notification(notification: &Value) -> Value {
     json!({
         "id": notification.get("id").cloned().unwrap_or(Value::Null),
         "unread": notification.get("unread").cloned().unwrap_or(Value::Null),
@@ -111,35 +104,27 @@ fn simplify_notification(notification: Value) -> Value {
     })
 }
 
-fn append_query_bool(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) -> Result<()> {
-    if arguments.has_flag(name) {
-        args.push("-F".to_owned());
-        args.push(format!("{name}=true"));
-        return Ok(());
-    }
+fn notification_ref(namespace: &NamespaceId, notification: &Value) -> Option<Result<ToolRef>> {
+    let id = notification.get("id")?.as_str()?;
+    let title = notification
+        .get("subject")
+        .and_then(|subject| subject.get("title"))
+        .and_then(Value::as_str);
+    let repository = notification
+        .get("repository")
+        .and_then(|repository| repository.get("full_name"))
+        .and_then(Value::as_str);
 
-    if let Some(value) = arguments.value(name) {
-        let value = parse_bool(name, value)?;
-        args.push("-F".to_owned());
-        args.push(format!("{name}={value}"));
-    }
-
-    Ok(())
-}
-
-fn append_query_value(args: &mut Vec<String>, arguments: &ToolArguments, name: &str) {
-    if let Some(value) = arguments.value(name) {
-        args.push("-F".to_owned());
-        args.push(format!("{name}={value}"));
-    }
-}
-
-fn parse_bool(name: &str, value: &str) -> Result<bool> {
-    match value {
-        "true" | "1" | "yes" => Ok(true),
-        "false" | "0" | "no" => Ok(false),
-        _ => Err(Error::InvalidArguments(format!(
-            "--{name} expects a boolean value, got {value:?}"
-        ))),
-    }
+    Some(
+        ToolRef::new(ProviderKind::GitHub, namespace.clone(), ToolRefKind::Notification, id).and_then(|tool_ref| {
+            let tool_ref = match repository.filter(|value| !value.trim().is_empty()) {
+                Some(repository) => tool_ref.with_parent_id(repository)?,
+                None => tool_ref,
+            };
+            match title.filter(|value| !value.trim().is_empty()) {
+                Some(title) => tool_ref.with_label(title),
+                None => Ok(tool_ref),
+            }
+        }),
+    )
 }

@@ -1,0 +1,31 @@
+{
+  "id": "PR_kwDOOpenAI1382",
+  "number": 1382,
+  "title": "Tighten agenda aggregation for personal + work calendars",
+  "body": "This threads stable refs all the way through aggregate reads.",
+  "state": "OPEN",
+  "isDraft": false,
+  "author": {
+    "login": "jessfraz"
+  },
+  "assignees": [
+    {
+      "login": "jessfraz"
+    }
+  ],
+  "labels": [
+    {
+      "name": "infra"
+    },
+    {
+      "name": "tooling"
+    }
+  ],
+  "baseRefName": "main",
+  "headRefName": "refs-everywhere",
+  "reviewDecision": "REVIEW_REQUIRED",
+  "mergeStateStatus": "BLOCKED",
+  "createdAt": "2026-03-24T17:00:00Z",
+  "updatedAt": "2026-03-26T18:30:00Z",
+  "url": "https://github.com/openai/codex/pull/1382"
+}

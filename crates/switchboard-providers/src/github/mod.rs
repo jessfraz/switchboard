@@ -8,7 +8,10 @@ use switchboard_core::{
 
 use crate::{
     cli::{CliCommandSpec, CliProviderBackend},
-    github::{commands::NOTIFICATIONS_COMMAND, materializer::DefaultGitHubCliMaterializer},
+    github::{
+        commands::{ISSUE_READ_COMMAND, NOTIFICATIONS_COMMAND, PULL_REQUEST_READ_COMMAND, PULL_REQUEST_SEARCH_COMMAND},
+        materializer::DefaultGitHubCliMaterializer,
+    },
 };
 
 const TOOLS: &[ToolDescriptor] = &[
@@ -56,7 +59,12 @@ const TOOLS: &[ToolDescriptor] = &[
     },
 ];
 
-const COMMANDS: &[&CliCommandSpec] = &[&NOTIFICATIONS_COMMAND];
+const COMMANDS: &[&CliCommandSpec] = &[
+    &NOTIFICATIONS_COMMAND,
+    &PULL_REQUEST_SEARCH_COMMAND,
+    &PULL_REQUEST_READ_COMMAND,
+    &ISSUE_READ_COMMAND,
+];
 
 pub struct GitHubAdapter {
     backend: CliProviderBackend,
@@ -90,24 +98,10 @@ impl GitHubAdapter {
         }
 
         let summary = match request.tool.as_str() {
-            "github.pull_request.read" => {
-                let repo = Self::required_arg(request, "repo")?;
-                let number = Self::required_arg(request, "number")?;
-                format!("Read pull request {repo}#{number}")
-            }
-            "github.pull_request.search" => {
-                let query = Self::required_arg(request, "query")?;
-                format!("Search GitHub pull requests matching {query:?}")
-            }
             "github.pull_request.comment" => {
                 let repo = Self::required_arg(request, "repo")?;
                 let number = Self::required_arg(request, "number")?;
                 format!("Draft comment for pull request {repo}#{number}")
-            }
-            "github.issue.read" => {
-                let repo = Self::required_arg(request, "repo")?;
-                let number = Self::required_arg(request, "number")?;
-                format!("Read issue {repo}#{number}")
             }
             "github.issue.comment" => {
                 let repo = Self::required_arg(request, "repo")?;
@@ -199,6 +193,18 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/cli/github-notifications.json"
     ));
+    const PR_SEARCH_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-pull-request-search.json"
+    ));
+    const PR_READ_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-pull-request-read.json"
+    ));
+    const ISSUE_READ_FIXTURE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/cli/github-issue-read.json"
+    ));
     const GITHUB_SCRIPT_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/scripts/gh-test.sh"
@@ -232,6 +238,8 @@ mod tests {
 
         assert_eq!(output.summary, "Listed 2 GitHub notifications for github.personal");
         assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Notification);
         assert_eq!(
             output
                 .fields
@@ -250,8 +258,153 @@ mod tests {
         assert!(captured.contains("ARGV=api notifications -F all=true -F per_page=50"));
     }
 
+    #[test]
+    fn pull_request_search_executes_through_generic_cli_runtime() {
+        let _env_guard = lock_env();
+        let script = TempScript::new("gh-test", &render_github_script());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
+
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.pull_request.search",
+            "github.personal",
+            ExecutionMode::Auto,
+            vec![
+                ToolArgument::option("query", "is:open review-requested:@me").expect("query should build"),
+                ToolArgument::option("limit", "10").expect("limit should build"),
+                ToolArgument::option("repo", "openai/codex").expect("repo should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(output.summary, "Found 2 GitHub pull requests for github.personal");
+        assert_eq!(output.fields.get("count"), Some(&serde_json::json!(2)));
+        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::PullRequest);
+        assert_eq!(output.refs[0].parent_id.as_deref(), Some("openai/codex"));
+        assert_eq!(
+            output
+                .fields
+                .get("pull_requests")
+                .and_then(Value::as_array)
+                .and_then(|pull_requests| pull_requests.first())
+                .and_then(|pull_request| pull_request.get("repository"))
+                .and_then(Value::as_str),
+            Some("openai/codex")
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=search prs is:open review-requested:@me --json"));
+        assert!(captured.contains("--limit 10"));
+        assert!(captured.contains("--repo openai/codex"));
+    }
+
+    #[test]
+    fn pull_request_read_executes_through_generic_cli_runtime() {
+        let _env_guard = lock_env();
+        let script = TempScript::new("gh-test", &render_github_script());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
+
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.pull_request.read",
+            "github.personal",
+            ExecutionMode::Auto,
+            vec![
+                ToolArgument::option("repo", "openai/codex").expect("repo should build"),
+                ToolArgument::option("number", "1382").expect("number should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output.summary,
+            "Read GitHub pull request \"Tighten agenda aggregation for personal + work calendars\" for github.personal"
+        );
+        assert_eq!(output.refs.len(), 1);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::PullRequest);
+        assert_eq!(output.refs[0].parent_id.as_deref(), Some("openai/codex"));
+        assert_eq!(
+            output
+                .fields
+                .get("pull_request")
+                .and_then(|pull_request| pull_request.get("number"))
+                .and_then(Value::as_u64),
+            Some(1382)
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=pr view 1382 --repo openai/codex --json"));
+    }
+
+    #[test]
+    fn issue_read_executes_through_generic_cli_runtime() {
+        let _env_guard = lock_env();
+        let script = TempScript::new("gh-test", &render_github_script());
+        env::set_var("SWITCHBOARD_GH_BIN", script.path());
+
+        let adapter = GitHubAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "github.issue.read",
+            "github.personal",
+            ExecutionMode::Auto,
+            vec![
+                ToolArgument::option("repo", "openai/codex").expect("repo should build"),
+                ToolArgument::option("number", "77").expect("number should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(
+            output.summary,
+            "Read GitHub issue \"Support stable refs in GitHub issue reads\" for github.personal"
+        );
+        assert_eq!(output.refs.len(), 1);
+        assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Issue);
+        assert_eq!(output.refs[0].parent_id.as_deref(), Some("openai/codex"));
+        assert_eq!(
+            output
+                .fields
+                .get("issue")
+                .and_then(|issue| issue.get("number"))
+                .and_then(Value::as_u64),
+            Some(77)
+        );
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=issue view 77 --repo openai/codex --json"));
+    }
+
     fn render_github_script() -> String {
-        GITHUB_SCRIPT_TEMPLATE.replace("__NOTIFICATIONS_FIXTURE__", NOTIFICATIONS_FIXTURE)
+        GITHUB_SCRIPT_TEMPLATE
+            .replace("__NOTIFICATIONS_FIXTURE__", NOTIFICATIONS_FIXTURE)
+            .replace("__PR_SEARCH_FIXTURE__", PR_SEARCH_FIXTURE)
+            .replace("__PR_READ_FIXTURE__", PR_READ_FIXTURE)
+            .replace("__ISSUE_READ_FIXTURE__", ISSUE_READ_FIXTURE)
     }
 
     fn planning_target() -> PlanningTarget {

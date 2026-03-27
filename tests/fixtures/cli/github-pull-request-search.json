@@ -1,0 +1,34 @@
+[
+  {
+    "id": "PR_kwDOOpenAI1382",
+    "number": 1382,
+    "title": "Tighten agenda aggregation for personal + work calendars",
+    "state": "OPEN",
+    "isDraft": false,
+    "repository": {
+      "nameWithOwner": "openai/codex"
+    },
+    "author": {
+      "login": "jessfraz"
+    },
+    "createdAt": "2026-03-24T17:00:00Z",
+    "updatedAt": "2026-03-26T18:30:00Z",
+    "url": "https://github.com/openai/codex/pull/1382"
+  },
+  {
+    "id": "PR_kwDOOpenAI1401",
+    "number": 1401,
+    "title": "Draft: audit refs for future undo support",
+    "state": "OPEN",
+    "isDraft": true,
+    "repository": {
+      "nameWithOwner": "openai/codex"
+    },
+    "author": {
+      "login": "jessfraz"
+    },
+    "createdAt": "2026-03-25T07:14:00Z",
+    "updatedAt": "2026-03-26T19:02:00Z",
+    "url": "https://github.com/openai/codex/pull/1401"
+  }
+]
