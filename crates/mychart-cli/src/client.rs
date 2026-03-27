@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 
 use reqwest::{
     blocking::Client,
-    header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
+    header::{ACCEPT, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
     redirect::Policy,
     Method, Url,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{Error, Result};
 
@@ -20,6 +21,7 @@ pub(crate) struct StoredCookie {
 pub(crate) enum RequestBody {
     None,
     Form(Vec<(String, String)>),
+    Json(Value),
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +40,15 @@ pub(crate) struct ResolvedResponse {
     pub(crate) content_type: Option<String>,
     pub(crate) body_text: String,
     pub(crate) redirect_chain: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct JsonResponse {
+    pub(crate) status_code: u16,
+    pub(crate) final_url: Url,
+    pub(crate) content_type: Option<String>,
+    pub(crate) body_text: String,
+    pub(crate) body: Value,
 }
 
 #[derive(Clone, Debug)]
@@ -71,6 +82,43 @@ impl MyChartClient {
             base_url: trimmed,
             http,
         })
+    }
+
+    pub(crate) fn fetch_capability_statement(&self) -> Result<JsonResponse> {
+        self.execute_json(
+            Method::GET,
+            "metadata",
+            &[("_format".into(), "json".into())],
+            None,
+            None,
+        )
+    }
+
+    pub(crate) fn exchange_oauth_token(&self, token_url: &str, form: &[(String, String)]) -> Result<JsonResponse> {
+        let url = Url::parse(token_url)
+            .map_err(|error| Error::Config(format!("invalid OAuth token endpoint {token_url:?}: {error}")))?;
+        self.execute_json_request(self.http.request(Method::POST, url).form(form))
+    }
+
+    pub(crate) fn execute_bearer_json(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(String, String)],
+        access_token: &str,
+        body: Option<&Value>,
+    ) -> Result<JsonResponse> {
+        self.execute_json(method, path, query, Some(access_token), body)
+    }
+
+    pub(crate) fn execute_bearer_json_absolute(
+        &self,
+        method: Method,
+        url: &str,
+        access_token: &str,
+        body: Option<&Value>,
+    ) -> Result<JsonResponse> {
+        self.execute_json_absolute(method, url, Some(access_token), body)
     }
 
     pub(crate) fn execute(
@@ -119,6 +167,73 @@ impl MyChartClient {
         })
     }
 
+    fn execute_json(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(String, String)],
+        access_token: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<JsonResponse> {
+        let url = self.build_url(path, query)?;
+        self.execute_json_request(self.configure_json_request(method, url, access_token, body))
+    }
+
+    fn execute_json_absolute(
+        &self,
+        method: Method,
+        url: &str,
+        access_token: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<JsonResponse> {
+        let url = Url::parse(url).map_err(|error| Error::Config(format!("invalid request URL {url:?}: {error}")))?;
+        self.execute_json_request(self.configure_json_request(method, url, access_token, body))
+    }
+
+    fn configure_json_request(
+        &self,
+        method: Method,
+        url: Url,
+        access_token: Option<&str>,
+        body: Option<&Value>,
+    ) -> reqwest::blocking::RequestBuilder {
+        let mut request = self
+            .http
+            .request(method, url)
+            .header(ACCEPT, "application/fhir+json, application/json");
+        if let Some(access_token) = access_token {
+            request = request.bearer_auth(access_token);
+        }
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        request
+    }
+
+    fn execute_json_request(&self, request: reqwest::blocking::RequestBuilder) -> Result<JsonResponse> {
+        let response = request
+            .send()
+            .map_err(|error| Error::Http(format!("request to MyChart failed: {error}")))?;
+        let final_url = response.url().clone();
+        let status_code = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned);
+        let body_text = response
+            .text()
+            .map_err(|error| Error::Http(format!("failed to read MyChart response: {error}")))?;
+
+        Ok(JsonResponse {
+            status_code,
+            final_url,
+            body: parse_json_body(content_type.as_deref(), &body_text),
+            content_type,
+            body_text,
+        })
+    }
+
     fn execute_once(&self, spec: &RequestSpec, cookies: &BTreeMap<String, String>) -> Result<ResponseChunk> {
         let url = self.build_url(&spec.path, &spec.query)?;
         let mut request = self.http.request(spec.method.clone(), url.clone());
@@ -130,6 +245,7 @@ impl MyChartClient {
         request = match &spec.body {
             RequestBody::None => request,
             RequestBody::Form(fields) => request.form(fields),
+            RequestBody::Json(body) => request.json(body),
         };
 
         let response = request
@@ -216,6 +332,20 @@ fn render_cookie_header(cookies: &BTreeMap<String, String>) -> String {
         .map(|(name, value)| format!("{name}={value}"))
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn parse_json_body(content_type: Option<&str>, body_text: &str) -> Value {
+    if body_text.trim().is_empty() {
+        return Value::Null;
+    }
+
+    if let Some(content_type) = content_type {
+        if content_type.contains("json") || content_type.contains("fhir+json") {
+            return serde_json::from_str(body_text).unwrap_or_else(|_| Value::String(body_text.to_owned()));
+        }
+    }
+
+    serde_json::from_str(body_text).unwrap_or_else(|_| Value::String(body_text.to_owned()))
 }
 
 fn is_redirect_status(status_code: u16) -> bool {

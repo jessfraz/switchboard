@@ -3,6 +3,7 @@ mod state;
 
 use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 
+use anyhow::{Context, Result as AnyhowResult};
 use clap::{Args, Parser, Subcommand};
 use reqwest::{Method, Url};
 use serde_json::{json, Value};
@@ -41,29 +42,30 @@ where
             return ExitCode::FAILURE;
         }
     };
+    let compact = cli.global.compact;
 
     match run(cli) {
         Ok((output, compact)) => {
             println!("{}", render_json(&output, compact));
             ExitCode::SUCCESS
         }
-        Err((error, compact)) => {
-            eprintln!("{}", error.render(compact));
+        Err(error) => {
+            eprintln!("{}", render_cli_error(&error, compact));
             ExitCode::FAILURE
         }
     }
 }
 
-fn run(cli: Cli) -> std::result::Result<(Value, bool), (Error, bool)> {
+fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
     let compact = cli.global.compact;
-    let mut context = ResolvedContext::from_global(&cli.global).map_err(|error| (error, compact))?;
-    let client = MyChartClient::new(context.base_url.clone()).map_err(|error| (error, compact))?;
+    let mut context = ResolvedContext::from_global(&cli.global).context("failed to resolve MyChart runtime context")?;
+    let client = MyChartClient::new(context.base_url.clone()).context("failed to build MyChart client")?;
 
     let output = match cli.command {
         Commands::Auth(command) => run_auth(command.command, &client, &mut context),
         Commands::Request(command) => run_request(command.command, &client, &mut context),
     }
-    .map_err(|error| (error, compact))?;
+    .context("MyChart command failed")?;
 
     Ok((output, compact))
 }
@@ -170,13 +172,19 @@ struct RequestPostArgs {
     no_follow_redirects: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum Error {
+    #[error("MyChart API returned HTTP {status_code}")]
     Api { status_code: u16, body: Value },
+    #[error("authentication failure: {message}")]
     Auth { message: String, details: Value },
+    #[error("invalid arguments: {0}")]
     Arguments(String),
+    #[error("config error: {0}")]
     Config(String),
+    #[error("HTTP failure: {0}")]
     Http(String),
+    #[error("I/O failure: {0}")]
     Io(String),
 }
 
@@ -222,6 +230,21 @@ impl Error {
 }
 
 type Result<T> = std::result::Result<T, Error>;
+
+fn render_cli_error(error: &anyhow::Error, compact: bool) -> String {
+    if let Some(error) = error.chain().find_map(|cause| cause.downcast_ref::<Error>()) {
+        return error.render(compact);
+    }
+
+    render_json(
+        &json!({
+            "status": "error",
+            "kind": "internal",
+            "message": format!("{error:#}"),
+        }),
+        compact,
+    )
+}
 
 fn run_auth(command: AuthSubcommand, client: &MyChartClient, context: &mut ResolvedContext) -> Result<Value> {
     match command {
@@ -799,15 +822,15 @@ mod tests {
     fn run_command(args: &[&str]) -> Value {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
-        let (value, _) = run(cli).unwrap_or_else(|(error, _)| panic!("{}", error.render(compact)));
+        let (value, _) = run(cli).unwrap_or_else(|error| panic!("{}", render_cli_error(&error, compact)));
         value
     }
 
     fn run_error(args: &[&str]) -> Value {
         let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
         let compact = cli.global.compact;
-        let (error, _) = run(cli).expect_err("command should fail");
-        serde_json::from_str(&error.render(compact)).expect("error output should be valid json")
+        let error = run(cli).expect_err("command should fail");
+        serde_json::from_str(&render_cli_error(&error, compact)).expect("error output should be valid json")
     }
 
     fn login_page_html(token: &str) -> String {

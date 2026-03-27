@@ -7,14 +7,15 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, AggregateReadRequest, ApprovalState, AuthStore, BackendKind, DispatchOutcome, ExecutionMode,
     NamespaceId, NamespaceStore, OperationEffect, OperationId, OperationOutcome, OperationRequest, ResolvedNamespace,
-    Result, SecretResolver, SecretStore, StoredOperation, Switchboard, SwitchboardServices, ToolArgument, ToolName,
-    ToolOutput, ToolRef, ToolRequest,
+    SecretResolver, SecretStore, StoredOperation, Switchboard, SwitchboardServices, ToolArgument, ToolName, ToolOutput,
+    ToolRef, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
@@ -38,10 +39,11 @@ const AFTER_HELP: &str = concat!(
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
-    let config = SwitchboardConfig::from_file(&config_path)?;
+    let config = SwitchboardConfig::from_file(&config_path).context("failed to load switchboard config")?;
     let policy = config.policy_engine();
     let (namespaces, auth, secrets) = config.into_stores();
-    let operations = SqliteOperationStore::open(resolve_operation_store_path(&config_path))?;
+    let operations = SqliteOperationStore::open(resolve_operation_store_path(&config_path))
+        .context("failed to open operation store")?;
 
     Ok(build_switchboard(
         Arc::new(namespaces),
@@ -95,11 +97,11 @@ where
             print!("{output}");
             ExitCode::SUCCESS
         }
-        Err(RunError { message, json }) => {
-            if json {
-                println!("{}", render_json_error(&message));
+        Err(error) => {
+            if json_requested {
+                println!("{}", render_json_error(&error.to_string()));
             } else {
-                eprintln!("{message}");
+                eprintln!("{error:#}");
             }
 
             ExitCode::FAILURE
@@ -107,13 +109,15 @@ where
     }
 }
 
-fn run(cli: Cli) -> std::result::Result<String, RunError> {
+fn run(cli: Cli) -> Result<String> {
     let config_path = cli.config.clone();
     let json_requested = cli.json_requested();
-    let switchboard = load_switchboard(config_path.as_deref()).map_err(|error| RunError {
-        message: error.to_string(),
-        json: json_requested,
-    })?;
+    let switchboard = load_switchboard(config_path.as_deref());
+    let switchboard = match switchboard {
+        Ok(switchboard) => switchboard,
+        Err(error) if json_requested => return Err(error),
+        Err(error) => return Err(error.context("failed to initialize switchboard")),
+    };
 
     match cli.command.into_runtime_command()? {
         CommandKind::NamespaceList => {
@@ -125,10 +129,7 @@ fn run(cli: Cli) -> std::result::Result<String, RunError> {
             }
         }
         CommandKind::Operation(request) => {
-            let outcome = switchboard.execute_operation(request).map_err(|error| RunError {
-                message: error.to_string(),
-                json: json_requested,
-            })?;
+            let outcome = switchboard.execute_operation(request)?;
 
             if json_requested {
                 render_json_operation(&outcome)
@@ -140,10 +141,7 @@ fn run(cli: Cli) -> std::result::Result<String, RunError> {
     }
 }
 
-fn run_stored_operation_command(
-    switchboard: &Switchboard,
-    command: StoredOperationCommand,
-) -> std::result::Result<String, RunError> {
+fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperationCommand) -> Result<String> {
     match command {
         StoredOperationCommand::List { json } => {
             let operations = switchboard.list_operations();
@@ -160,10 +158,9 @@ fn run_stored_operation_command(
             }
         }
         StoredOperationCommand::Show { id, json } => {
-            let operation = switchboard.get_operation(&id).ok_or_else(|| RunError {
-                message: format!("unknown operation id: {id}"),
-                json,
-            })?;
+            let operation = switchboard
+                .get_operation(&id)
+                .ok_or_else(|| anyhow!("unknown operation id: {id}"))?;
             if json {
                 render_json(
                     &StoredOperationResponse {
@@ -177,12 +174,7 @@ fn run_stored_operation_command(
             }
         }
         StoredOperationCommand::Approve { id, actor, note, json } => {
-            let operation = switchboard
-                .approve_operation(&id, &actor, note.as_deref())
-                .map_err(|error| RunError {
-                    message: error.to_string(),
-                    json,
-                })?;
+            let operation = switchboard.approve_operation(&id, &actor, note.as_deref())?;
             if json {
                 render_json(
                     &StoredOperationResponse {
@@ -196,12 +188,7 @@ fn run_stored_operation_command(
             }
         }
         StoredOperationCommand::Reject { id, actor, note, json } => {
-            let operation = switchboard
-                .reject_operation(&id, &actor, note.as_deref())
-                .map_err(|error| RunError {
-                    message: error.to_string(),
-                    json,
-                })?;
+            let operation = switchboard.reject_operation(&id, &actor, note.as_deref())?;
             if json {
                 render_json(
                     &StoredOperationResponse {
@@ -215,10 +202,7 @@ fn run_stored_operation_command(
             }
         }
         StoredOperationCommand::Apply { id, json } => {
-            let output = switchboard.apply_operation(&id).map_err(|error| RunError {
-                message: error.to_string(),
-                json,
-            })?;
+            let output = switchboard.apply_operation(&id)?;
             if json {
                 render_json_dispatch(&DispatchOutcome::Executed(output))
             } else {
@@ -263,7 +247,7 @@ enum Commands {
 }
 
 impl Commands {
-    fn into_runtime_command(self) -> std::result::Result<CommandKind, RunError> {
+    fn into_runtime_command(self) -> Result<CommandKind> {
         match self {
             Self::Ns(namespace) => Ok(namespace.into_runtime_command()),
             Self::Op(operation) => operation.into_runtime_command(),
@@ -309,27 +293,27 @@ impl OperationCommand {
         }
     }
 
-    fn into_runtime_command(self) -> std::result::Result<CommandKind, RunError> {
+    fn into_runtime_command(self) -> Result<CommandKind> {
         let command = match self.command {
             OperationSubcommand::List(arguments) => StoredOperationCommand::List { json: arguments.json },
             OperationSubcommand::Show(arguments) => StoredOperationCommand::Show {
-                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                id: OperationId::new(arguments.id)?,
                 json: arguments.json,
             },
             OperationSubcommand::Approve(arguments) => StoredOperationCommand::Approve {
-                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                id: OperationId::new(arguments.id)?,
                 actor: arguments.actor.unwrap_or_else(default_actor),
                 note: arguments.note,
                 json: arguments.json,
             },
             OperationSubcommand::Reject(arguments) => StoredOperationCommand::Reject {
-                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                id: OperationId::new(arguments.id)?,
                 actor: arguments.actor.unwrap_or_else(default_actor),
                 note: arguments.note,
                 json: arguments.json,
             },
             OperationSubcommand::Apply(arguments) => StoredOperationCommand::Apply {
-                id: OperationId::new(arguments.id).map_err(to_run_error)?,
+                id: OperationId::new(arguments.id)?,
                 json: arguments.json,
             },
         };
@@ -423,19 +407,6 @@ enum StoredOperationCommand {
     },
 }
 
-#[derive(Debug)]
-struct RunError {
-    message: String,
-    json: bool,
-}
-
-fn to_run_error(error: switchboard_core::Error) -> RunError {
-    RunError {
-        message: error.to_string(),
-        json: false,
-    }
-}
-
 fn default_actor() -> String {
     env::var("USER")
         .or_else(|_| env::var("USERNAME"))
@@ -452,13 +423,12 @@ struct ConfigPathCandidates {
     home: Option<PathBuf>,
 }
 
-fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<OperationRequest, RunError> {
+fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<OperationRequest> {
     let mut positionals = tokens.into_iter().map(os_string_to_string).collect::<Vec<_>>();
-    let json = contains_json_token(&positionals);
-    let tool = positionals.first().cloned().ok_or_else(|| RunError {
-        message: "missing tool name".into(),
-        json,
-    })?;
+    let tool = positionals
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow!("missing tool name"))?;
     positionals.remove(0);
     let mut namespaces = Vec::new();
     let mut arguments = Vec::new();
@@ -482,72 +452,47 @@ fn parse_external_tool_invocation(tokens: Vec<OsString>) -> std::result::Result<
                 index += 1;
             }
             "--ns" => {
-                let value = positionals.get(index + 1).ok_or_else(|| RunError {
-                    message: "missing value for --ns".into(),
-                    json,
-                })?;
+                let value = positionals
+                    .get(index + 1)
+                    .ok_or_else(|| anyhow!("missing value for --ns"))?;
                 namespaces.push(value.clone());
                 index += 2;
             }
             _ if current.starts_with("--") && current.contains('=') => {
-                let (name, value) = split_inline_argument(current).ok_or_else(|| RunError {
-                    message: format!("invalid argument syntax: {current}"),
-                    json,
-                })?;
-                arguments.push(ToolArgument::option(name, value).map_err(|error| RunError {
-                    message: error.to_string(),
-                    json,
-                })?);
+                let (name, value) =
+                    split_inline_argument(current).ok_or_else(|| anyhow!("invalid argument syntax: {current}"))?;
+                arguments.push(ToolArgument::option(name, value)?);
                 index += 1;
             }
             _ if current.starts_with("--") => {
                 let key = current.trim_start_matches("--");
                 let next = positionals.get(index + 1);
                 if next.is_none() || next.is_some_and(|value| value.starts_with("--")) {
-                    arguments.push(ToolArgument::flag(key).map_err(|error| RunError {
-                        message: error.to_string(),
-                        json,
-                    })?);
+                    arguments.push(ToolArgument::flag(key)?);
                     index += 1;
                 } else {
                     let value = next.expect("checked above");
-                    arguments.push(ToolArgument::option(key, value.clone()).map_err(|error| RunError {
-                        message: error.to_string(),
-                        json,
-                    })?);
+                    arguments.push(ToolArgument::option(key, value.clone())?);
                     index += 2;
                 }
             }
             _ => {
-                return Err(RunError {
-                    message: format!("unexpected argument: {current}"),
-                    json,
-                });
+                bail!("unexpected argument: {current}");
             }
         }
     }
 
     if namespaces.is_empty() {
-        return Err(RunError {
-            message: "tool commands require at least one --ns <namespace>".into(),
-            json,
-        });
+        bail!("tool commands require at least one --ns <namespace>");
     }
 
     if namespaces.len() == 1 {
-        let request =
-            ToolRequest::new(tool, namespaces.remove(0), mode, arguments.clone()).map_err(|error| RunError {
-                message: error.to_string(),
-                json,
-            })?;
+        let request = ToolRequest::new(tool, namespaces.remove(0), mode, arguments.clone())?;
 
         return Ok(OperationRequest::single(request));
     }
 
-    let request = AggregateReadRequest::new(tool, namespaces, mode, arguments).map_err(|error| RunError {
-        message: error.to_string(),
-        json,
-    })?;
+    let request = AggregateReadRequest::new(tool, namespaces, mode, arguments)?;
 
     Ok(OperationRequest::aggregate_read(request))
 }
@@ -763,7 +708,7 @@ fn render_aggregate_read_human(outcome: &AggregateReadOutcome) -> String {
     output
 }
 
-fn render_json_operation(outcome: &OperationOutcome) -> std::result::Result<String, RunError> {
+fn render_json_operation(outcome: &OperationOutcome) -> Result<String> {
     match outcome {
         OperationOutcome::Single(outcome) => render_json_dispatch(outcome),
         OperationOutcome::AggregateRead(outcome) => render_json(
@@ -785,7 +730,7 @@ fn render_json_operation(outcome: &OperationOutcome) -> std::result::Result<Stri
     }
 }
 
-fn render_json_dispatch(outcome: &DispatchOutcome) -> std::result::Result<String, RunError> {
+fn render_json_dispatch(outcome: &DispatchOutcome) -> Result<String> {
     match outcome {
         DispatchOutcome::Planned(plan) => render_json(&DispatchResponse::from_plan(plan), true),
         DispatchOutcome::Executed(output) => render_json(&DispatchResponse::from_output(output), true),
@@ -802,14 +747,11 @@ fn render_json_error(message: &str) -> String {
     }
 }
 
-fn render_json<T>(value: &T, json: bool) -> std::result::Result<String, RunError>
+fn render_json<T>(value: &T, _json: bool) -> Result<String>
 where
     T: Serialize,
 {
-    serde_json::to_string_pretty(value).map_err(|error| RunError {
-        message: format!("failed to serialize JSON output: {error}"),
-        json,
-    })
+    serde_json::to_string_pretty(value).context("failed to serialize JSON output")
 }
 
 fn render_clap_error(error: clap::Error, json_requested: bool) -> ExitCode {
@@ -860,8 +802,8 @@ fn select_config_path(candidates: ConfigPathCandidates) -> Result<PathBuf> {
         .or(candidates.xdg)
         .or(candidates.home)
         .ok_or_else(|| {
-            switchboard_core::Error::Config(
-                "no switchboard config found. Pass --config <path>, set SWITCHBOARD_CONFIG, create ./switchboard.toml, or place config at $XDG_CONFIG_HOME/switchboard/config.toml or $HOME/.config/switchboard/config.toml".into(),
+            anyhow!(
+                "no switchboard config found. Pass --config <path>, set SWITCHBOARD_CONFIG, create ./switchboard.toml, or place config at $XDG_CONFIG_HOME/switchboard/config.toml or $HOME/.config/switchboard/config.toml"
             )
         })
 }
@@ -876,10 +818,6 @@ fn contains_flag(args: &[OsString], flag: &str) -> bool {
 
 fn contains_json_os_tokens(tokens: &[OsString]) -> bool {
     tokens.iter().any(|value| value == "--json")
-}
-
-fn contains_json_token(tokens: &[impl AsRef<str>]) -> bool {
-    tokens.iter().any(|value| value.as_ref() == "--json")
 }
 
 fn os_string_to_string(value: OsString) -> String {
