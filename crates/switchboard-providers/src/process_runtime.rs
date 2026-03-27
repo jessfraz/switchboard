@@ -38,12 +38,7 @@ impl ProcessContext {
         self.cleared_env.insert(key);
     }
 
-    pub(crate) fn write_temp_file(
-        &mut self,
-        prefix: &str,
-        extension: &str,
-        contents: &str,
-    ) -> Result<PathBuf> {
+    pub(crate) fn write_temp_file(&mut self, prefix: &str, extension: &str, contents: &str) -> Result<PathBuf> {
         let path = env::temp_dir().join(format!(
             "{prefix}-{}-{}-{}.{}",
             process::id(),
