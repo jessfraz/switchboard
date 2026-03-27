@@ -30,7 +30,7 @@ pub(crate) struct MyChartState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) portal_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    legacy_base_url: Option<String>,
+    pub(crate) legacy_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,6 +134,19 @@ pub(crate) struct ResolvedContext {
     state: MyChartState,
 }
 
+pub(crate) struct ApiSessionState {
+    pub(crate) base_url: String,
+    pub(crate) client_id: String,
+    pub(crate) client_secret: Option<String>,
+    pub(crate) redirect_uri: String,
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: Option<String>,
+    pub(crate) token_type: Option<String>,
+    pub(crate) scope: Option<String>,
+    pub(crate) patient_id: Option<String>,
+    pub(crate) expires_at_epoch_seconds: Option<u64>,
+}
+
 impl ResolvedContext {
     pub(crate) fn from_global(global: &GlobalArgs) -> Result<Self> {
         let path = resolve_state_path(global.config.as_deref())?;
@@ -144,52 +157,20 @@ impl ResolvedContext {
         }
 
         Ok(Self {
-            api_base_url: pick(
-                global.base_url.clone(),
-                env_value(ENV_MYCHART_BASE_URL),
-                state.api_base_url.clone(),
-            ),
-            portal_base_url: pick(
-                global.portal_base_url.clone(),
-                env_value(ENV_MYCHART_PORTAL_BASE_URL),
-                state.portal_base_url.clone(),
-            ),
-            client_id: pick(
-                global.client_id.clone(),
-                env_value(ENV_MYCHART_CLIENT_ID),
-                state.client_id.clone(),
-            ),
-            client_secret: pick(
-                global.client_secret.clone(),
-                env_value(ENV_MYCHART_CLIENT_SECRET),
-                state.client_secret.clone(),
-            ),
-            redirect_uri: pick(
-                global.redirect_uri.clone(),
-                env_value(ENV_MYCHART_REDIRECT_URI),
-                state.redirect_uri.clone(),
-            ),
-            access_token: pick(
-                global.access_token.clone(),
-                env_value(ENV_MYCHART_ACCESS_TOKEN),
-                state.access_token.clone(),
-            ),
-            refresh_token: pick(
-                global.refresh_token.clone(),
-                env_value(ENV_MYCHART_REFRESH_TOKEN),
-                state.refresh_token.clone(),
-            ),
+            api_base_url: pick(global.base_url.clone(), state.api_base_url.clone()),
+            portal_base_url: pick(global.portal_base_url.clone(), state.portal_base_url.clone()),
+            client_id: pick(global.client_id.clone(), state.client_id.clone()),
+            client_secret: pick(global.client_secret.clone(), state.client_secret.clone()),
+            redirect_uri: pick(global.redirect_uri.clone(), state.redirect_uri.clone()),
+            access_token: pick(global.access_token.clone(), state.access_token.clone()),
+            refresh_token: pick(global.refresh_token.clone(), state.refresh_token.clone()),
             token_type: state.token_type.clone(),
             scope: state.scope.clone(),
             patient_id: state.patient_id.clone(),
             expires_at_epoch_seconds: state.expires_at_epoch_seconds,
             pending_oauth_state: state.pending_oauth_state.clone(),
             pending_code_verifier: state.pending_code_verifier.clone(),
-            username: pick(
-                global.username.clone(),
-                env_value(ENV_MYCHART_USERNAME),
-                state.username.clone(),
-            ),
+            username: pick(global.username.clone(), state.username.clone()),
             device_id: state.device_id.clone().unwrap_or_else(generate_device_id),
             cookies: state
                 .cookies
@@ -300,42 +281,30 @@ impl ResolvedContext {
         self.store.save(&self.state)
     }
 
-    pub(crate) fn store_api_tokens(
-        &mut self,
-        base_url: String,
-        client_id: String,
-        client_secret: Option<String>,
-        redirect_uri: String,
-        access_token: String,
-        refresh_token: Option<String>,
-        token_type: Option<String>,
-        scope: Option<String>,
-        patient_id: Option<String>,
-        expires_at_epoch_seconds: Option<u64>,
-    ) -> Result<()> {
-        self.api_base_url = Some(base_url.clone());
-        self.client_id = Some(client_id.clone());
-        self.client_secret = client_secret.clone();
-        self.redirect_uri = Some(redirect_uri.clone());
-        self.access_token = Some(access_token.clone());
-        self.refresh_token = refresh_token.clone();
-        self.token_type = token_type.clone();
-        self.scope = scope.clone();
-        self.patient_id = patient_id.clone();
-        self.expires_at_epoch_seconds = expires_at_epoch_seconds;
+    pub(crate) fn store_api_tokens(&mut self, session: ApiSessionState) -> Result<()> {
+        self.api_base_url = Some(session.base_url.clone());
+        self.client_id = Some(session.client_id.clone());
+        self.client_secret = session.client_secret.clone();
+        self.redirect_uri = Some(session.redirect_uri.clone());
+        self.access_token = Some(session.access_token.clone());
+        self.refresh_token = session.refresh_token.clone();
+        self.token_type = session.token_type.clone();
+        self.scope = session.scope.clone();
+        self.patient_id = session.patient_id.clone();
+        self.expires_at_epoch_seconds = session.expires_at_epoch_seconds;
         self.pending_oauth_state = None;
         self.pending_code_verifier = None;
 
-        self.state.api_base_url = Some(base_url);
-        self.state.client_id = Some(client_id);
-        self.state.client_secret = client_secret;
-        self.state.redirect_uri = Some(redirect_uri);
-        self.state.access_token = Some(access_token);
-        self.state.refresh_token = refresh_token;
-        self.state.token_type = token_type;
-        self.state.scope = scope;
-        self.state.patient_id = patient_id;
-        self.state.expires_at_epoch_seconds = expires_at_epoch_seconds;
+        self.state.api_base_url = Some(session.base_url);
+        self.state.client_id = Some(session.client_id);
+        self.state.client_secret = session.client_secret;
+        self.state.redirect_uri = Some(session.redirect_uri);
+        self.state.access_token = Some(session.access_token);
+        self.state.refresh_token = session.refresh_token;
+        self.state.token_type = session.token_type;
+        self.state.scope = session.scope;
+        self.state.patient_id = session.patient_id;
+        self.state.expires_at_epoch_seconds = session.expires_at_epoch_seconds;
         self.state.pending_oauth_state = None;
         self.state.pending_code_verifier = None;
         self.store.save(&self.state)
@@ -400,8 +369,8 @@ impl ResolvedContext {
     }
 }
 
-fn pick(explicit: Option<String>, env_value: Option<String>, persisted: Option<String>) -> Option<String> {
-    explicit.or(env_value).or(persisted)
+fn pick(explicit: Option<String>, persisted: Option<String>) -> Option<String> {
+    explicit.or(persisted)
 }
 
 fn env_value(key: &str) -> Option<String> {
@@ -411,9 +380,6 @@ fn env_value(key: &str) -> Option<String> {
 fn resolve_state_path(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit {
         return Ok(path.to_path_buf());
-    }
-    if let Some(path) = env_value(ENV_MYCHART_CONFIG) {
-        return Ok(PathBuf::from(path));
     }
     if let Some(xdg) = env_value("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(xdg).join("mychart").join("config.json"));

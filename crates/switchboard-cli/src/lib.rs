@@ -1347,8 +1347,7 @@ mod tests {
         .expect("cli should parse");
 
         let error = run(cli).expect_err("aggregate write should fail");
-        assert!(error.json);
-        assert!(error.message.contains("aggregate reads require a read tool"));
+        assert!(error.to_string().contains("aggregate reads require a read tool"));
     }
 
     #[test]

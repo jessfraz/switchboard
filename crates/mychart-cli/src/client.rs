@@ -21,7 +21,6 @@ pub(crate) struct StoredCookie {
 pub(crate) enum RequestBody {
     None,
     Form(Vec<(String, String)>),
-    Json(Value),
 }
 
 #[derive(Clone, Debug)]
@@ -245,7 +244,6 @@ impl MyChartClient {
         request = match &spec.body {
             RequestBody::None => request,
             RequestBody::Form(fields) => request.form(fields),
-            RequestBody::Json(body) => request.json(body),
         };
 
         let response = request
