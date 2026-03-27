@@ -3,15 +3,23 @@ use std::error::Error as StdError;
 use std::fmt::{self, Display};
 use std::sync::Arc;
 
+use serde::Serialize;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ProviderKind {
+    #[serde(rename = "github")]
     GitHub,
+    #[serde(rename = "google")]
     GoogleWorkspace,
+    #[serde(rename = "slack")]
     Slack,
+    #[serde(rename = "ramp")]
     Ramp,
+    #[serde(rename = "imessage")]
     IMessage,
+    #[serde(rename = "whatsapp")]
     WhatsApp,
 }
 
@@ -45,7 +53,8 @@ impl Display for ProviderKind {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct NamespaceId(String);
 
 impl NamespaceId {
@@ -69,7 +78,8 @@ impl Display for NamespaceId {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct ToolName(String);
 
 impl ToolName {
@@ -97,13 +107,15 @@ impl Display for ToolName {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolKind {
     Read,
     Write,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
     Auto,
     Plan,
@@ -111,7 +123,8 @@ pub enum ExecutionMode {
     Apply,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BackendKind {
     Cli,
     Api,
@@ -132,7 +145,7 @@ impl Display for BackendKind {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ResolvedNamespace {
     pub id: NamespaceId,
     pub provider: ProviderKind,
@@ -156,7 +169,7 @@ impl ResolvedNamespace {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolRequest {
     pub tool: ToolName,
     pub namespace: NamespaceId,
@@ -180,7 +193,7 @@ impl ToolRequest {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlannedAction {
     pub tool: ToolName,
     pub namespace: NamespaceId,
@@ -209,7 +222,7 @@ impl PlannedAction {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolOutput {
     pub tool: ToolName,
     pub namespace: NamespaceId,
@@ -233,7 +246,7 @@ impl ToolOutput {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolDescriptor {
     pub name: &'static str,
     pub kind: ToolKind,
@@ -241,14 +254,15 @@ pub struct ToolDescriptor {
     pub backend: BackendKind,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AuditOutcome {
     Planned,
     Executed,
     Blocked,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct AuditEvent {
     pub tool: ToolName,
     pub namespace: NamespaceId,
@@ -271,7 +285,8 @@ impl AuditEvent {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PolicyDecision {
     Allow,
     RequireApproval { reason: String },
