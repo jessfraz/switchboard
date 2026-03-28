@@ -182,6 +182,117 @@ fn notes_search_matches_note_body_text() {
 }
 
 #[test]
+fn notes_search_centers_excerpt_on_matching_body_section() {
+    #[derive(Debug, serde::Deserialize)]
+    struct NotesSearchOutput {
+        status: String,
+        notes: Vec<NotesSearchMatch>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    struct NotesSearchMatch {
+        body_excerpt: Option<String>,
+    }
+
+    let cda = br#"
+<ClinicalDocument xmlns="urn:hl7-org:v3">
+  <title>Encounter Summary</title>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <title>Allergies</title>
+          <text>No known active allergies.</text>
+        </section>
+      </component>
+      <component>
+        <section>
+          <title>Progress Notes</title>
+          <text>
+            After the medication change, the patient reports migraine improvement and fewer aura episodes over the last month.
+          </text>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>
+"#;
+    let server = TestServer::spawn(vec![
+        ResponseSpec::json(
+            200,
+            capability_statement_json(
+                "http://placeholder",
+                &[resource_capability("DocumentReference", &["read", "search-type"])],
+            ),
+            Vec::new(),
+        ),
+        ResponseSpec::json(
+            200,
+            json!({
+                "resourceType": "Bundle",
+                "entry": [{
+                    "resource": {
+                        "resourceType": "DocumentReference",
+                        "id": "note-excerpt",
+                        "date": "2100-01-01T00:00:00Z",
+                        "type": {"text": "Progress Note"},
+                        "description": "Routine follow-up",
+                        "content": [{
+                            "attachment": {
+                                "contentType": "application/xml",
+                                "title": "Visit note",
+                                "url": "/Binary/note-excerpt-body"
+                            }
+                        }]
+                    }
+                }]
+            }),
+            Vec::new(),
+        ),
+        ResponseSpec::json(
+            200,
+            json!({
+                "resourceType": "Binary",
+                "contentType": "application/xml",
+                "data": crate::base64_encode(cda),
+            }),
+            Vec::new(),
+        ),
+    ]);
+    let temp_dir = temp_dir("mychart-notes-search-excerpt");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&MyChartState {
+            api_base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            patient_id: Some("patient-123".into()),
+            scope: Some("openid patient/DocumentReference.read patient/Binary.read".into()),
+            ..MyChartState::default()
+        })
+        .expect("state should save");
+
+    let output: NotesSearchOutput = serde_json::from_value(run_command(&[
+        "mychart",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "notes",
+        "search",
+        "--query",
+        "migraine",
+    ]))
+    .expect("notes search output should deserialize");
+
+    assert_eq!(output.status, "ok");
+    let excerpt = output.notes[0]
+        .body_excerpt
+        .as_deref()
+        .expect("body excerpt should exist");
+    assert!(excerpt.contains("migraine improvement"), "excerpt was: {excerpt}");
+    assert!(!excerpt.contains("No known active allergies"), "excerpt was: {excerpt}");
+}
+
+#[test]
 fn notes_get_normalizes_xml_boundary_mush() {
     let server = TestServer::spawn(vec![
         ResponseSpec::json(
