@@ -70,6 +70,8 @@ pub enum AuthKind {
     GoogleOAuth,
     #[serde(rename = "google_oauth_file")]
     GoogleOAuthFile,
+    #[serde(rename = "mychart_cli")]
+    MyChartCli,
 }
 
 impl AuthKind {
@@ -79,6 +81,7 @@ impl AuthKind {
             "github_token" => Some(Self::GitHubToken),
             "google_oauth" => Some(Self::GoogleOAuth),
             "google_oauth_file" => Some(Self::GoogleOAuthFile),
+            "mychart_cli" => Some(Self::MyChartCli),
             _ => None,
         }
     }
@@ -87,6 +90,7 @@ impl AuthKind {
         match self {
             Self::GitHubCli | Self::GitHubToken => ProviderKind::GitHub,
             Self::GoogleOAuth | Self::GoogleOAuthFile => ProviderKind::GoogleWorkspace,
+            Self::MyChartCli => ProviderKind::MyChart,
         }
     }
 }
@@ -98,6 +102,7 @@ impl Display for AuthKind {
             Self::GitHubToken => "github_token",
             Self::GoogleOAuth => "google_oauth",
             Self::GoogleOAuthFile => "google_oauth_file",
+            Self::MyChartCli => "mychart_cli",
         };
 
         write!(f, "{value}")
@@ -184,6 +189,25 @@ pub enum AuthSecretRefs {
     },
     #[serde(rename = "google_oauth_file")]
     GoogleOAuthFile { credentials: SecretRef },
+    #[serde(rename = "mychart_cli")]
+    MyChartCli {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        base_url: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        portal_base_url: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_id: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_secret: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        redirect_uri: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        access_token: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refresh_token: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        username: Option<SecretRef>,
+    },
 }
 
 impl AuthSecretRefs {
@@ -194,6 +218,7 @@ impl AuthSecretRefs {
                 | (AuthKind::GitHubToken, Self::GitHubToken { .. })
                 | (AuthKind::GoogleOAuth, Self::GoogleOAuth { .. })
                 | (AuthKind::GoogleOAuthFile, Self::GoogleOAuthFile { .. })
+                | (AuthKind::MyChartCli, Self::MyChartCli { .. })
         )
     }
 
@@ -214,6 +239,28 @@ impl AuthSecretRefs {
                 refs
             }
             Self::GoogleOAuthFile { credentials } => vec![credentials],
+            Self::MyChartCli {
+                base_url,
+                portal_base_url,
+                client_id,
+                client_secret,
+                redirect_uri,
+                access_token,
+                refresh_token,
+                username,
+            } => [
+                base_url.as_ref(),
+                portal_base_url.as_ref(),
+                client_id.as_ref(),
+                client_secret.as_ref(),
+                redirect_uri.as_ref(),
+                access_token.as_ref(),
+                refresh_token.as_ref(),
+                username.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
         }
     }
 }
@@ -294,5 +341,15 @@ pub enum ResolvedCredentials {
     },
     GoogleOAuthFile {
         credentials: SecretString,
+    },
+    MyChartCli {
+        base_url: Option<SecretString>,
+        portal_base_url: Option<SecretString>,
+        client_id: Option<SecretString>,
+        client_secret: Option<SecretString>,
+        redirect_uri: Option<SecretString>,
+        access_token: Option<SecretString>,
+        refresh_token: Option<SecretString>,
+        username: Option<SecretString>,
     },
 }

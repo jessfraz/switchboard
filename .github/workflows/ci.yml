@@ -38,10 +38,17 @@ jobs:
       - name: Install Google Workspace CLI
         run: cargo install --locked google-workspace-cli --bin gws
 
+      - name: Build MyChart CLI
+        run: cargo build -p mychart-cli
+
+      - name: Expose workspace binaries on PATH
+        run: echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+
       - name: Smoke Check Installed CLIs
         run: |
           gh --version
           gws --version
+          mychart --version
 
       - name: Check Generated CLI Inventories
         run: cargo run -p switchboard-providers --bin switchboard-catalog-gen -- check

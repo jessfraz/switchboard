@@ -204,6 +204,26 @@ fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
                 tool.name
             ),
         ],
+        (ProviderKind::MyChart, ToolKind::Read) => vec![
+            format!(
+                "switchboard {} --ns {namespace} --json -- notes search --query migraine",
+                tool.name
+            ),
+            format!(
+                "switchboard {} --ns {namespace} --argv-json '[\"appointments\",\"upcoming\",\"--limit\",\"5\"]' --json",
+                tool.name
+            ),
+        ],
+        (ProviderKind::MyChart, ToolKind::Write) => vec![
+            format!(
+                "switchboard {} --ns {namespace} --draft -- auth login --dynamic-client --scope patient/*.read",
+                tool.name
+            ),
+            format!(
+                "switchboard {} --ns {namespace} --argv-json '[\"portal\",\"auth\",\"logout\"]' --apply --json",
+                tool.name
+            ),
+        ],
         (_, _) => vec![format!("switchboard {} --ns {namespace} -- ...", tool.name)],
     }
 }

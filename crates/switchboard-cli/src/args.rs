@@ -27,6 +27,7 @@ const AFTER_HELP: &str = concat!(
     "  switchboard github.notifications.list --ns github.personal --json\n",
     "  switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d'\n",
     "  switchboard google.calendar.list --ns google.work --ns google.personal --json\n",
+    "  switchboard mychart.cli.read --ns mychart.ucla --json -- notes search --query migraine\n",
     "  switchboard google.cli.read --ns google.work --json -- calendar +agenda --format json --today\n",
     "  switchboard github.cli.write --ns github.personal -- --repo owner/repo issue comment 123 --body 'needs tests'\n",
     "  switchboard github.pull_request.comment --ns github.personal --repo owner/repo --number 123 --body 'needs tests' --draft\n",

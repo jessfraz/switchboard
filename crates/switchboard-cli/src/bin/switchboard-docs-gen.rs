@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -181,7 +181,12 @@ fn build_snapshot(tools: &[RegisteredTool]) -> CatalogSnapshot {
             .count(),
     };
 
-    let providers = [ProviderKind::GitHub, ProviderKind::GoogleWorkspace]
+    let providers = tools
+        .iter()
+        .map(|tool| tool.provider.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<BTreeSet<_>>()
         .into_iter()
         .map(|provider| {
             let provider_tools = tools
@@ -660,6 +665,7 @@ fn render_reference_html(snapshot: &CatalogSnapshot) -> String {
                 <option value="">All providers</option>
                 <option value="github">GitHub</option>
                 <option value="google">Google</option>
+                <option value="mychart">MyChart</option>
               </select>
             </label>
             <label>
@@ -847,6 +853,11 @@ fn render_site_index(snapshot: &CatalogSnapshot) -> String {
         .iter()
         .find(|provider| provider.provider == ProviderKind::GoogleWorkspace)
         .expect("google provider should exist");
+    let mychart = snapshot
+        .providers
+        .iter()
+        .find(|provider| provider.provider == ProviderKind::MyChart)
+        .expect("mychart provider should exist");
 
     format!(
         r#"<!doctype html>
@@ -1042,7 +1053,7 @@ fn render_site_index(snapshot: &CatalogSnapshot) -> String {
         <h1>Tame hostile CLIs.</h1>
         <p class="lede">
           Switchboard gives humans, scripts, and LLMs one stable local contract across ugly real-world tools like
-          GitHub and Google Workspace. You get explicit namespaces, isolated credentials, draft-first writes, approval
+          GitHub, Google Workspace, and MyChart. You get explicit namespaces, isolated credentials, draft-first writes, approval
           gates, audit logs, undo metadata, and raw passthrough when the curated layer runs out.
         </p>
         <div class="stats">
@@ -1050,6 +1061,7 @@ fn render_site_index(snapshot: &CatalogSnapshot) -> String {
           <div class="stat"><span class="stat-label">Curated</span><span class="stat-value">{curated_count}</span></div>
           <div class="stat"><span class="stat-label">GitHub</span><span class="stat-value">{github_tools}</span></div>
           <div class="stat"><span class="stat-label">Google</span><span class="stat-value">{google_tools}</span></div>
+          <div class="stat"><span class="stat-label">MyChart</span><span class="stat-value">{mychart_tools}</span></div>
         </div>
         <div class="hero-grid">
           <div class="card">
@@ -1151,6 +1163,10 @@ switchboard tools list</pre>
             <p>{google_tools} tools, {google_curated} curated, {google_raw} raw. Namespace-scoped <code>state_dir</code> is what makes the multi-login story sane for CLIs that were not designed for it.</p>
           </div>
           <div class="card">
+            <h3>MyChart</h3>
+            <p>{mychart_tools} tools, {mychart_curated} curated, {mychart_raw} raw. Switchboard pins Epic account selection and config state per namespace so patient portals stop stepping on each other.</p>
+          </div>
+          <div class="card">
             <h3>OAuth helper</h3>
             <p><a href="./mychart-callback/">MyChart callback page</a> stays here because Epic still insists on HTTPS redirect URIs. Boring, but useful.</p>
           </div>
@@ -1168,6 +1184,9 @@ switchboard tools list</pre>
         google_tools = google.tool_count,
         google_curated = google.curated_count,
         google_raw = google.raw_count,
+        mychart_tools = mychart.tool_count,
+        mychart_curated = mychart.curated_count,
+        mychart_raw = mychart.raw_count,
         repo_url = REPO_URL
     )
 }
@@ -1179,7 +1198,7 @@ fn render_llms_txt_for_site() -> String {
     format!(
         "\
 # switchboard\n\
-> Rust-first local automation plane for GitHub and Google Workspace with namespace-scoped auth, draft-first writes, approvals, audit, and raw CLI passthrough.\n\
+> Rust-first local automation plane for GitHub, Google Workspace, and MyChart with namespace-scoped auth, draft-first writes, approvals, audit, and raw CLI passthrough.\n\
 \n\
 {site} \n\
 {site}reference/ \n\

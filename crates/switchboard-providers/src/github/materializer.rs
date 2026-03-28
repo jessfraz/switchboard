@@ -33,12 +33,12 @@ impl CliRuntimeMaterializer for DefaultGitHubCliMaterializer {
                 context.clear_env(LEGACY_ENTERPRISE_TOKEN_ENV);
                 Ok(context)
             }
-            ResolvedCredentials::GoogleOAuth { .. } | ResolvedCredentials::GoogleOAuthFile { .. } => {
-                Err(Error::UnsupportedOperation(format!(
-                    "github cli materializer does not support {} credentials",
-                    target.auth.kind
-                )))
-            }
+            ResolvedCredentials::GoogleOAuth { .. }
+            | ResolvedCredentials::GoogleOAuthFile { .. }
+            | ResolvedCredentials::MyChartCli { .. } => Err(Error::UnsupportedOperation(format!(
+                "github cli materializer does not support {} credentials",
+                target.auth.kind
+            ))),
         }
     }
 }

@@ -35,6 +35,14 @@ impl CliInventoryTarget {
                     fallback_subcommand: None,
                 },
             },
+            Self {
+                provider: ProviderKind::MyChart,
+                program: "mychart".to_owned(),
+                output_path: PathBuf::from("crates/switchboard-providers/inventories/mychart.json"),
+                help_strategy: CliHelpStrategy::AppendFlag {
+                    fallback_subcommand: None,
+                },
+            },
         ]
     }
 }
@@ -244,6 +252,16 @@ fn classify_operation(verb: Option<&str>, summary: &str) -> CliOperationKind {
             | "agenda"
             | "instances"
             | "getprofile"
+            | "upcoming"
+            | "find"
+            | "timeline"
+            | "trend"
+            | "abnormals"
+            | "audit"
+            | "doctor"
+            | "reconcile"
+            | "capabilities"
+            | "resources"
     ) || summary.starts_with("list ")
         || summary.starts_with("search ")
         || summary.starts_with("read ")

@@ -78,6 +78,14 @@ const GITHUB_REPO_VIEW_FIXTURE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../tests/fixtures/cli/github-repo-view.json"
 ));
+const MYCHART_APPOINTMENTS_UPCOMING_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/cli/mychart-appointments-upcoming.json"
+));
+const MYCHART_NOTES_SEARCH_FIXTURE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/cli/mychart-notes-search.json"
+));
 const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../tests/fixtures/scripts/gws-test.sh"
@@ -85,6 +93,10 @@ const GOOGLE_SCRIPT_TEMPLATE: &str = include_str!(concat!(
 const GITHUB_SCRIPT_TEMPLATE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../tests/fixtures/scripts/gh-test.sh"
+));
+const MYCHART_SCRIPT_TEMPLATE: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/scripts/mychart-test.sh"
 ));
 const GOOGLE_PERSONAL_OAUTH_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -246,6 +258,22 @@ struct GoogleDraftPayload {
 }
 
 #[derive(Debug, Deserialize)]
+struct RawMyChartReadFields<TResponse> {
+    response: TResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct MyChartNotesSearchPayload {
+    query: String,
+    notes: Vec<MyChartNoteSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MyChartNoteSummary {
+    id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct GoogleCalendarDeleteFields {
     event: GoogleCalendarDeleteEvent,
 }
@@ -382,7 +410,8 @@ fn configured_namespaces_match_current_examples() {
             "github.personal",
             "github.personal_token",
             "google.personal",
-            "google.work"
+            "google.work",
+            "mychart.ucla"
         ]
     );
 }
@@ -1300,6 +1329,82 @@ fn generated_raw_google_calendar_tool_supports_double_dash_passthrough() {
 }
 
 #[test]
+fn raw_mychart_cli_read_supports_double_dash_passthrough() {
+    let environment = TestEnvironment::new();
+    let config_path = environment.path_string();
+    let cli = Cli::try_parse_from([
+        "switchboard",
+        "--config",
+        &config_path,
+        "mychart.cli.read",
+        "--ns",
+        "mychart.ucla",
+        "--json",
+        "--",
+        "notes",
+        "search",
+        "--query",
+        "migraine",
+    ])
+    .expect("cli should parse");
+
+    let output = run(cli).expect("raw mychart cli read should execute");
+    let value: JsonExecutedResponse<RawMyChartReadFields<MyChartNotesSearchPayload>> = parse_json(&output);
+
+    assert_eq!(value.status, "executed");
+    assert_eq!(
+        value.tool,
+        ToolName::new("mychart.cli.read").expect("tool should build")
+    );
+    assert_eq!(
+        value.namespace,
+        NamespaceId::new("mychart.ucla").expect("namespace should build")
+    );
+    assert_eq!(value.fields.response.query, "migraine");
+    assert_eq!(value.fields.response.notes[0].id.as_deref(), Some("note-123"));
+    assert!(
+        environment
+            .mychart_capture_contents()
+            .contains("ARGV=notes search --query migraine"),
+        "expected raw mychart argv to reach the provider backend"
+    );
+}
+
+#[test]
+fn generated_raw_mychart_notes_search_tool_supports_double_dash_passthrough() {
+    let environment = TestEnvironment::new();
+    let config_path = environment.path_string();
+    let cli = Cli::try_parse_from([
+        "switchboard",
+        "--config",
+        &config_path,
+        "mychart.cli.notes.search",
+        "--ns",
+        "mychart.ucla",
+        "--json",
+        "--",
+        "--query",
+        "migraine",
+    ])
+    .expect("cli should parse");
+
+    let output = run(cli).expect("generated raw mychart cli read should execute");
+    let value: JsonExecutedResponse<RawMyChartReadFields<MyChartNotesSearchPayload>> = parse_json(&output);
+
+    assert_eq!(
+        value.tool,
+        ToolName::new("mychart.cli.notes.search").expect("tool should build")
+    );
+    assert_eq!(value.fields.response.notes.len(), 1);
+    assert!(
+        environment
+            .mychart_capture_contents()
+            .contains("ARGV=notes search --query migraine"),
+        "expected generated raw mychart tool to prepend the fixed notes search command"
+    );
+}
+
+#[test]
 fn repeated_argv_accepts_dash_prefixed_passthrough_tokens() {
     let request = crate::args::parse_external_tool_invocation(
         [
@@ -1829,6 +1934,7 @@ struct TestEnvironment {
     path: PathBuf,
     _gws_script: TempScript,
     _gh_script: TempScript,
+    _mychart_script: TempScript,
 }
 
 impl TestEnvironment {
@@ -1844,8 +1950,10 @@ impl TestEnvironment {
         env::set_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET", "google-work-client-secret");
         let gws_script = TempScript::new("gws-test", &render_google_script_template());
         let gh_script = TempScript::new("gh-test", &render_github_script_template());
+        let mychart_script = TempScript::new("mychart-test", &render_mychart_script_template());
         env::set_var("SWITCHBOARD_GWS_BIN", gws_script.path());
         env::set_var("SWITCHBOARD_GH_BIN", gh_script.path());
+        env::set_var("SWITCHBOARD_MYCHART_BIN", mychart_script.path());
         env::set_var("SWITCHBOARD_STATE_DIR", directory.join("state"));
         let oauth_path = directory.join("google-personal-oauth.json");
         fs::write(&oauth_path, GOOGLE_PERSONAL_OAUTH_JSON).expect("oauth fixture should be written");
@@ -1862,6 +1970,7 @@ impl TestEnvironment {
             path,
             _gws_script: gws_script,
             _gh_script: gh_script,
+            _mychart_script: mychart_script,
         }
     }
 
@@ -1876,6 +1985,10 @@ impl TestEnvironment {
     fn gws_capture_contents(&self) -> String {
         self._gws_script.capture_contents()
     }
+
+    fn mychart_capture_contents(&self) -> String {
+        self._mychart_script.capture_contents()
+    }
 }
 
 impl Drop for TestEnvironment {
@@ -1884,6 +1997,7 @@ impl Drop for TestEnvironment {
         env::remove_var("GOOGLE_WORKSPACE_CLI_CLIENT_SECRET");
         env::remove_var("SWITCHBOARD_GWS_BIN");
         env::remove_var("SWITCHBOARD_GH_BIN");
+        env::remove_var("SWITCHBOARD_MYCHART_BIN");
         env::remove_var("SWITCHBOARD_STATE_DIR");
         let _ = fs::remove_dir_all(&self.directory);
     }
@@ -1915,4 +2029,13 @@ fn render_github_script_template() -> String {
         .replace("__ISSUE_READ_FIXTURE__", GITHUB_ISSUE_READ_FIXTURE)
         .replace("__REPOSITORY_SEARCH_FIXTURE__", GITHUB_REPOSITORY_SEARCH_FIXTURE)
         .replace("__REPO_VIEW_FIXTURE__", GITHUB_REPO_VIEW_FIXTURE)
+}
+
+fn render_mychart_script_template() -> String {
+    MYCHART_SCRIPT_TEMPLATE
+        .replace(
+            "__APPOINTMENTS_UPCOMING_FIXTURE__",
+            MYCHART_APPOINTMENTS_UPCOMING_FIXTURE,
+        )
+        .replace("__NOTES_SEARCH_FIXTURE__", MYCHART_NOTES_SEARCH_FIXTURE)
 }

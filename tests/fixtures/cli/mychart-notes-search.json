@@ -1,0 +1,15 @@
+{
+  "status": "ok",
+  "patient_id": "patient-123",
+  "query": "migraine",
+  "notes": [
+    {
+      "id": "note-123",
+      "date": "2026-03-21T12:45:00Z",
+      "type": "Progress Note",
+      "description": "Neurology follow-up",
+      "author": "Dr. Rivera",
+      "match_source": "metadata"
+    }
+  ]
+}

@@ -278,6 +278,27 @@ enum RawAuth {
         account: String,
         credentials: String,
     },
+    #[serde(rename = "mychart_cli")]
+    MyChartCli {
+        provider: String,
+        account: String,
+        #[serde(default)]
+        base_url: Option<String>,
+        #[serde(default)]
+        portal_base_url: Option<String>,
+        #[serde(default)]
+        client_id: Option<String>,
+        #[serde(default)]
+        client_secret: Option<String>,
+        #[serde(default)]
+        redirect_uri: Option<String>,
+        #[serde(default)]
+        access_token: Option<String>,
+        #[serde(default)]
+        refresh_token: Option<String>,
+        #[serde(default)]
+        username: Option<String>,
+    },
 }
 
 impl RawAuth {
@@ -286,7 +307,8 @@ impl RawAuth {
             Self::GitHubCli { provider, .. }
             | Self::GitHubToken { provider, .. }
             | Self::GoogleOAuth { provider, .. }
-            | Self::GoogleOAuthFile { provider, .. } => provider,
+            | Self::GoogleOAuthFile { provider, .. }
+            | Self::MyChartCli { provider, .. } => provider,
         }
     }
 
@@ -295,7 +317,8 @@ impl RawAuth {
             Self::GitHubCli { account, .. }
             | Self::GitHubToken { account, .. }
             | Self::GoogleOAuth { account, .. }
-            | Self::GoogleOAuthFile { account, .. } => account,
+            | Self::GoogleOAuthFile { account, .. }
+            | Self::MyChartCli { account, .. } => account,
         }
     }
 
@@ -305,6 +328,7 @@ impl RawAuth {
             Self::GitHubToken { .. } => AuthKind::GitHubToken,
             Self::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
             Self::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
+            Self::MyChartCli { .. } => AuthKind::MyChartCli,
         }
     }
 
@@ -330,8 +354,32 @@ impl RawAuth {
             Self::GoogleOAuthFile { credentials, .. } => Ok(AuthSecretRefs::GoogleOAuthFile {
                 credentials: SecretRef::new(credentials)?,
             }),
+            Self::MyChartCli {
+                base_url,
+                portal_base_url,
+                client_id,
+                client_secret,
+                redirect_uri,
+                access_token,
+                refresh_token,
+                username,
+                ..
+            } => Ok(AuthSecretRefs::MyChartCli {
+                base_url: option_secret_ref(base_url.as_deref())?,
+                portal_base_url: option_secret_ref(portal_base_url.as_deref())?,
+                client_id: option_secret_ref(client_id.as_deref())?,
+                client_secret: option_secret_ref(client_secret.as_deref())?,
+                redirect_uri: option_secret_ref(redirect_uri.as_deref())?,
+                access_token: option_secret_ref(access_token.as_deref())?,
+                refresh_token: option_secret_ref(refresh_token.as_deref())?,
+                username: option_secret_ref(username.as_deref())?,
+            }),
         }
     }
+}
+
+fn option_secret_ref(value: Option<&str>) -> Result<Option<SecretRef>> {
+    value.map(SecretRef::new).transpose()
 }
 
 #[derive(Debug, Deserialize)]
@@ -404,7 +452,8 @@ mod tests {
                 "github.personal",
                 "github.personal_token",
                 "google.personal",
-                "google.work"
+                "google.work",
+                "mychart.ucla"
             ]
         );
 
@@ -430,6 +479,12 @@ mod tests {
             .expect("github token auth should exist");
         assert_eq!(github_token_auth.kind, AuthKind::GitHubToken);
         assert_eq!(github_token_auth.secret_refs().len(), 1);
+
+        let mychart_auth = auth
+            .get(&AuthRef::new("mychart_ucla").expect("auth ref should parse"))
+            .expect("mychart auth should exist");
+        assert_eq!(mychart_auth.kind, AuthKind::MyChartCli);
+        assert!(mychart_auth.secret_refs().is_empty());
 
         assert_eq!(secrets.list().len(), 4);
     }
