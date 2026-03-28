@@ -171,14 +171,14 @@ fn notes_search_matches_note_body_text() {
         .body_excerpt
         .as_deref()
         .is_some_and(|excerpt| excerpt.contains("migraine")));
-    assert!(output.notes[0]
-        .body_excerpt
-        .as_deref()
-        .is_some_and(|excerpt| excerpt.contains("Jessica Leigh Frazelle")));
     assert!(!output.notes[0]
         .body_excerpt
         .as_deref()
         .is_some_and(|excerpt| excerpt.contains("<ClinicalDocument")));
+    assert!(!output.notes[0]
+        .body_excerpt
+        .as_deref()
+        .is_some_and(|excerpt| excerpt.contains("Jessica Leigh Frazelle")));
 }
 
 #[test]
@@ -246,16 +246,202 @@ fn notes_get_normalizes_xml_boundary_mush() {
 
     assert_eq!(output.status, "ok");
     let body = output.note.body_text.as_deref().expect("body text should exist");
-    assert!(body.contains("Jessica Leigh Frazelle"), "body was: {body}");
-    assert!(
-        body.contains("21607 Mulholland Drive LOS ANGELES CA"),
-        "body was: {body}"
-    );
+    assert!(body.starts_with("After Visit Summary"), "body was: {body}");
     assert!(
         body.contains("Submitted on (March 27, 2026) Apply warm compresses as needed."),
         "body was: {body}"
     );
-    assert!(!body.contains("JessicaLeighFrazelle"));
-    assert!(!body.contains("DriveLOS"));
+    assert!(!body.contains("Jessica Leigh Frazelle"));
+    assert!(!body.contains("21607 Mulholland Drive"));
     assert!(!body.contains("2026)Apply"));
+}
+
+#[test]
+fn notes_get_decodes_embedded_base64_rtf_payloads() {
+    let embedded_rtf = crate::base64_encode(
+        br"{\rtf1\ansi CASE REPORT\par Negative for Intraepithelial Lesion or Malignancy.\par SPECIMEN ADEQUACY\par Satisfactory for evaluation.}",
+    );
+    let server = TestServer::spawn(vec![
+        ResponseSpec::json(
+            200,
+            capability_statement_json(
+                "http://placeholder",
+                &[resource_capability("DocumentReference", &["read", "search-type"])],
+            ),
+            Vec::new(),
+        ),
+        ResponseSpec::json(
+            200,
+            json!({
+                "resourceType": "DocumentReference",
+                "id": "note-rtf",
+                "date": "2100-01-03",
+                "type": {"text": "Lab report"},
+                "content": [{
+                    "attachment": {
+                        "title": "Embedded report",
+                        "contentType": "application/xml",
+                        "url": "/Binary/note-rtf-body"
+                    }
+                }]
+            }),
+            Vec::new(),
+        ),
+        ResponseSpec::json(
+            200,
+            json!({
+                "resourceType": "Binary",
+                "contentType": "application/xml",
+                "data": crate::base64_encode(
+                    format!(
+                        "<ClinicalDocument><section><title>Pathology</title><text>Intro text {embedded_rtf} Trailing text.</text></section></ClinicalDocument>"
+                    )
+                    .as_bytes()
+                )
+            }),
+            Vec::new(),
+        ),
+    ]);
+    let temp_dir = temp_dir("mychart-notes-get-embedded-rtf");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&MyChartState {
+            api_base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            patient_id: Some("patient-123".into()),
+            scope: Some("openid patient/DocumentReference.read patient/Binary.read".into()),
+            ..MyChartState::default()
+        })
+        .expect("state should save");
+
+    let output: NoteGetOutput = run_command_json(&[
+        "mychart",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "notes",
+        "get",
+        "note-rtf",
+    ]);
+
+    assert_eq!(output.status, "ok");
+    let body = output.note.body_text.as_deref().expect("body text should exist");
+    assert!(body.contains("Negative for Intraepithelial Lesion or Malignancy."));
+    assert!(body.contains("Satisfactory for evaluation."));
+    assert!(body.contains("Trailing text."));
+    assert!(!body.contains("e1xydGY"));
+    assert!(!body.contains("{\\rtf1"));
+}
+
+#[test]
+fn notes_get_extracts_cda_sections_instead_of_full_document_soup() {
+    let cda = br#"
+<ClinicalDocument xmlns="urn:hl7-org:v3">
+  <title>Patient Health Summary</title>
+  <recordTarget>
+    <patientRole>
+      <addr>
+        <streetAddressLine>21607 Mulholland Drive</streetAddressLine>
+        <city>Woodland Hills</city>
+      </addr>
+      <patient>
+        <name>
+          <given>Jessica</given>
+          <family>Frazelle</family>
+        </name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <title>Allergies</title>
+          <text>
+            <paragraph>No known active allergies</paragraph>
+          </text>
+        </section>
+      </component>
+      <component>
+        <section>
+          <title>Results</title>
+          <text>
+            <table>
+              <tbody>
+                <tr><th>Test</th><th>Value</th></tr>
+                <tr><td>TSH</td><td>2.1</td></tr>
+              </tbody>
+            </table>
+          </text>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>
+"#;
+    let server = TestServer::spawn(vec![
+        ResponseSpec::json(
+            200,
+            capability_statement_json(
+                "http://placeholder",
+                &[resource_capability("DocumentReference", &["read", "search-type"])],
+            ),
+            Vec::new(),
+        ),
+        ResponseSpec::json(
+            200,
+            json!({
+                "resourceType": "DocumentReference",
+                "id": "note-cda",
+                "date": "2100-01-04",
+                "type": {"text": "Patient Summary"},
+                "content": [{
+                    "attachment": {
+                        "title": "Summary body",
+                        "contentType": "application/xml",
+                        "url": "/Binary/note-cda-body"
+                    }
+                }]
+            }),
+            Vec::new(),
+        ),
+        ResponseSpec::json(
+            200,
+            json!({
+                "resourceType": "Binary",
+                "contentType": "application/xml",
+                "data": crate::base64_encode(cda)
+            }),
+            Vec::new(),
+        ),
+    ]);
+    let temp_dir = temp_dir("mychart-notes-get-cda-sections");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&MyChartState {
+            api_base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            patient_id: Some("patient-123".into()),
+            scope: Some("openid patient/DocumentReference.read patient/Binary.read".into()),
+            ..MyChartState::default()
+        })
+        .expect("state should save");
+
+    let output: NoteGetOutput = run_command_json(&[
+        "mychart",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "notes",
+        "get",
+        "note-cda",
+    ]);
+
+    assert_eq!(output.status, "ok");
+    let body = output.note.body_text.as_deref().expect("body text should exist");
+    assert!(body.starts_with("Patient Health Summary"));
+    assert!(body.contains("Allergies\nNo known active allergies"));
+    assert!(body.contains("Results\nTest Value\nTSH 2.1"));
+    assert!(!body.contains("21607 Mulholland Drive"));
+    assert!(!body.contains("Jessica Frazelle"));
 }
