@@ -104,6 +104,10 @@
         cargoPackage = "momence-cli";
         pname = "momence";
       };
+      schwab = buildCli {
+        cargoPackage = "schwab-cli";
+        pname = "schwab";
+      };
       default = self.packages.${system}.switchboard;
     });
   };

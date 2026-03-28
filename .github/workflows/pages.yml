@@ -5,7 +5,12 @@ on:
     branches:
       - main
     paths:
-      - pages/**
+      - Cargo.toml
+      - Cargo.lock
+      - README.md
+      - docs/**
+      - pages/mychart-callback/**
+      - crates/switchboard-cli/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -29,6 +34,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build docs site
+        run: cargo run -p switchboard-cli --bin switchboard-docs-gen -- site --output-dir target/pages-site
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
@@ -37,7 +51,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: pages
+          path: target/pages-site
 
       - name: Deploy to GitHub Pages
         id: deployment

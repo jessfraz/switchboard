@@ -1,9 +1,16 @@
 [package]
 name = "switchboard-cli"
+description = "Rust-first local automation plane with namespace-scoped credentials, approvals, audit, and raw CLI passthrough"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
+keywords = ["cli", "automation", "github", "google-workspace", "llm"]
+categories = ["command-line-utilities", "development-tools"]
 
 [lib]
 name = "switchboard_cli"
@@ -16,6 +23,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
+clap_mangen.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 switchboard-core = { path = "../switchboard-core" }

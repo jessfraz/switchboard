@@ -1,9 +1,16 @@
 [package]
 name = "switchboard-core"
+description = "Core types, policy engine, and execution orchestration for Switchboard"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
+keywords = ["automation", "tooling", "policy", "audit", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 serde.workspace = true

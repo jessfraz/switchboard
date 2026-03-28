@@ -1,0 +1,57 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH switchboard 1  "switchboard 0.1.0" 
+.SH NAME
+switchboard \- Rust\-first local automation plane
+.SH SYNOPSIS
+\fBswitchboard\fR [\fB\-\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Rust\-first local automation plane
+.SH OPTIONS
+.TP
+\fB\-\-config\fR \fI<PATH>\fR
+
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+switchboard\-ns(1)
+.TP
+switchboard\-tools(1)
+.TP
+switchboard\-audit(1)
+.TP
+switchboard\-op(1)
+.SH EXTRA
+Raw CLI Coverage:
+  Curated tools are the nice typed layer, not the limit.
+  By default, any discovered provider CLI command can run through these raw surfaces:
+    <provider>.cli.read   for read\-only commands
+    <provider>.cli.write  for write commands
+  Namespace auth, policy, approval, audit, and undo metadata still apply.
+  Put switchboard flags before \-\-, then pass native CLI argv after \-\-.
+
+Examples:
+  switchboard ns list
+  switchboard tools list
+  switchboard tools describe google.cli.write
+  switchboard tools describe github.cli.read
+  switchboard audit list
+  switchboard op list
+  switchboard op list \-\-pending
+  switchboard github.notifications.list \-\-ns github.personal \-\-json
+  switchboard google.mail.search \-\-ns google.work \-\-query \*(Aqfrom:finance newer_than:7d\*(Aq
+  switchboard google.calendar.list \-\-ns google.work \-\-ns google.personal \-\-json
+  switchboard google.cli.read \-\-ns google.work \-\-json \-\- calendar +agenda \-\-format json \-\-today
+  switchboard github.cli.write \-\-ns github.personal \-\- \-\-repo owner/repo issue comment 123 \-\-body \*(Aqneeds tests\*(Aq
+  switchboard github.pull_request.comment \-\-ns github.personal \-\-repo owner/repo \-\-number 123 \-\-body \*(Aqneeds tests\*(Aq \-\-draft
+  switchboard op approve op_1234abcd \-\-actor codex \-\-note \*(Aqship it\*(Aq
+  switchboard op approve op_1234abcd \-\-actor codex \-\-apply \-\-json
+  switchboard op undo op_1234abcd \-\-apply \-\-json
+  switchboard op apply op_1234abcd \-\-json
+.SH VERSION
+v0.1.0

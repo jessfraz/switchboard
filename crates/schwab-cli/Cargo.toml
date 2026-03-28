@@ -1,6 +1,6 @@
 [package]
-name = "mindbody-cli"
-description = "CLI for booking Pilates classes and handling Mindbody member workflows"
+name = "schwab-cli"
+description = "CLI for Charles Schwab consumer account, trading, and market-data workflows"
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
@@ -12,11 +12,11 @@ version.workspace = true
 publish = false
 
 [lib]
-name = "mindbody_cli"
+name = "schwab_cli"
 path = "src/lib.rs"
 
 [[bin]]
-name = "mindbody"
+name = "schwab"
 path = "src/main.rs"
 
 [dependencies]

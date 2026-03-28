@@ -1,0 +1,321 @@
+#compdef switchboard
+
+autoload -U is-at-least
+
+_switchboard() {
+    typeset -A opt_args
+    typeset -a _arguments_options
+    local ret=1
+
+    if is-at-least 5.2; then
+        _arguments_options=(-s -S -C)
+    else
+        _arguments_options=(-s -C)
+    fi
+
+    local context curcontext="$curcontext" state line
+    _arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'-h[Print help]' \
+'--help[Print help]' \
+'-V[Print version]' \
+'--version[Print version]' \
+":: :_switchboard_commands" \
+"*::: :->switchboard" \
+&& ret=0
+    case $state in
+    (switchboard)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:switchboard-command-$line[1]:"
+        case $line[1] in
+            (ns)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_switchboard__ns_commands" \
+"*::: :->ns" \
+&& ret=0
+
+    case $state in
+    (ns)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:switchboard-ns-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(tools)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_switchboard__tools_commands" \
+"*::: :->tools" \
+&& ret=0
+
+    case $state in
+    (tools)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:switchboard-tools-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(describe)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':tool:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(audit)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_switchboard__audit_commands" \
+"*::: :->audit" \
+&& ret=0
+
+    case $state in
+    (audit)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:switchboard-audit-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--operation-id=[]:OPERATION_ID:_default' \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':selector:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+(op)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_switchboard__op_commands" \
+"*::: :->op" \
+&& ret=0
+
+    case $state in
+    (op)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:switchboard-op-command-$line[1]:"
+        case $line[1] in
+            (list)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--pending[]' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(approve)
+_arguments "${_arguments_options[@]}" : \
+'--actor=[]:ACTOR:_default' \
+'--note=[]:NOTE:_default' \
+'--config=[]:PATH:_files' \
+'--apply[]' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(reject)
+_arguments "${_arguments_options[@]}" : \
+'--actor=[]:ACTOR:_default' \
+'--note=[]:NOTE:_default' \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(apply)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+(undo)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--apply[]' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+}
+
+(( $+functions[_switchboard_commands] )) ||
+_switchboard_commands() {
+    local commands; commands=(
+'ns:' \
+'tools:' \
+'audit:' \
+'op:' \
+    )
+    _describe -t commands 'switchboard commands' commands "$@"
+}
+(( $+functions[_switchboard__audit_commands] )) ||
+_switchboard__audit_commands() {
+    local commands; commands=(
+'list:' \
+'show:' \
+    )
+    _describe -t commands 'switchboard audit commands' commands "$@"
+}
+(( $+functions[_switchboard__audit__list_commands] )) ||
+_switchboard__audit__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard audit list commands' commands "$@"
+}
+(( $+functions[_switchboard__audit__show_commands] )) ||
+_switchboard__audit__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard audit show commands' commands "$@"
+}
+(( $+functions[_switchboard__ns_commands] )) ||
+_switchboard__ns_commands() {
+    local commands; commands=(
+'list:' \
+    )
+    _describe -t commands 'switchboard ns commands' commands "$@"
+}
+(( $+functions[_switchboard__ns__list_commands] )) ||
+_switchboard__ns__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard ns list commands' commands "$@"
+}
+(( $+functions[_switchboard__op_commands] )) ||
+_switchboard__op_commands() {
+    local commands; commands=(
+'list:' \
+'show:' \
+'approve:' \
+'reject:' \
+'apply:' \
+'undo:' \
+    )
+    _describe -t commands 'switchboard op commands' commands "$@"
+}
+(( $+functions[_switchboard__op__apply_commands] )) ||
+_switchboard__op__apply_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op apply commands' commands "$@"
+}
+(( $+functions[_switchboard__op__approve_commands] )) ||
+_switchboard__op__approve_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op approve commands' commands "$@"
+}
+(( $+functions[_switchboard__op__list_commands] )) ||
+_switchboard__op__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op list commands' commands "$@"
+}
+(( $+functions[_switchboard__op__reject_commands] )) ||
+_switchboard__op__reject_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op reject commands' commands "$@"
+}
+(( $+functions[_switchboard__op__show_commands] )) ||
+_switchboard__op__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op show commands' commands "$@"
+}
+(( $+functions[_switchboard__op__undo_commands] )) ||
+_switchboard__op__undo_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op undo commands' commands "$@"
+}
+(( $+functions[_switchboard__tools_commands] )) ||
+_switchboard__tools_commands() {
+    local commands; commands=(
+'list:' \
+'describe:' \
+    )
+    _describe -t commands 'switchboard tools commands' commands "$@"
+}
+(( $+functions[_switchboard__tools__describe_commands] )) ||
+_switchboard__tools__describe_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard tools describe commands' commands "$@"
+}
+(( $+functions[_switchboard__tools__list_commands] )) ||
+_switchboard__tools__list_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard tools list commands' commands "$@"
+}
+
+if [ "$funcstack[1]" = "_switchboard" ]; then
+    _switchboard "$@"
+else
+    compdef _switchboard switchboard
+fi

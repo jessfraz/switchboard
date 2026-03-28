@@ -63,7 +63,7 @@ This repo is real, but still in the "tighten the public surface" phase.
 | Area | Status | Notes |
 | --- | --- | --- |
 | Source install | Ready | Build from source or use Nix today |
-| Prebuilt release binaries | In progress | Tracked in [docs/open-source-prime-time.md](docs/open-source-prime-time.md) |
+| Prebuilt release binaries | Wired, awaiting first tag | `cargo-dist` release pipeline is configured for checksummed archives plus shell and PowerShell installers |
 | GitHub curated reads | Executable | Notifications, PR read/search, issue read, repository search |
 | GitHub curated writes | Mixed | Comment tools plan cleanly, apply path is still evolving |
 | Google curated reads | Mixed | Mail search/read and calendar list execute, drive search is planning-only |
@@ -74,7 +74,7 @@ This workspace also contains adjacent CLIs. The public polish and open-source ha
 
 ## Install Today
 
-Prebuilt release artifacts and package-manager installs are the next step. Today, the honest install paths are source or Nix.
+Today, the honest install paths are source or Nix. The release pipeline for prebuilt binaries is configured, but the first public tagged release still needs to be cut.
 
 ### From Source
 
@@ -291,8 +291,11 @@ switchboard op list --pending
 ## Docs And Roadmap
 
 - Open-source-readiness checklist: [docs/open-source-prime-time.md](docs/open-source-prime-time.md)
-- Command reference generation is the next major docs step
-- Prebuilt binaries, Homebrew, and broader release packaging are in progress
+- LLM operator guide: [docs/llms/getting-started.md](docs/llms/getting-started.md)
+- LLM workflow patterns: [docs/llms/patterns.md](docs/llms/patterns.md)
+- Generated reference catalog: [docs/reference/README.md](docs/reference/README.md)
+- Structured tool catalog JSON: [docs/reference/catalog.json](docs/reference/catalog.json)
+- Prebuilt binaries and package-manager installs still need the first public release tag
 
 The repo should eventually be the best place to understand:
 

@@ -46,6 +46,9 @@ jobs:
       - name: Check Generated CLI Inventories
         run: cargo run -p switchboard-providers --bin switchboard-catalog-gen -- check
 
+      - name: Check Generated Docs
+        run: cargo run -p switchboard-cli --bin switchboard-docs-gen -- check
+
       - name: Format
         run: cargo fmt --check
 

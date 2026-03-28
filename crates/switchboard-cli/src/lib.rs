@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use switchboard_core::{
     AuthStore, DispatchOutcome, NamespaceStore, SecretResolver, SecretStore, Switchboard, SwitchboardServices,
 };
@@ -15,6 +15,8 @@ use switchboard_providers::default_registry;
 use switchboard_store::{
     resolve_operation_store_path, LocalSecretResolver, SqliteAuditStore, SqliteOperationStore, SwitchboardConfig,
 };
+
+pub mod catalog;
 
 mod args;
 mod output;
@@ -24,16 +26,20 @@ mod test_support;
 
 use crate::{
     args::{AuditRuntimeCommand, AuditSelector, Cli, CommandKind, StoredOperationCommand, ToolCatalogRuntimeCommand},
+    catalog::{ToolCatalogDetail, ToolCatalogEntry},
     output::{
         operation_needs_attention, render_audit_events_human, render_audit_selection_human, render_clap_error,
         render_dispatch_human, render_json, render_json_dispatch, render_json_error, render_json_operation,
         render_namespaces_human, render_operation_human, render_operations_human, render_output_human,
         render_stored_operation_human, render_tool_detail_human, render_tools_human, AuditEventResponse,
         AuditListResponse, AuditOperationResponse, AuditSelection, NamespaceListResponse, StoredOperationListResponse,
-        StoredOperationResponse, ToolCatalogDetail, ToolCatalogDetailResponse, ToolCatalogEntry,
-        ToolCatalogListResponse,
+        StoredOperationResponse, ToolCatalogDetailResponse, ToolCatalogListResponse,
     },
 };
+
+pub fn command() -> clap::Command {
+    args::Cli::command()
+}
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;

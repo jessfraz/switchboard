@@ -1,9 +1,16 @@
 [package]
 name = "switchboard-providers"
+description = "Provider adapters, manifests, and live CLI inventory generation for Switchboard"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
+keywords = ["automation", "github", "google-workspace", "cli", "inventory"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow.workspace = true

@@ -1,0 +1,24 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.30.3"
+ci = "github"
+hosting = "github"
+installers = ["shell", "powershell"]
+install-path = "CARGO_HOME"
+targets = [
+  "aarch64-apple-darwin",
+  "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+  "x86_64-unknown-linux-musl",
+]
+packages = ["switchboard-cli"]
+pr-run-mode = "plan"
+github-attestations = true
+install-updater = false
+
+[dist.github-custom-runners.aarch64-unknown-linux-musl.container]
+image = "quay.io/pypa/manylinux_2_28_x86_64"
+host = "x86_64-unknown-linux-musl"

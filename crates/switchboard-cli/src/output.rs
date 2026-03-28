@@ -5,10 +5,12 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, ApprovalState, BackendKind, DispatchOutcome, NamespaceId, OperationEffect, OperationId,
-    OperationOutcome, ProviderKind, RegisteredTool, ResolvedNamespace, StoredAuditEvent, StoredOperation, ToolArgument,
+    OperationOutcome, RegisteredTool, ResolvedNamespace, StoredAuditEvent, StoredOperation, ToolArgument,
     ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRef, ToolSurface,
     ToolUndoSupport,
 };
+
+use crate::catalog::{ToolCatalogDetail, ToolCatalogEntry, ToolCatalogStatus};
 pub(crate) fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
     let mut output = String::from("Namespaces\n");
     for namespace in namespaces {
@@ -102,6 +104,7 @@ pub(crate) fn render_tools_human(tools: &[RegisteredTool]) -> String {
             tool.provider.to_string(),
             render_tool_kind(tool.kind).to_owned(),
             tool.backend.to_string(),
+            render_tool_status(crate::catalog::tool_catalog_status(tool)).to_owned(),
         ];
         qualifiers.push(render_tool_surface(tool.surface).to_owned());
         qualifiers.push(render_execution_support(tool.execution_support).to_owned());
@@ -123,6 +126,7 @@ pub(crate) fn render_tool_detail_human(detail: &ToolCatalogDetail) -> String {
     let mut output = String::new();
     output.push_str(&format!("Tool: {}\n", detail.name));
     output.push_str(&format!("Provider: {}\n", detail.provider));
+    output.push_str(&format!("Status: {}\n", render_tool_status(detail.status)));
     output.push_str(&format!("Kind: {}\n", render_tool_kind(detail.kind)));
     output.push_str(&format!("Backend: {}\n", detail.backend));
     output.push_str(&format!("Surface: {}\n", render_tool_surface(detail.surface)));
@@ -408,6 +412,10 @@ pub(crate) fn render_undo_support(undo_support: ToolUndoSupport) -> &'static str
     }
 }
 
+pub(crate) fn render_tool_status(status: ToolCatalogStatus) -> &'static str {
+    status.as_str()
+}
+
 pub(crate) fn render_tool_argument_transport(argument: &ToolArgumentSpec) -> &'static str {
     match argument.transport {
         switchboard_core::ToolArgumentTransport::Positional => "positional",
@@ -425,97 +433,6 @@ pub(crate) fn render_tool_argument_value_kind(argument: &ToolArgumentSpec) -> &'
         switchboard_core::ToolArgumentValueKind::Boolean => "boolean",
         switchboard_core::ToolArgumentValueKind::Json => "json",
     }
-}
-
-pub(crate) fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
-    let mode_flag = match tool.kind {
-        ToolKind::Read => "--json",
-        ToolKind::Write => "--draft",
-    };
-    vec![format!("switchboard {} --ns {namespace} {mode_flag} ...", tool.name)]
-}
-
-pub(crate) fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
-    if let Some(path) = inventory_raw_tool_path(&tool.name) {
-        let command = path.join(" ");
-        return match tool.kind {
-            ToolKind::Read => vec![
-                format!("switchboard {} --ns {namespace} --json -- --format json", tool.name),
-                format!(
-                    "switchboard {} --ns {namespace} --argv-json '[\"--format\",\"json\"]' --json",
-                    tool.name
-                ),
-                format!("# fixed CLI path: {command}"),
-            ],
-            ToolKind::Write => vec![
-                format!(
-                    "switchboard {} --ns {namespace} --draft -- --format json ...",
-                    tool.name
-                ),
-                format!(
-                    "switchboard {} --ns {namespace} --argv-json '[\"--format\",\"json\",...]' --apply --json",
-                    tool.name
-                ),
-                format!("# fixed CLI path: {command}"),
-            ],
-        };
-    }
-
-    match (tool.provider.clone(), tool.kind) {
-        (ProviderKind::GoogleWorkspace, ToolKind::Read) => vec![
-            format!(
-                "switchboard {} --ns {namespace} --json -- calendar +agenda --format json --today",
-                tool.name
-            ),
-            format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"gmail\",\"users\",\"messages\",\"list\",\"--query\",\"from:finance\",\"--format\",\"json\"]' --json",
-                tool.name
-            ),
-        ],
-        (ProviderKind::GoogleWorkspace, ToolKind::Write) => vec![
-            format!(
-                "switchboard {} --ns {namespace} --draft -- gmail users drafts create --params '{{\"userId\":\"me\"}}' --json '{{\"message\":{{\"raw\":\"SGVsbG8=\"}}}}' --format json",
-                tool.name
-            ),
-            format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"calendar\",\"events\",\"insert\",\"--summary\",\"Vet visit\",\"--start\",\"2026-04-01T09:00:00-07:00\",\"--end\",\"2026-04-01T10:00:00-07:00\",\"--format\",\"json\"]' --apply --json",
-                tool.name
-            ),
-        ],
-        (ProviderKind::GitHub, ToolKind::Read) => vec![
-            format!(
-                "switchboard {} --ns {namespace} --json -- repo view owner/repo --json name,visibility,defaultBranchRef",
-                tool.name
-            ),
-            format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"search\",\"prs\",\"--repo\",\"owner/repo\",\"--state\",\"open\",\"--json\",\"number,title\"]' --json",
-                tool.name
-            ),
-        ],
-        (ProviderKind::GitHub, ToolKind::Write) => vec![
-            format!(
-                "switchboard {} --ns {namespace} --draft -- pr comment 123 --body 'needs tests'",
-                tool.name
-            ),
-            format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"issue\",\"edit\",\"77\",\"--add-label\",\"triage\"]' --apply --json",
-                tool.name
-            ),
-        ],
-        (_, _) => vec![format!("switchboard {} --ns {namespace} -- ...", tool.name)],
-    }
-}
-
-pub(crate) fn inventory_raw_tool_path(tool: &ToolName) -> Option<Vec<String>> {
-    let segments = tool.as_str().split('.').collect::<Vec<_>>();
-    if segments.get(1).copied() != Some("cli") {
-        return None;
-    }
-    if matches!(segments.get(2).copied(), Some("read" | "write")) && segments.len() == 3 {
-        return None;
-    }
-
-    Some(segments.into_iter().skip(2).map(ToOwned::to_owned).collect())
 }
 
 pub(crate) fn render_approval_state(state: ApprovalState) -> &'static str {
@@ -671,99 +588,6 @@ pub(crate) struct ToolCatalogListResponse {
 pub(crate) struct ToolCatalogDetailResponse {
     pub(crate) status: &'static str,
     pub(crate) tool: ToolCatalogDetail,
-}
-
-#[derive(Serialize)]
-pub(crate) struct ToolCatalogEntry {
-    name: ToolName,
-    provider: ProviderKind,
-    kind: ToolKind,
-    backend: BackendKind,
-    summary: String,
-    surface: ToolSurface,
-    aggregate_read_supported: bool,
-    execution_support: ToolExecutionSupport,
-    undo_support: ToolUndoSupport,
-}
-
-impl From<&RegisteredTool> for ToolCatalogEntry {
-    fn from(tool: &RegisteredTool) -> Self {
-        Self {
-            name: tool.name.clone(),
-            provider: tool.provider.clone(),
-            kind: tool.kind,
-            backend: tool.backend,
-            summary: tool.summary.to_owned(),
-            surface: tool.surface,
-            aggregate_read_supported: tool.aggregate_read_supported,
-            execution_support: tool.execution_support,
-            undo_support: tool.undo_support,
-        }
-    }
-}
-
-#[derive(Serialize)]
-pub(crate) struct ToolCatalogDetail {
-    pub(crate) name: ToolName,
-    pub(crate) provider: ProviderKind,
-    pub(crate) kind: ToolKind,
-    pub(crate) backend: BackendKind,
-    pub(crate) summary: String,
-    pub(crate) surface: ToolSurface,
-    pub(crate) aggregate_read_supported: bool,
-    pub(crate) execution_support: ToolExecutionSupport,
-    pub(crate) undo_support: ToolUndoSupport,
-    pub(crate) arguments: Vec<ToolArgumentSpec>,
-    pub(crate) available_namespaces: Vec<NamespaceId>,
-    pub(crate) notes: Vec<String>,
-    pub(crate) examples: Vec<String>,
-}
-
-impl ToolCatalogDetail {
-    pub(crate) fn new(tool: &RegisteredTool, namespaces: &[ResolvedNamespace]) -> Self {
-        let available_namespaces = namespaces
-            .iter()
-            .map(|namespace| namespace.id.clone())
-            .collect::<Vec<_>>();
-        let raw = tool.surface == ToolSurface::Raw;
-        let example_namespace = namespaces
-            .first()
-            .map(|namespace| namespace.id.to_string())
-            .unwrap_or_else(|| format!("{}.default", tool.provider));
-        let mut notes = vec![
-            "policy, auth isolation, and audit still apply".to_owned(),
-            "repeat --ns for aggregate reads, writes stay single-namespace".to_owned(),
-        ];
-        if tool.execution_support == ToolExecutionSupport::PlanningOnly {
-            notes.push("execution is not wired yet, this tool currently plans cleanly but will not apply".to_owned());
-        }
-        let examples = if raw {
-            notes.push(
-                "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged"
-                    .to_owned(),
-            );
-            notes.push("for scripted calls, --argv-json accepts one JSON array of argv tokens".to_owned());
-            raw_tool_examples(tool, &example_namespace)
-        } else {
-            curated_tool_examples(tool, &example_namespace)
-        };
-
-        Self {
-            name: tool.name.clone(),
-            provider: tool.provider.clone(),
-            kind: tool.kind,
-            backend: tool.backend,
-            summary: tool.summary.to_owned(),
-            surface: tool.surface,
-            aggregate_read_supported: tool.aggregate_read_supported,
-            execution_support: tool.execution_support,
-            undo_support: tool.undo_support,
-            arguments: tool.arguments.clone(),
-            available_namespaces,
-            notes,
-            examples,
-        }
-    }
 }
 
 #[derive(Serialize)]

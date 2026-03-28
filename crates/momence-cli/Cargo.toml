@@ -2,9 +2,14 @@
 name = "momence-cli"
 description = "CLI for Momence member workflows, booking Pilates classes, and handling account tasks"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
+publish = false
 
 [lib]
 name = "momence_cli"

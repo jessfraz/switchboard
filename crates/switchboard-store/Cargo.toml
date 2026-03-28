@@ -1,9 +1,16 @@
 [package]
 name = "switchboard-store"
+description = "Config loading, policy configuration, and local stores for Switchboard"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
+keywords = ["automation", "sqlite", "config", "audit", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 rusqlite.workspace = true

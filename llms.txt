@@ -1,0 +1,9 @@
+# switchboard
+> Rust-first local automation plane for GitHub and Google Workspace with namespace-scoped auth, draft-first writes, approvals, audit, and raw CLI passthrough.
+
+/README.md
+/docs/llms/getting-started.md
+/docs/llms/patterns.md
+/docs/reference/README.md
+/docs/reference/support-matrix.md
+/docs/reference/catalog.json

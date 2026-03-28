@@ -1,0 +1,30 @@
+name: Bug report
+description: Report a real bug in switchboard, not a vibe.
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What broke
+      description: Describe the actual behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Paste the exact commands, config snippets, namespace assumptions, and provider details.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Paste relevant output. Redact secrets.
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, shell, Rust version, provider CLIs, and anything weird.
