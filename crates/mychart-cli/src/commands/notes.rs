@@ -344,9 +344,13 @@ fn materialize_inline_attachment(data: &str, declared_content_type: Option<&str>
     }
 
     match decode_base64(data) {
-        Ok(bytes) => {
-            AttachmentMaterialization::with_text(resolved_content_type, String::from_utf8_lossy(&bytes).into_owned())
-        }
+        Ok(bytes) => AttachmentMaterialization::with_text(
+            resolved_content_type.clone(),
+            normalize_attachment_body_text(
+                resolved_content_type.as_deref(),
+                String::from_utf8_lossy(&bytes).into_owned(),
+            ),
+        ),
         Err(error) => AttachmentMaterialization::fetch_failed(resolved_content_type, error),
     }
 }
@@ -406,8 +410,11 @@ fn materialize_response_body(
         if let Some(data) = response.body.get("data").and_then(Value::as_str) {
             return match decode_base64(data) {
                 Ok(bytes) => AttachmentMaterialization::with_text(
-                    resolved_content_type,
-                    String::from_utf8_lossy(&bytes).into_owned(),
+                    resolved_content_type.clone(),
+                    normalize_attachment_body_text(
+                        resolved_content_type.as_deref(),
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                    ),
                 ),
                 Err(error) => AttachmentMaterialization::fetch_failed(resolved_content_type, error),
             };
@@ -431,7 +438,10 @@ fn materialize_response_body(
         other => serde_json::to_string_pretty(other).unwrap_or_else(|_| response.body_text.clone()),
     };
 
-    AttachmentMaterialization::with_text(resolved_content_type, body_text)
+    AttachmentMaterialization::with_text(
+        resolved_content_type.clone(),
+        normalize_attachment_body_text(resolved_content_type.as_deref(), body_text),
+    )
 }
 
 fn is_textual_content_type(content_type: Option<&str>) -> bool {
@@ -444,6 +454,142 @@ fn is_textual_content_type(content_type: Option<&str>) -> bool {
         || normalized.contains("xml")
         || normalized.contains("html")
         || normalized.contains("rtf")
+}
+
+fn normalize_attachment_body_text(content_type: Option<&str>, body_text: String) -> String {
+    let trimmed = body_text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if is_markup_content_type(content_type) || looks_like_markup(trimmed) {
+        let stripped = strip_markup_to_text(trimmed);
+        if !stripped.is_empty() {
+            return stripped;
+        }
+    }
+
+    collapse_plain_text(trimmed)
+}
+
+fn is_markup_content_type(content_type: Option<&str>) -> bool {
+    let Some(content_type) = content_type else {
+        return false;
+    };
+    let normalized = content_type.to_ascii_lowercase();
+    normalized.contains("xml") || normalized.contains("html")
+}
+
+fn looks_like_markup(body_text: &str) -> bool {
+    let trimmed = body_text.trim_start();
+    trimmed.starts_with('<') && trimmed.contains('>')
+}
+
+fn strip_markup_to_text(input: &str) -> String {
+    let mut output = String::new();
+    let mut entity = String::new();
+    let mut tag = String::new();
+    let mut in_tag = false;
+    let mut in_entity = false;
+
+    for character in input.chars() {
+        if in_tag {
+            if character == '>' {
+                push_block_break_for_tag(&mut output, &tag);
+                tag.clear();
+                in_tag = false;
+            } else {
+                tag.push(character);
+            }
+            continue;
+        }
+
+        if in_entity {
+            if character == ';' {
+                output.push_str(&decode_markup_entity(&entity));
+                entity.clear();
+                in_entity = false;
+            } else if entity.len() < 16 {
+                entity.push(character);
+            } else {
+                output.push('&');
+                output.push_str(&entity);
+                output.push(character);
+                entity.clear();
+                in_entity = false;
+            }
+            continue;
+        }
+
+        match character {
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '&' => {
+                in_entity = true;
+                entity.clear();
+            }
+            _ => output.push(character),
+        }
+    }
+
+    if in_entity {
+        output.push('&');
+        output.push_str(&entity);
+    }
+
+    collapse_plain_text(&output)
+}
+
+fn push_block_break_for_tag(output: &mut String, raw_tag: &str) {
+    let normalized = raw_tag
+        .trim()
+        .trim_start_matches('/')
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+
+    if matches!(
+        normalized.as_str(),
+        "br" | "div" | "p" | "li" | "tr" | "td" | "th" | "section" | "title" | "h1" | "h2" | "h3" | "h4"
+    ) {
+        output.push('\n');
+    }
+}
+
+fn decode_markup_entity(entity: &str) -> String {
+    match entity {
+        "amp" => "&".into(),
+        "lt" => "<".into(),
+        "gt" => ">".into(),
+        "quot" => "\"".into(),
+        "apos" => "'".into(),
+        "nbsp" => " ".into(),
+        _ if entity.starts_with("#x") => u32::from_str_radix(&entity[2..], 16)
+            .ok()
+            .and_then(char::from_u32)
+            .map(|character| character.to_string())
+            .unwrap_or_else(|| format!("&{entity};")),
+        _ if entity.starts_with('#') => entity[1..]
+            .parse::<u32>()
+            .ok()
+            .and_then(char::from_u32)
+            .map(|character| character.to_string())
+            .unwrap_or_else(|| format!("&{entity};")),
+        _ => format!("&{entity};"),
+    }
+}
+
+fn collapse_plain_text(input: &str) -> String {
+    input
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn body_excerpt(body: &str) -> String {

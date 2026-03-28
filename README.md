@@ -258,6 +258,21 @@ If you are driving `switchboard` from an LLM:
 
 This repo is being shaped for both humans and LLMs on purpose. The docs should work as rendered pages and as plain Markdown chunks.
 
+## Prompt-Shaped Workflows
+
+These are the kinds of user requests `switchboard` is meant to support well:
+
+- "You see the latest email from the car wash people, make me a calendar event with the details."
+  The model should search mail, read the winning message, extract the event fields, and draft the calendar event before applying it.
+- "Look up all the past emails I sent to book the dogs at the dog hotel, make a new appointment for these dates by sending them a similar email."
+  The model should search sent mail, read the relevant history, extract the reusable pattern, and draft the outbound message before sending it.
+- "Review my open PRs and draft a comment on the riskiest one."
+  The model should search or list PRs, read the candidate PRs, inspect the risky one, and draft the comment instead of posting it directly.
+
+The model does the reasoning. `switchboard` provides typed, namespace-aware primitives with audit, policy, and approval around them.
+
+The longer versions of these prompt workflows live in [docs/llms/patterns.md](docs/llms/patterns.md).
+
 ## Command Discovery
 
 You should be able to discover the surface without reading Rust:

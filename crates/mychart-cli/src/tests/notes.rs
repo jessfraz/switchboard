@@ -131,8 +131,10 @@ fn notes_search_matches_note_body_text() {
             200,
             json!({
                 "resourceType": "Binary",
-                "contentType": "text/plain",
-                "data": crate::base64_encode(b"Patient reports migraine improvement after medication change.")
+                "contentType": "application/xml",
+                "data": crate::base64_encode(
+                    br#"<ClinicalDocument><section><title>Progress Note</title><text>Patient reports migraine improvement after medication change.</text></section></ClinicalDocument>"#
+                )
             }),
             Vec::new(),
         ),
@@ -169,4 +171,8 @@ fn notes_search_matches_note_body_text() {
         .body_excerpt
         .as_deref()
         .is_some_and(|excerpt| excerpt.contains("migraine")));
+    assert!(!output.notes[0]
+        .body_excerpt
+        .as_deref()
+        .is_some_and(|excerpt| excerpt.contains("<ClinicalDocument")));
 }
