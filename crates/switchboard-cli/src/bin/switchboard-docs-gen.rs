@@ -1133,8 +1133,8 @@ switchboard tools list</pre>
             <p><a href="{repo_url}/blob/main/docs/llms/getting-started.md">Rules and operator patterns</a></p>
           </div>
           <div class="card">
-            <h3>Roadmap</h3>
-            <p><a href="{repo_url}/blob/main/docs/open-source-prime-time.md">Open source prime-time board</a></p>
+            <h3>Support matrix</h3>
+            <p><a href="{repo_url}/blob/main/docs/reference/support-matrix.md">What is stable, planning-only, and raw</a></p>
           </div>
         </div>
       </section>

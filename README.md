@@ -288,9 +288,8 @@ switchboard op list --pending
 - pretending every provider has a clean API
 - shipping a fake "universal everything bus" before the core is trustworthy
 
-## Docs And Roadmap
+## Docs
 
-- Open-source-readiness checklist: [docs/open-source-prime-time.md](docs/open-source-prime-time.md)
 - LLM operator guide: [docs/llms/getting-started.md](docs/llms/getting-started.md)
 - LLM workflow patterns: [docs/llms/patterns.md](docs/llms/patterns.md)
 - Generated reference catalog: [docs/reference/README.md](docs/reference/README.md)
