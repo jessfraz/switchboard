@@ -1,0 +1,868 @@
+{
+  "provider": "mychart",
+  "program": "mychart",
+  "commands": [
+    {
+      "path": [],
+      "command": "mychart",
+      "summary": "CLI for patient-facing Epic SMART on FHIR workflows, provider discovery, and MyChart portal fallbacks",
+      "usage": "mychart [OPTIONS] <COMMAND>",
+      "help_args": [
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "login",
+        "finish",
+        "connect",
+        "auth",
+        "api",
+        "timeline",
+        "labs",
+        "notes",
+        "meds",
+        "appointments",
+        "claims",
+        "pack",
+        "portal"
+      ]
+    },
+    {
+      "path": [
+        "api"
+      ],
+      "command": "mychart api",
+      "summary": "Usage: mychart api [OPTIONS] <COMMAND>",
+      "usage": "mychart api [OPTIONS] <COMMAND>",
+      "help_args": [
+        "api",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "capabilities",
+        "resources"
+      ]
+    },
+    {
+      "path": [
+        "api",
+        "capabilities"
+      ],
+      "command": "mychart api capabilities",
+      "summary": "Usage: mychart api capabilities [OPTIONS]",
+      "usage": "mychart api capabilities [OPTIONS]",
+      "help_args": [
+        "api",
+        "capabilities",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "api",
+        "resources"
+      ],
+      "command": "mychart api resources",
+      "summary": "Usage: mychart api resources [OPTIONS]",
+      "usage": "mychart api resources [OPTIONS]",
+      "help_args": [
+        "api",
+        "resources",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "appointments"
+      ],
+      "command": "mychart appointments",
+      "summary": "Usage: mychart appointments [OPTIONS] <COMMAND>",
+      "usage": "mychart appointments [OPTIONS] <COMMAND>",
+      "help_args": [
+        "appointments",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "upcoming",
+        "find"
+      ]
+    },
+    {
+      "path": [
+        "appointments",
+        "find"
+      ],
+      "command": "mychart appointments find",
+      "summary": "Usage: mychart appointments find [OPTIONS] [QUERY]...",
+      "usage": "mychart appointments find [OPTIONS] [QUERY]...",
+      "help_args": [
+        "appointments",
+        "find",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "appointments",
+        "upcoming"
+      ],
+      "command": "mychart appointments upcoming",
+      "summary": "Usage: mychart appointments upcoming [OPTIONS]",
+      "usage": "mychart appointments upcoming [OPTIONS]",
+      "help_args": [
+        "appointments",
+        "upcoming",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth"
+      ],
+      "command": "mychart auth",
+      "summary": "Usage: mychart auth [OPTIONS] <COMMAND>",
+      "usage": "mychart auth [OPTIONS] <COMMAND>",
+      "help_args": [
+        "auth",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "login",
+        "authorize-url",
+        "exchange-code",
+        "exchange-url",
+        "refresh",
+        "status",
+        "logout"
+      ]
+    },
+    {
+      "path": [
+        "auth",
+        "authorize-url"
+      ],
+      "command": "mychart auth authorize-url",
+      "summary": "Usage: mychart auth authorize-url [OPTIONS]",
+      "usage": "mychart auth authorize-url [OPTIONS]",
+      "help_args": [
+        "auth",
+        "authorize-url",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "exchange-code"
+      ],
+      "command": "mychart auth exchange-code",
+      "summary": "Usage: mychart auth exchange-code [OPTIONS] --code <CODE>",
+      "usage": "mychart auth exchange-code [OPTIONS] --code <CODE>",
+      "help_args": [
+        "auth",
+        "exchange-code",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "exchange-url"
+      ],
+      "command": "mychart auth exchange-url",
+      "summary": "Usage: mychart auth exchange-url [OPTIONS] <CALLBACK_INPUT>",
+      "usage": "mychart auth exchange-url [OPTIONS] <CALLBACK_INPUT>",
+      "help_args": [
+        "auth",
+        "exchange-url",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "login"
+      ],
+      "command": "mychart auth login",
+      "summary": "Usage: mychart auth login [OPTIONS]",
+      "usage": "mychart auth login [OPTIONS]",
+      "help_args": [
+        "auth",
+        "login",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "logout"
+      ],
+      "command": "mychart auth logout",
+      "summary": "Usage: mychart auth logout [OPTIONS]",
+      "usage": "mychart auth logout [OPTIONS]",
+      "help_args": [
+        "auth",
+        "logout",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "refresh"
+      ],
+      "command": "mychart auth refresh",
+      "summary": "Usage: mychart auth refresh [OPTIONS]",
+      "usage": "mychart auth refresh [OPTIONS]",
+      "help_args": [
+        "auth",
+        "refresh",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "status"
+      ],
+      "command": "mychart auth status",
+      "summary": "Usage: mychart auth status [OPTIONS]",
+      "usage": "mychart auth status [OPTIONS]",
+      "help_args": [
+        "auth",
+        "status",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "claims"
+      ],
+      "command": "mychart claims",
+      "summary": "Usage: mychart claims [OPTIONS] <COMMAND>",
+      "usage": "mychart claims [OPTIONS] <COMMAND>",
+      "help_args": [
+        "claims",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "audit"
+      ]
+    },
+    {
+      "path": [
+        "claims",
+        "audit"
+      ],
+      "command": "mychart claims audit",
+      "summary": "Usage: mychart claims audit [OPTIONS]",
+      "usage": "mychart claims audit [OPTIONS]",
+      "help_args": [
+        "claims",
+        "audit",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "connect"
+      ],
+      "command": "mychart connect",
+      "summary": "Usage: mychart connect [OPTIONS] <COMMAND>",
+      "usage": "mychart connect [OPTIONS] <COMMAND>",
+      "help_args": [
+        "connect",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "search",
+        "add",
+        "list",
+        "show",
+        "use"
+      ]
+    },
+    {
+      "path": [
+        "connect",
+        "add"
+      ],
+      "command": "mychart connect add",
+      "summary": "Usage: mychart connect add [OPTIONS] --name <NAME> --base-url <URL>",
+      "usage": "mychart connect add [OPTIONS] --name <NAME> --base-url <URL>",
+      "help_args": [
+        "connect",
+        "add",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "connect",
+        "list"
+      ],
+      "command": "mychart connect list",
+      "summary": "Usage: mychart connect list [OPTIONS]",
+      "usage": "mychart connect list [OPTIONS]",
+      "help_args": [
+        "connect",
+        "list",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "connect",
+        "search"
+      ],
+      "command": "mychart connect search",
+      "summary": "Usage: mychart connect search [OPTIONS] <QUERY>",
+      "usage": "mychart connect search [OPTIONS] <QUERY>",
+      "help_args": [
+        "connect",
+        "search",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "connect",
+        "show"
+      ],
+      "command": "mychart connect show",
+      "summary": "Usage: mychart connect show [OPTIONS] [ACCOUNT]",
+      "usage": "mychart connect show [OPTIONS] [ACCOUNT]",
+      "help_args": [
+        "connect",
+        "show",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "connect",
+        "use"
+      ],
+      "command": "mychart connect use",
+      "summary": "Usage: mychart connect use [OPTIONS] <ACCOUNT>",
+      "usage": "mychart connect use [OPTIONS] <ACCOUNT>",
+      "help_args": [
+        "connect",
+        "use",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "finish"
+      ],
+      "command": "mychart finish",
+      "summary": "Usage: mychart finish [OPTIONS] <CALLBACK_INPUT>",
+      "usage": "mychart finish [OPTIONS] <CALLBACK_INPUT>",
+      "help_args": [
+        "finish",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "labs"
+      ],
+      "command": "mychart labs",
+      "summary": "Usage: mychart labs [OPTIONS] <COMMAND>",
+      "usage": "mychart labs [OPTIONS] <COMMAND>",
+      "help_args": [
+        "labs",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "trend",
+        "abnormals"
+      ]
+    },
+    {
+      "path": [
+        "labs",
+        "abnormals"
+      ],
+      "command": "mychart labs abnormals",
+      "summary": "Usage: mychart labs abnormals [OPTIONS]",
+      "usage": "mychart labs abnormals [OPTIONS]",
+      "help_args": [
+        "labs",
+        "abnormals",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "labs",
+        "trend"
+      ],
+      "command": "mychart labs trend",
+      "summary": "Usage: mychart labs trend [OPTIONS]",
+      "usage": "mychart labs trend [OPTIONS]",
+      "help_args": [
+        "labs",
+        "trend",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "login"
+      ],
+      "command": "mychart login",
+      "summary": "Usage: mychart login [OPTIONS] [ACCOUNT_OR_PROVIDER]...",
+      "usage": "mychart login [OPTIONS] [ACCOUNT_OR_PROVIDER]...",
+      "help_args": [
+        "login",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "meds"
+      ],
+      "command": "mychart meds",
+      "summary": "Usage: mychart meds [OPTIONS] <COMMAND>",
+      "usage": "mychart meds [OPTIONS] <COMMAND>",
+      "help_args": [
+        "meds",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "reconcile"
+      ]
+    },
+    {
+      "path": [
+        "meds",
+        "reconcile"
+      ],
+      "command": "mychart meds reconcile",
+      "summary": "Usage: mychart meds reconcile [OPTIONS]",
+      "usage": "mychart meds reconcile [OPTIONS]",
+      "help_args": [
+        "meds",
+        "reconcile",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "notes"
+      ],
+      "command": "mychart notes",
+      "summary": "Usage: mychart notes [OPTIONS] <COMMAND>",
+      "usage": "mychart notes [OPTIONS] <COMMAND>",
+      "help_args": [
+        "notes",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "search",
+        "get"
+      ]
+    },
+    {
+      "path": [
+        "notes",
+        "get"
+      ],
+      "command": "mychart notes get",
+      "summary": "Usage: mychart notes get [OPTIONS] <NOTE_ID>",
+      "usage": "mychart notes get [OPTIONS] <NOTE_ID>",
+      "help_args": [
+        "notes",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "notes",
+        "search"
+      ],
+      "command": "mychart notes search",
+      "summary": "Usage: mychart notes search [OPTIONS] --query <QUERY>",
+      "usage": "mychart notes search [OPTIONS] --query <QUERY>",
+      "help_args": [
+        "notes",
+        "search",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "pack"
+      ],
+      "command": "mychart pack",
+      "summary": "Usage: mychart pack [OPTIONS] <COMMAND>",
+      "usage": "mychart pack [OPTIONS] <COMMAND>",
+      "help_args": [
+        "pack",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "doctor"
+      ]
+    },
+    {
+      "path": [
+        "pack",
+        "doctor"
+      ],
+      "command": "mychart pack doctor",
+      "summary": "Usage: mychart pack doctor [OPTIONS]",
+      "usage": "mychart pack doctor [OPTIONS]",
+      "help_args": [
+        "pack",
+        "doctor",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "portal"
+      ],
+      "command": "mychart portal",
+      "summary": "Usage: mychart portal [OPTIONS] <COMMAND>",
+      "usage": "mychart portal [OPTIONS] <COMMAND>",
+      "help_args": [
+        "portal",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "auth",
+        "request"
+      ]
+    },
+    {
+      "path": [
+        "portal",
+        "auth"
+      ],
+      "command": "mychart portal auth",
+      "summary": "Usage: mychart portal auth [OPTIONS] <COMMAND>",
+      "usage": "mychart portal auth [OPTIONS] <COMMAND>",
+      "help_args": [
+        "portal",
+        "auth",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "login-password",
+        "status",
+        "logout"
+      ]
+    },
+    {
+      "path": [
+        "portal",
+        "auth",
+        "login-password"
+      ],
+      "command": "mychart portal auth login-password",
+      "summary": "Usage: mychart portal auth login-password [OPTIONS] --password <PASSWORD>",
+      "usage": "mychart portal auth login-password [OPTIONS] --password <PASSWORD>",
+      "help_args": [
+        "portal",
+        "auth",
+        "login-password",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "portal",
+        "auth",
+        "logout"
+      ],
+      "command": "mychart portal auth logout",
+      "summary": "Usage: mychart portal auth logout [OPTIONS]",
+      "usage": "mychart portal auth logout [OPTIONS]",
+      "help_args": [
+        "portal",
+        "auth",
+        "logout",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "portal",
+        "auth",
+        "status"
+      ],
+      "command": "mychart portal auth status",
+      "summary": "Usage: mychart portal auth status [OPTIONS]",
+      "usage": "mychart portal auth status [OPTIONS]",
+      "help_args": [
+        "portal",
+        "auth",
+        "status",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "portal",
+        "request"
+      ],
+      "command": "mychart portal request",
+      "summary": "Usage: mychart portal request [OPTIONS] <COMMAND>",
+      "usage": "mychart portal request [OPTIONS] <COMMAND>",
+      "help_args": [
+        "portal",
+        "request",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "get"
+      ]
+    },
+    {
+      "path": [
+        "portal",
+        "request",
+        "get"
+      ],
+      "command": "mychart portal request get",
+      "summary": "Usage: mychart portal request get [OPTIONS] <PATH>",
+      "usage": "mychart portal request get [OPTIONS] <PATH>",
+      "help_args": [
+        "portal",
+        "request",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "timeline"
+      ],
+      "command": "mychart timeline",
+      "summary": "Usage: mychart timeline [OPTIONS]",
+      "usage": "mychart timeline [OPTIONS]",
+      "help_args": [
+        "timeline",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ use switchboard_core::{Error, ProviderKind, Result};
 
 const GITHUB_INVENTORY_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/inventories/github.json"));
 const GOOGLE_INVENTORY_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/inventories/google.json"));
+const MYCHART_INVENTORY_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/inventories/mychart.json"));
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,6 +70,7 @@ pub fn embedded_inventory(provider: ProviderKind) -> Result<CliInventory> {
     let json = match provider {
         ProviderKind::GitHub => GITHUB_INVENTORY_JSON,
         ProviderKind::GoogleWorkspace => GOOGLE_INVENTORY_JSON,
+        ProviderKind::MyChart => MYCHART_INVENTORY_JSON,
         _ => {
             return Err(Error::UnsupportedOperation(format!(
                 "no embedded inventory for provider {provider}"
@@ -109,6 +111,18 @@ mod tests {
 
         assert_eq!(command.node_kind, CliInventoryNodeKind::Operation);
         assert_eq!(command.operation_kind, CliOperationKind::Read);
+    }
+
+    #[test]
+    fn embedded_mychart_inventory_contains_appointments_upcoming() {
+        let inventory = embedded_inventory(ProviderKind::MyChart).expect("inventory should load");
+        let command = inventory
+            .command(&["appointments", "upcoming"])
+            .expect("appointments upcoming should exist");
+
+        assert_eq!(command.node_kind, CliInventoryNodeKind::Operation);
+        assert_eq!(command.operation_kind, CliOperationKind::Read);
+        assert_eq!(command.undo_support, CliUndoSupport::None);
     }
 
     #[test]

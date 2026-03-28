@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 684,
+    "tool_count": 716,
     "curated_count": 15,
-    "raw_count": 669,
+    "raw_count": 701,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -27,6 +27,16 @@
       "planning_only_count": 2,
       "undoable_count": 1,
       "doc_path": "docs/reference/providers/google.md"
+    },
+    {
+      "provider": "mychart",
+      "tool_count": 32,
+      "curated_count": 0,
+      "raw_count": 32,
+      "stable_count": 0,
+      "planning_only_count": 0,
+      "undoable_count": 0,
+      "doc_path": "docs/reference/providers/mychart.md"
     }
   ],
   "tools": [
@@ -23651,6 +23661,1092 @@
         "switchboard google.mail.send --ns google.default --draft ..."
       ],
       "doc_path": "reference/#tool=google.mail.send"
+    },
+    {
+      "name": "mychart.cli.api.capabilities",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart api capabilities",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.api.capabilities --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.api.capabilities --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: api capabilities"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.api.capabilities"
+    },
+    {
+      "name": "mychart.cli.api.resources",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart api resources",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.api.resources --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.api.resources --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: api resources"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.api.resources"
+    },
+    {
+      "name": "mychart.cli.appointments.find",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart appointments find",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.appointments.find --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.appointments.find --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: appointments find"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.appointments.find"
+    },
+    {
+      "name": "mychart.cli.appointments.upcoming",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart appointments upcoming",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.appointments.upcoming --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.appointments.upcoming --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: appointments upcoming"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.appointments.upcoming"
+    },
+    {
+      "name": "mychart.cli.auth.authorize-url",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth authorize-url",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.authorize-url --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.auth.authorize-url --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth authorize-url"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.authorize-url"
+    },
+    {
+      "name": "mychart.cli.auth.exchange-code",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth exchange-code",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.exchange-code --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.auth.exchange-code --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth exchange-code"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.exchange-code"
+    },
+    {
+      "name": "mychart.cli.auth.exchange-url",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth exchange-url",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.exchange-url --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.auth.exchange-url --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth exchange-url"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.exchange-url"
+    },
+    {
+      "name": "mychart.cli.auth.login",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth login",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.login --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.auth.login --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth login"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.login"
+    },
+    {
+      "name": "mychart.cli.auth.logout",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth logout",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.logout --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.auth.logout --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth logout"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.logout"
+    },
+    {
+      "name": "mychart.cli.auth.refresh",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth refresh",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.refresh --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.auth.refresh --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth refresh"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.refresh"
+    },
+    {
+      "name": "mychart.cli.auth.status",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart auth status",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.auth.status --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.auth.status --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: auth status"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.auth.status"
+    },
+    {
+      "name": "mychart.cli.claims.audit",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart claims audit",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.claims.audit --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.claims.audit --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: claims audit"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.claims.audit"
+    },
+    {
+      "name": "mychart.cli.connect.add",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart connect add",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.connect.add --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.connect.add --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: connect add"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.connect.add"
+    },
+    {
+      "name": "mychart.cli.connect.list",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart connect list",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.connect.list --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.connect.list --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: connect list"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.connect.list"
+    },
+    {
+      "name": "mychart.cli.connect.search",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart connect search",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.connect.search --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.connect.search --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: connect search"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.connect.search"
+    },
+    {
+      "name": "mychart.cli.connect.show",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart connect show",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.connect.show --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.connect.show --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: connect show"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.connect.show"
+    },
+    {
+      "name": "mychart.cli.connect.use",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart connect use",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.connect.use --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.connect.use --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: connect use"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.connect.use"
+    },
+    {
+      "name": "mychart.cli.finish",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart finish",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.finish --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.finish --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: finish"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.finish"
+    },
+    {
+      "name": "mychart.cli.labs.abnormals",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart labs abnormals",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.labs.abnormals --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.labs.abnormals --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: labs abnormals"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.labs.abnormals"
+    },
+    {
+      "name": "mychart.cli.labs.trend",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart labs trend",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.labs.trend --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.labs.trend --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: labs trend"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.labs.trend"
+    },
+    {
+      "name": "mychart.cli.login",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart login",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.login --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.login --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: login"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.login"
+    },
+    {
+      "name": "mychart.cli.meds.reconcile",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart meds reconcile",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.meds.reconcile --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.meds.reconcile --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: meds reconcile"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.meds.reconcile"
+    },
+    {
+      "name": "mychart.cli.notes.get",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart notes get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.notes.get --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.notes.get --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: notes get"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.notes.get"
+    },
+    {
+      "name": "mychart.cli.notes.search",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart notes search",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.notes.search --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.notes.search --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: notes search"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.notes.search"
+    },
+    {
+      "name": "mychart.cli.pack.doctor",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart pack doctor",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.pack.doctor --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.pack.doctor --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: pack doctor"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.pack.doctor"
+    },
+    {
+      "name": "mychart.cli.portal.auth.login-password",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart portal auth login-password",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.portal.auth.login-password --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.portal.auth.login-password --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: portal auth login-password"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.portal.auth.login-password"
+    },
+    {
+      "name": "mychart.cli.portal.auth.logout",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart portal auth logout",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.portal.auth.logout --ns mychart.default --draft -- --format json ...",
+        "switchboard mychart.cli.portal.auth.logout --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: portal auth logout"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.portal.auth.logout"
+    },
+    {
+      "name": "mychart.cli.portal.auth.status",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart portal auth status",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.portal.auth.status --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.portal.auth.status --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: portal auth status"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.portal.auth.status"
+    },
+    {
+      "name": "mychart.cli.portal.request.get",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart portal request get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.portal.request.get --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.portal.request.get --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: portal request get"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.portal.request.get"
+    },
+    {
+      "name": "mychart.cli.read",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run a raw mychart read command",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.read --ns mychart.default --json -- notes search --query migraine",
+        "switchboard mychart.cli.read --ns mychart.default --argv-json '[\"appointments\",\"upcoming\",\"--limit\",\"5\"]' --json"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.read"
+    },
+    {
+      "name": "mychart.cli.timeline",
+      "provider": "mychart",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw mychart command mychart timeline",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.timeline --ns mychart.default --json -- --format json",
+        "switchboard mychart.cli.timeline --ns mychart.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: timeline"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.timeline"
+    },
+    {
+      "name": "mychart.cli.write",
+      "provider": "mychart",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run a raw mychart write command",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard mychart.cli.write --ns mychart.default --draft -- auth login --dynamic-client --scope patient/*.read",
+        "switchboard mychart.cli.write --ns mychart.default --argv-json '[\"portal\",\"auth\",\"logout\"]' --apply --json"
+      ],
+      "doc_path": "reference/#tool=mychart.cli.write"
     }
   ]
 }

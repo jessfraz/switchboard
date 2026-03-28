@@ -29,12 +29,12 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
             ResolvedCredentials::GoogleOAuthFile { credentials } => Ok(Self::CredentialsFile {
                 credentials: credentials.expose(),
             }),
-            ResolvedCredentials::GitHubCli | ResolvedCredentials::GitHubToken { .. } => {
-                Err(Error::UnsupportedOperation(format!(
-                    "google workspace cli materializer does not support {} credentials",
-                    target.auth.kind
-                )))
-            }
+            ResolvedCredentials::GitHubCli
+            | ResolvedCredentials::GitHubToken { .. }
+            | ResolvedCredentials::MyChartCli { .. } => Err(Error::UnsupportedOperation(format!(
+                "google workspace cli materializer does not support {} credentials",
+                target.auth.kind
+            ))),
         }
     }
 }
@@ -207,6 +207,19 @@ mod tests {
                 },
             ),
             ResolvedCredentials::GitHubCli => (AuthKind::GitHubCli, AuthSecretRefs::None),
+            ResolvedCredentials::MyChartCli { .. } => (
+                AuthKind::MyChartCli,
+                AuthSecretRefs::MyChartCli {
+                    base_url: None,
+                    portal_base_url: None,
+                    client_id: None,
+                    client_secret: None,
+                    redirect_uri: None,
+                    access_token: None,
+                    refresh_token: None,
+                    username: None,
+                },
+            ),
         };
 
         ExecutionTarget {

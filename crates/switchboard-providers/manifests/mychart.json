@@ -1,0 +1,47 @@
+{
+  "provider": "mychart",
+  "binaries": [
+    {
+      "id": "mychart",
+      "program": "mychart",
+      "env_override": "SWITCHBOARD_MYCHART_BIN",
+      "version_args": ["--version"]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "root_help",
+      "args": ["--help"]
+    }
+  ],
+  "commands": [
+    {
+      "name": "mychart.cli.read",
+      "kind": "read",
+      "summary": "Run a raw mychart read command",
+      "surface": "raw",
+      "strategy": {
+        "kind": "raw_passthrough"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "mychart",
+        "capability": "root_help"
+      }
+    },
+    {
+      "name": "mychart.cli.write",
+      "kind": "write",
+      "summary": "Run a raw mychart write command",
+      "surface": "raw",
+      "strategy": {
+        "kind": "raw_passthrough"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "mychart",
+        "capability": "root_help"
+      }
+    }
+  ]
+}

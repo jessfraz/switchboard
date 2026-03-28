@@ -40,6 +40,11 @@ kind = "google_oauth_file"
 account = "jess@example.com"
 credentials = "google_personal_oauth"
 
+[auth.mychart_ucla]
+provider = "mychart"
+kind = "mychart_cli"
+account = "ucla"
+
 [namespace.github.personal]
 provider = "github"
 account = "jessfraz"
@@ -65,3 +70,10 @@ account = "jess@example.com"
 auth = "google_personal"
 default_read = false
 state_dir = "/tmp/switchboard-google-personal"
+
+[namespace.mychart.ucla]
+provider = "mychart"
+account = "UCLA Health"
+auth = "mychart_ucla"
+default_read = false
+state_dir = "/tmp/switchboard-mychart-ucla"

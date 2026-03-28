@@ -447,6 +447,49 @@ impl Switchboard {
             AuthSecretRefs::GoogleOAuthFile { credentials } => ResolvedCredentials::GoogleOAuthFile {
                 credentials: self.resolve_secret(credentials)?,
             },
+            AuthSecretRefs::MyChartCli {
+                base_url,
+                portal_base_url,
+                client_id,
+                client_secret,
+                redirect_uri,
+                access_token,
+                refresh_token,
+                username,
+            } => ResolvedCredentials::MyChartCli {
+                base_url: match base_url {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                portal_base_url: match portal_base_url {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_id: match client_id {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_secret: match client_secret {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                redirect_uri: match redirect_uri {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                access_token: match access_token {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                refresh_token: match refresh_token {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                username: match username {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+            },
         };
 
         Ok(ExecutionTarget {

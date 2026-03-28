@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "patient_id": "patient-123",
+  "accounts_used": [
+    {
+      "account": "ucla",
+      "provider": "UCLA Health",
+      "patient_id": "patient-123"
+    }
+  ],
+  "accounts_skipped": [],
+  "warnings": [],
+  "since": "2026-03-27",
+  "appointments": [
+    {
+      "account": "ucla",
+      "provider": "UCLA Health",
+      "patient_id": "patient-123",
+      "id": "appt-1",
+      "status": "booked",
+      "start": "2026-03-29T09:00:00Z",
+      "end": "2026-03-29T09:30:00Z",
+      "description": "Dermatology follow-up",
+      "specialty": ["Dermatology"],
+      "location": "200 Medical Plaza",
+      "participants": ["Dr. Rivera"]
+    }
+  ]
+}

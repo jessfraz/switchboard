@@ -2,7 +2,7 @@
 
 `switchboard` is a local Rust CLI trust layer for humans, scripts, and LLMs.
 
-It gives you a stable command contract across ugly real-world tools like GitHub and Google Workspace, with explicit namespaces, draft-first writes, approvals, audit logs, and raw provider passthrough when the curated layer is not enough.
+It gives you a stable command contract across ugly real-world tools like GitHub, Google Workspace, and MyChart, with explicit namespaces, draft-first writes, approvals, audit logs, and raw provider passthrough when the curated layer is not enough.
 
 ## The Problem
 
@@ -41,9 +41,9 @@ Make every command resolve to an explicit namespace, run through policy, produce
      namespace + policy + audit + undo
                   |
          +--------+--------+
-         |                 |
-         v                 v
-      GitHub             Google
+         |                 |                 |
+         v                 v                 v
+      GitHub             Google           MyChart
 ```
 
 That gives you a stable local contract even if the backend changes later from one CLI to another CLI or from a CLI to a direct API.
@@ -68,6 +68,7 @@ This repo is real, but still in the "tighten the public surface" phase.
 | GitHub curated writes | Mixed | Comment tools plan cleanly, apply path is still evolving |
 | Google curated reads | Mixed | Mail search/read and calendar list execute, drive search is planning-only |
 | Google curated writes | Mixed | Mail draft and calendar create/delete execute, mail send is planning-only |
+| MyChart raw CLI tools | Executable | Namespace-scoped `mychart-cli` passthrough, including inventory-backed raw leaf commands |
 | Raw provider CLI tools | Executable | Namespace, policy, approval, and audit still apply |
 
 This workspace also contains adjacent CLIs. The public polish and open-source hardening work is focused on `switchboard` first.
@@ -164,6 +165,22 @@ state_dir = "/Users/jessfraz/.config/gws-personal"
 ```
 
 That `state_dir` split is not decorative. It is how `switchboard` makes multi-login-hostile CLI tooling behave like separate local authority domains instead of one cursed shared cache.
+
+MyChart works the same way, except the upstream CLI wants a config file instead of a config dir. `switchboard` still treats the namespace state as isolated local authority, it just materializes `MYCHART_CONFIG` as a file path inside the namespace state directory and pins `MYCHART_ACCOUNT` so Epic does not wander off into the wrong patient account.
+
+```toml
+[auth.mychart_ucla]
+provider = "mychart"
+kind = "mychart_cli"
+account = "ucla"
+
+[namespace.mychart.ucla]
+provider = "mychart"
+account = "UCLA Health"
+auth = "mychart_ucla"
+default_read = false
+state_dir = "/Users/jessfraz/.config/mychart-ucla"
+```
 
 ## How It Works
 
