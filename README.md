@@ -166,18 +166,12 @@ state_dir = "/Users/jessfraz/.config/gws-personal"
 
 That `state_dir` split is not decorative. It is how `switchboard` makes multi-login-hostile CLI tooling behave like separate local authority domains instead of one cursed shared cache.
 
-MyChart works the same way, except the upstream CLI wants a config file instead of a config dir. `switchboard` still treats the namespace state as isolated local authority, it just materializes `MYCHART_CONFIG` as a file path inside the namespace state directory and pins `MYCHART_ACCOUNT` so Epic does not wander off into the wrong patient account.
+MyChart works the same way, except the upstream CLI wants a config file instead of a config dir. `switchboard` still treats the namespace state as isolated local authority, it just materializes `MYCHART_CONFIG` as a file path inside the namespace state directory and pins `MYCHART_ACCOUNT` so Epic does not wander off into the wrong patient account. For the normal case, `state_dir` is enough. You only need an explicit auth block if you want `switchboard` to inject extra `MYCHART_*` overrides from env, files, or 1Password. If you do add one, `switchboard` will pick up the default `mychart_<namespace>` auth ref automatically, so `namespace.mychart.ucla` naturally pairs with `auth.mychart_ucla`.
 
 ```toml
-[auth.mychart_ucla]
-provider = "mychart"
-kind = "mychart_cli"
-account = "ucla"
-
 [namespace.mychart.ucla]
 provider = "mychart"
 account = "UCLA Health"
-auth = "mychart_ucla"
 default_read = false
 state_dir = "/Users/jessfraz/.config/mychart-ucla"
 ```

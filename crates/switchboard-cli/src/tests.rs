@@ -268,6 +268,20 @@ struct MyChartNotesSearchPayload {
     notes: Vec<MyChartNoteSummary>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct MyChartScriptCapture {
+    config: Option<String>,
+    account: Option<String>,
+    base_url: Option<String>,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    redirect_uri: Option<String>,
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    username: Option<String>,
+    argv: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct MyChartNoteSummary {
     id: Option<String>,
@@ -381,6 +395,44 @@ struct StubStatusFields {
 
 fn parse_json<T: DeserializeOwned>(output: &str) -> T {
     serde_json::from_str(output).expect("output should be valid json")
+}
+
+fn parse_mychart_capture(output: &str) -> MyChartScriptCapture {
+    let block = output
+        .rsplit("\n---")
+        .find(|block| !block.trim().is_empty())
+        .map(str::trim)
+        .expect("capture should contain at least one block");
+    let mut fields = BTreeMap::new();
+
+    for line in block.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let (key, value) = line
+            .split_once('=')
+            .expect("capture lines should be formatted as KEY=value");
+        fields.insert(key.to_owned(), value.to_owned());
+    }
+
+    MyChartScriptCapture {
+        config: non_empty_capture_field(&fields, "CONFIG"),
+        account: non_empty_capture_field(&fields, "ACCOUNT"),
+        base_url: non_empty_capture_field(&fields, "BASE_URL"),
+        client_id: non_empty_capture_field(&fields, "CLIENT_ID"),
+        client_secret: non_empty_capture_field(&fields, "CLIENT_SECRET"),
+        redirect_uri: non_empty_capture_field(&fields, "REDIRECT_URI"),
+        access_token: non_empty_capture_field(&fields, "ACCESS_TOKEN"),
+        refresh_token: non_empty_capture_field(&fields, "REFRESH_TOKEN"),
+        username: non_empty_capture_field(&fields, "USERNAME"),
+        argv: fields.remove("ARGV").expect("capture should include ARGV"),
+    }
+}
+
+fn non_empty_capture_field(fields: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    fields
+        .get(key)
+        .and_then(|value| if value.is_empty() { None } else { Some(value.clone()) })
 }
 
 fn parse_output_fields<T: DeserializeOwned>(output: &switchboard_core::ToolOutput) -> T {
@@ -1362,11 +1414,21 @@ fn raw_mychart_cli_read_supports_double_dash_passthrough() {
     );
     assert_eq!(value.fields.response.query, "migraine");
     assert_eq!(value.fields.response.notes[0].id.as_deref(), Some("note-123"));
-    assert!(
-        environment
-            .mychart_capture_contents()
-            .contains("ARGV=notes search --query migraine"),
-        "expected raw mychart argv to reach the provider backend"
+    let capture = parse_mychart_capture(&environment.mychart_capture_contents());
+    assert_eq!(
+        capture,
+        MyChartScriptCapture {
+            config: Some("/tmp/switchboard-mychart-ucla/config.json".to_owned()),
+            account: Some("ucla".to_owned()),
+            base_url: None,
+            client_id: None,
+            client_secret: None,
+            redirect_uri: None,
+            access_token: None,
+            refresh_token: None,
+            username: None,
+            argv: "notes search --query migraine".to_owned(),
+        }
     );
 }
 
