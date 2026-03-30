@@ -3,6 +3,7 @@ members = [
     "crates/mindbody-cli",
     "crates/momence-cli",
     "crates/mychart-cli",
+    "crates/plaid-cli",
     "crates/schwab-cli",
     "crates/switchboard-cli",
     "crates/switchboard-core",
