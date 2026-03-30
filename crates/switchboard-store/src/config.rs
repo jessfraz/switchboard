@@ -49,8 +49,9 @@ impl SwitchboardConfig {
         let config: RawConfig = toml::from_str(source)
             .map_err(|error| Error::Config(format!("failed to parse {source_label}: {error}")))?;
         let secrets = build_secret_store(config.secret)?;
-        let auth = build_auth_store(config.auth, &secrets)?;
-        let namespaces = build_namespace_store(config.namespace, &auth)?;
+        let explicit_auth = build_auth_store(config.auth, &secrets)?;
+        let (namespaces, implicit_auth) = build_namespace_store(config.namespace, &explicit_auth)?;
+        let auth = StaticAuthStore::new(explicit_auth.list().into_iter().chain(implicit_auth));
         let write_policy = config.policy.write;
 
         Ok(Self {
@@ -91,12 +92,6 @@ fn build_secret_store(raw_secrets: BTreeMap<String, RawSecret>) -> Result<Static
 }
 
 fn build_auth_store(raw_auth: BTreeMap<String, RawAuth>, secrets: &StaticSecretStore) -> Result<StaticAuthStore> {
-    if raw_auth.is_empty() {
-        return Err(Error::Config(
-            "config must define at least one auth entry under [auth.<name>]".into(),
-        ));
-    }
-
     let mut auth_entries = Vec::with_capacity(raw_auth.len());
 
     for (auth_ref, raw) in raw_auth {
@@ -139,8 +134,9 @@ fn build_auth_store(raw_auth: BTreeMap<String, RawAuth>, secrets: &StaticSecretS
 fn build_namespace_store(
     raw_namespaces: BTreeMap<String, BTreeMap<String, RawNamespace>>,
     auth: &StaticAuthStore,
-) -> Result<StaticNamespaceStore> {
+) -> Result<(StaticNamespaceStore, Vec<ResolvedAuth>)> {
     let mut namespaces = Vec::new();
+    let mut implicit_auth = Vec::new();
 
     for (provider_key, aliases) in raw_namespaces {
         let provider_in_path = ProviderKind::from_identifier(&provider_key).ok_or_else(|| {
@@ -169,25 +165,68 @@ fn build_namespace_store(
                 )));
             }
 
-            let auth_ref = AuthRef::new(&namespace.auth)?;
-            let auth_entry = auth.get(&auth_ref).ok_or_else(|| {
-                Error::Config(format!(
-                    "namespace.{provider_key}.{alias} references missing auth ref {auth_ref}"
-                ))
-            })?;
+            let auth_ref = match namespace.auth.as_deref() {
+                Some(auth_ref) => {
+                    let auth_ref = AuthRef::new(auth_ref)?;
+                    let auth_entry = auth.get(&auth_ref).ok_or_else(|| {
+                        Error::Config(format!(
+                            "namespace.{provider_key}.{alias} references missing auth ref {auth_ref}"
+                        ))
+                    })?;
 
-            if auth_entry.provider != provider {
-                return Err(Error::Config(format!(
-                    "namespace.{provider_key}.{alias} uses auth ref {auth_ref}, which belongs to provider {}, not {provider}",
-                    auth_entry.provider
-                )));
-            }
+                    if auth_entry.provider != provider {
+                        return Err(Error::Config(format!(
+                            "namespace.{provider_key}.{alias} uses auth ref {auth_ref}, which belongs to provider {}, not {provider}",
+                            auth_entry.provider
+                        )));
+                    }
+
+                    auth_ref
+                }
+                None if provider == ProviderKind::MyChart => {
+                    let auth_ref = default_mychart_auth_ref(&alias)?;
+                    match auth.get(&auth_ref) {
+                        Some(auth_entry) if auth_entry.provider != provider => {
+                            return Err(Error::Config(format!(
+                                "namespace.{provider_key}.{alias} uses implicit auth ref {auth_ref}, which belongs to provider {}, not {provider}",
+                                auth_entry.provider
+                            )));
+                        }
+                        Some(_) => {}
+                        None => {
+                            implicit_auth.push(ResolvedAuth::new(
+                                auth_ref.as_str(),
+                                ProviderKind::MyChart,
+                                AuthKind::MyChartCli,
+                                alias.clone(),
+                                AuthSecretRefs::MyChartCli {
+                                    base_url: None,
+                                    portal_base_url: None,
+                                    client_id: None,
+                                    client_secret: None,
+                                    redirect_uri: None,
+                                    access_token: None,
+                                    refresh_token: None,
+                                    username: None,
+                                },
+                            )?);
+                        }
+                    }
+
+                    auth_ref
+                }
+                None => {
+                    return Err(Error::Config(format!(
+                        "namespace.{provider_key}.{alias} must declare auth = \"...\""
+                    )));
+                }
+            };
 
             namespaces.push(ResolvedNamespace::new(
                 format!("{provider_key}.{alias}"),
                 provider,
                 namespace.account,
-                namespace.auth,
+                auth_ref.as_str(),
                 namespace.default_read,
                 namespace.state_dir.map(PathBuf::from),
             )?);
@@ -200,7 +239,11 @@ fn build_namespace_store(
         ));
     }
 
-    Ok(StaticNamespaceStore::new(namespaces))
+    Ok((StaticNamespaceStore::new(namespaces), implicit_auth))
+}
+
+fn default_mychart_auth_ref(alias: &str) -> Result<AuthRef> {
+    AuthRef::new(format!("mychart_{alias}"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -387,7 +430,8 @@ fn option_secret_ref(value: Option<&str>) -> Result<Option<SecretRef>> {
 struct RawNamespace {
     provider: String,
     account: String,
-    auth: String,
+    #[serde(default)]
+    auth: Option<String>,
     #[serde(default)]
     default_read: bool,
     #[serde(default)]
@@ -430,9 +474,17 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/missing-auth-ref.toml"
     ));
+    const MISSING_NAMESPACE_AUTH_CONFIG: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/config/missing-namespace-auth.toml"
+    ));
     const MISSING_SECRET_REF_CONFIG: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/missing-secret-ref.toml"
+    ));
+    const MYCHART_EXPLICIT_DEFAULT_AUTH_CONFIG: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/config/mychart-explicit-default-auth.toml"
     ));
 
     #[test]
@@ -461,6 +513,11 @@ mod tests {
             .get(&NamespaceId::new("google.work").expect("namespace should parse"))
             .expect("google.work should exist");
         assert_eq!(google_work.auth_ref.as_str(), "google_work");
+
+        let mychart_ucla = namespaces
+            .get(&NamespaceId::new("mychart.ucla").expect("namespace should parse"))
+            .expect("mychart.ucla should exist");
+        assert_eq!(mychart_ucla.auth_ref.as_str(), "mychart_ucla");
 
         let google_work_auth = auth
             .get(&AuthRef::new("google_work").expect("auth ref should parse"))
@@ -540,6 +597,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_missing_required_namespace_auth() {
+        let error = SwitchboardConfig::from_toml_str(MISSING_NAMESPACE_AUTH_CONFIG)
+            .expect_err("non-mychart namespaces should still require auth");
+
+        assert_eq!(
+            error,
+            Error::Config("namespace.google.personal must declare auth = \"...\"".into())
+        );
+    }
+
+    #[test]
     fn rejects_missing_secret_refs() {
         let error =
             SwitchboardConfig::from_toml_str(MISSING_SECRET_REF_CONFIG).expect_err("missing secret refs should fail");
@@ -551,12 +619,30 @@ mod tests {
     }
 
     #[test]
+    fn mychart_namespace_without_auth_uses_matching_explicit_default_auth_when_present() {
+        let config =
+            SwitchboardConfig::from_toml_str(MYCHART_EXPLICIT_DEFAULT_AUTH_CONFIG).expect("config should parse");
+        let (namespaces, auth, _secrets) = config.into_stores();
+        let namespace = namespaces
+            .get(&NamespaceId::new("mychart.ucla").expect("namespace should parse"))
+            .expect("mychart.ucla should exist");
+        let auth_entry = auth
+            .get(&AuthRef::new("mychart_ucla").expect("auth ref should parse"))
+            .expect("mychart_ucla auth should exist");
+
+        assert_eq!(namespace.auth_ref.as_str(), "mychart_ucla");
+        assert_eq!(auth_entry.kind, AuthKind::MyChartCli);
+        assert_eq!(auth_entry.account_label, "ucla-overrides");
+        assert_eq!(auth_entry.secret_refs().len(), 1);
+    }
+
+    #[test]
     fn rejects_empty_config() {
         let error = SwitchboardConfig::from_toml_str(EMPTY_CONFIG).expect_err("empty config should fail");
 
         assert_eq!(
             error,
-            Error::Config("config must define at least one auth entry under [auth.<name>]".into())
+            Error::Config("config must define at least one namespace under [namespace.<provider>.<name>]".into())
         );
     }
 

@@ -1,0 +1,15 @@
+[secret.mychart_ucla_base_url]
+kind = "env"
+name = "MYCHART_UCLA_BASE_URL"
+
+[auth.mychart_ucla]
+provider = "mychart"
+kind = "mychart_cli"
+account = "ucla-overrides"
+base_url = "mychart_ucla_base_url"
+
+[namespace.mychart.ucla]
+provider = "mychart"
+account = "UCLA Health"
+default_read = false
+state_dir = "/tmp/switchboard-mychart-ucla"

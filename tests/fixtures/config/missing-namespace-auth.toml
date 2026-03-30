@@ -1,0 +1,14 @@
+[secret.google_personal_oauth]
+kind = "file"
+path = "/tmp/google-personal-oauth.json"
+
+[auth.google_personal]
+provider = "google"
+kind = "google_oauth_file"
+account = "jess@example.com"
+credentials = "google_personal_oauth"
+
+[namespace.google.personal]
+provider = "google"
+account = "jess@example.com"
+default_read = false
