@@ -1990,6 +1990,57 @@ fn config_path_selection_falls_back_in_documented_order() {
     assert_eq!(selected, PathBuf::from("/cwd.toml"));
 }
 
+#[test]
+fn local_build_discovers_xdg_global_config_and_resolves_relative_paths() {
+    let environment = TestEnvironment::new();
+    let xdg_root = environment.directory.join("xdg");
+    let config_dir = xdg_root.join("switchboard");
+    fs::create_dir_all(config_dir.join("secrets")).expect("xdg config dir should exist");
+    let oauth_path = config_dir.join("secrets").join("google-personal-oauth.json");
+    fs::write(&oauth_path, GOOGLE_PERSONAL_OAUTH_JSON).expect("oauth file should write");
+    let config_path = config_dir.join("config.toml");
+    fs::write(
+        &config_path,
+        render_relative_global_config("secrets/google-personal-oauth.json"),
+    )
+    .expect("global config should write");
+    env::set_var("XDG_CONFIG_HOME", &xdg_root);
+
+    let cli = Cli::try_parse_from([
+        "switchboard",
+        "google.calendar.list",
+        "--ns",
+        "google.personal",
+        "--today",
+        "--json",
+    ])
+    .expect("cli should parse");
+
+    let output = run(cli).expect("command should run from global config");
+    let value: JsonExecutedResponse<CountFields> = parse_json(&output);
+    assert_eq!(value.status, "executed");
+    assert_eq!(
+        value.namespace,
+        NamespaceId::new("google.personal").expect("namespace should build")
+    );
+    assert_eq!(value.fields.count, 2);
+
+    let capture = environment.gws_capture_contents();
+    assert!(
+        capture.contains(&format!(
+            "CONFIG_DIR={}",
+            config_dir.join("state").join("google-personal").display()
+        )),
+        "expected global config relative state_dir to resolve against the config directory"
+    );
+    assert!(
+        capture.contains("CREDENTIALS_FILE="),
+        "expected global config oauth-file auth to materialize credentials for the backend"
+    );
+
+    env::remove_var("XDG_CONFIG_HOME");
+}
+
 struct TestEnvironment {
     _env_guard: MutexGuard<'static, ()>,
     directory: PathBuf,
@@ -2091,6 +2142,14 @@ fn render_github_script_template() -> String {
         .replace("__ISSUE_READ_FIXTURE__", GITHUB_ISSUE_READ_FIXTURE)
         .replace("__REPOSITORY_SEARCH_FIXTURE__", GITHUB_REPOSITORY_SEARCH_FIXTURE)
         .replace("__REPO_VIEW_FIXTURE__", GITHUB_REPO_VIEW_FIXTURE)
+}
+
+fn render_relative_global_config(google_personal_oauth_path: &str) -> String {
+    BASIC_CONFIG_TEMPLATE
+        .replace("__GOOGLE_PERSONAL_OAUTH_PATH__", google_personal_oauth_path)
+        .replace("/tmp/switchboard-google-work", "state/google-work")
+        .replace("/tmp/switchboard-google-personal", "state/google-personal")
+        .replace("/tmp/switchboard-mychart-ucla", "state/mychart-ucla")
 }
 
 fn render_mychart_script_template() -> String {

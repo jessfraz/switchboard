@@ -27,7 +27,9 @@ pub(crate) struct CachedTransactionRecord {
     pub(crate) account_id: Option<String>,
     pub(crate) removed: bool,
     pub(crate) updated_at: String,
+    pub(crate) removed_at: Option<String>,
     pub(crate) transaction: Value,
+    pub(crate) removal: Option<Value>,
 }
 
 pub(crate) struct CachedTransactionQuery<'a> {
@@ -158,17 +160,29 @@ impl PlaidCacheStore {
             let Some(transaction_id) = entry.get("transaction_id").and_then(Value::as_str) else {
                 continue;
             };
+            let account_id = entry.get("account_id").and_then(Value::as_str);
             let data_json = encode_json(entry, "Plaid removed transaction")?;
             transaction
                 .execute(
-                    "INSERT INTO plaid_transactions (transaction_id, item_id, account_id, data_json, is_removed, updated_at)
-                     VALUES (?1, ?2, NULL, ?3, 1, CURRENT_TIMESTAMP)
+                    "INSERT INTO plaid_transactions (
+                       transaction_id,
+                       item_id,
+                       account_id,
+                       data_json,
+                       is_removed,
+                       removed_json,
+                       removed_at,
+                       updated_at
+                     )
+                     VALUES (?1, ?2, ?3, ?4, 1, ?4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                      ON CONFLICT(transaction_id) DO UPDATE SET
                        item_id = excluded.item_id,
-                       data_json = excluded.data_json,
+                       account_id = COALESCE(excluded.account_id, plaid_transactions.account_id),
                        is_removed = 1,
+                       removed_json = excluded.removed_json,
+                       removed_at = CURRENT_TIMESTAMP,
                        updated_at = CURRENT_TIMESTAMP",
-                    params![transaction_id, item_id, data_json],
+                    params![transaction_id, item_id, account_id, data_json],
                 )
                 .map_err(|error| {
                     Error::Cache(format!(
@@ -291,6 +305,7 @@ impl PlaidCacheStore {
         let connection = self.connect()?;
         let mut sql = String::from(
             "SELECT transaction_id, item_id, account_id, data_json, is_removed, updated_at
+             , removed_json, removed_at
              FROM plaid_transactions",
         );
         let mut clauses = Vec::new();
@@ -334,12 +349,23 @@ impl PlaidCacheStore {
                 let data_json = row.get::<_, String>(3)?;
                 let removed = row.get::<_, bool>(4)?;
                 let updated_at = row.get::<_, String>(5)?;
-                Ok((transaction_id, item_id, account_id, data_json, removed, updated_at))
+                let removed_json = row.get::<_, Option<String>>(6)?;
+                let removed_at = row.get::<_, Option<String>>(7)?;
+                Ok((
+                    transaction_id,
+                    item_id,
+                    account_id,
+                    data_json,
+                    removed,
+                    updated_at,
+                    removed_json,
+                    removed_at,
+                ))
             })
             .map_err(|error| Error::Cache(format!("failed to query cached Plaid transactions: {error}")))?;
 
         rows.map(|row| {
-            let (transaction_id, item_id, account_id, data_json, removed, updated_at) =
+            let (transaction_id, item_id, account_id, data_json, removed, updated_at, removed_json, removed_at) =
                 row.map_err(|error| Error::Cache(format!("failed to read cached Plaid transaction row: {error}")))?;
             Ok(CachedTransactionRecord {
                 transaction_id: transaction_id.clone(),
@@ -347,7 +373,12 @@ impl PlaidCacheStore {
                 account_id,
                 removed,
                 updated_at,
+                removed_at,
                 transaction: decode_json(&data_json, "cached Plaid transaction", &transaction_id)?,
+                removal: removed_json
+                    .as_deref()
+                    .map(|removed_json| decode_json(removed_json, "cached Plaid removal", &transaction_id))
+                    .transpose()?,
             })
         })
         .collect()
@@ -390,6 +421,8 @@ impl PlaidCacheStore {
                    account_id TEXT,
                    data_json TEXT NOT NULL,
                    is_removed INTEGER NOT NULL DEFAULT 0,
+                   removed_json TEXT,
+                   removed_at TEXT,
                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                  );
                  CREATE INDEX IF NOT EXISTS plaid_transactions_item_id_idx
@@ -410,6 +443,8 @@ impl PlaidCacheStore {
                     self.path.display()
                 ))
             })?;
+        ensure_column(&connection, "plaid_transactions", "removed_json", "TEXT")?;
+        ensure_column(&connection, "plaid_transactions", "removed_at", "TEXT")?;
 
         Ok(connection)
     }
@@ -427,4 +462,32 @@ fn decode_json(data_json: &str, label: &str, identifier: &str) -> Result<Value> 
 
 fn repeat_vars(count: usize) -> String {
     std::iter::repeat("?").take(count).collect::<Vec<_>>().join(", ")
+}
+
+fn ensure_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| Error::Cache(format!("failed to inspect Plaid cache table {table}: {error}")))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| Error::Cache(format!("failed to query Plaid cache table info for {table}: {error}")))?;
+    let column_exists = columns
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|error| Error::Cache(format!("failed to read Plaid cache table info for {table}: {error}")))?
+        .iter()
+        .any(|existing| existing == column);
+
+    if column_exists {
+        return Ok(());
+    }
+
+    connection
+        .execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])
+        .map_err(|error| {
+            Error::Cache(format!(
+                "failed to migrate Plaid cache table {table}, missing column {column}: {error}"
+            ))
+        })?;
+
+    Ok(())
 }

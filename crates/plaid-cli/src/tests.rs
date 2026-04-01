@@ -303,7 +303,8 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
                     ],
                     "removed": [
                         {
-                            "transaction_id": "tx-3"
+                            "transaction_id": "tx-3",
+                            "account_id": "acc-123"
                         }
                     ],
                     "next_cursor": "cursor-final",
@@ -368,6 +369,8 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
     assert_eq!(updated_transaction["amount"], 22.34);
     let added_transaction = cached_transaction(&cache_db_path(&config_path), "tx-2");
     assert_eq!(added_transaction["name"], "Groceries");
+    let removed_transaction = cached_transaction(&cache_db_path(&config_path), "tx-3");
+    assert_eq!(removed_transaction["account_id"], "acc-123");
     assert!(cached_transaction_removed(&cache_db_path(&config_path), "tx-3"));
 
     let second_capture = Arc::new(Mutex::new(Vec::new()));
@@ -571,18 +574,38 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
             "item-a",
             Some("acc-a"),
             "cursor-a",
-            &[json!({
-                "transaction_id": "tx-a",
-                "account_id": "acc-a",
-                "amount": 11.25,
-                "name": "Lunch"
-            })],
+            &[
+                json!({
+                    "transaction_id": "tx-a",
+                    "account_id": "acc-a",
+                    "amount": 11.25,
+                    "name": "Lunch"
+                }),
+                json!({
+                    "transaction_id": "tx-removed",
+                    "account_id": "acc-a",
+                    "amount": 18.75,
+                    "name": "Dinner"
+                }),
+            ],
+            &[],
+            &[],
+        )
+        .expect("initial transactions should cache");
+    cache
+        .cache_transactions_sync(
+            "item-a",
+            Some("acc-a"),
+            "cursor-a-removed",
+            &[],
             &[],
             &[json!({
-                "transaction_id": "tx-removed"
+                "transaction_id": "tx-removed",
+                "account_id": "acc-a",
+                "pending_transaction_id": "pending-tx-removed"
             })],
         )
-        .expect("transactions should cache");
+        .expect("removed transactions should cache");
     cache
         .cache_transactions_sync(
             "item-b",
@@ -612,7 +635,7 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
     assert_eq!(current["source"], "cache");
     assert_eq!(current["item_id"], "item-a");
     assert_eq!(current["account_id"], "acc-a");
-    assert_eq!(current["cursor"], "cursor-a");
+    assert_eq!(current["cursor"], "cursor-a-removed");
     assert_eq!(current["count"], 1);
     assert_eq!(current["transactions"][0]["transaction_id"], "tx-a");
     assert_eq!(current["transactions"][0]["removed"], false);
@@ -632,6 +655,83 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
     assert_eq!(removed["include_removed"], true);
     assert_eq!(removed["transactions"][0]["transaction_id"], "tx-removed");
     assert_eq!(removed["transactions"][0]["removed"], true);
+    assert_eq!(removed["transactions"][0]["account_id"], "acc-a");
+    assert_eq!(removed["transactions"][0]["transaction"]["name"], "Dinner");
+    assert_eq!(removed["transactions"][0]["transaction"]["amount"], 18.75);
+    assert_eq!(
+        removed["transactions"][0]["removal"]["pending_transaction_id"],
+        "pending-tx-removed"
+    );
+}
+
+#[test]
+fn cache_store_migrates_transaction_tombstone_columns_without_losing_snapshots() {
+    let temp_dir = temp_dir("plaid-cache-migration");
+    let config_path = temp_dir.join("config.json");
+    let cache_path = cache_db_path(&config_path);
+    let connection = Connection::open(&cache_path).expect("cache db should open");
+    connection
+        .execute_batch(
+            "CREATE TABLE plaid_transactions (
+               transaction_id TEXT PRIMARY KEY,
+               item_id TEXT NOT NULL,
+               account_id TEXT,
+               data_json TEXT NOT NULL,
+               is_removed INTEGER NOT NULL DEFAULT 0,
+               updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO plaid_transactions (transaction_id, item_id, account_id, data_json, is_removed)
+             VALUES (
+               'tx-legacy',
+               'item-a',
+               'acc-a',
+               '{\"transaction_id\":\"tx-legacy\",\"account_id\":\"acc-a\",\"amount\":44.10,\"name\":\"Legacy\"}',
+               0
+             );",
+        )
+        .expect("legacy schema should initialize");
+
+    let cache = PlaidCacheStore::open(&cache_path).expect("cache should migrate");
+    cache
+        .cache_transactions_sync(
+            "item-a",
+            Some("acc-a"),
+            "cursor-migrated",
+            &[],
+            &[],
+            &[json!({
+                "transaction_id": "tx-legacy",
+                "account_id": "acc-a",
+                "pending_transaction_id": "pending-legacy"
+            })],
+        )
+        .expect("removed transaction should cache after migration");
+
+    let migrated = cached_transaction(&cache_path, "tx-legacy");
+    assert_eq!(migrated["name"], "Legacy");
+    assert_eq!(migrated["amount"], 44.10);
+    assert_eq!(migrated["account_id"], "acc-a");
+    assert!(cached_transaction_removed(&cache_path, "tx-legacy"));
+
+    let connection = Connection::open(&cache_path).expect("cache db should reopen");
+    let removal_json: String = connection
+        .query_row(
+            "SELECT removed_json FROM plaid_transactions WHERE transaction_id = ?1",
+            params!["tx-legacy"],
+            |row| row.get(0),
+        )
+        .expect("removed json should exist");
+    let removal: Value = serde_json::from_str(&removal_json).expect("removed json should parse");
+    assert_eq!(removal["pending_transaction_id"], "pending-legacy");
+
+    let removed_at: String = connection
+        .query_row(
+            "SELECT removed_at FROM plaid_transactions WHERE transaction_id = ?1",
+            params!["tx-legacy"],
+            |row| row.get(0),
+        )
+        .expect("removed_at should exist");
+    assert!(!removed_at.is_empty());
 }
 
 #[derive(Debug, Deserialize)]

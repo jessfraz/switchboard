@@ -144,7 +144,9 @@ fn cache_transactions(args: CacheTransactionsArgs, context: &ResolvedContext) ->
                         "account_id": row.account_id,
                         "removed": row.removed,
                         "updated_at": row.updated_at,
+                        "removed_at": row.removed_at,
                         "transaction": row.transaction,
+                        "removal": row.removal,
                     })
                 })
                 .collect(),
