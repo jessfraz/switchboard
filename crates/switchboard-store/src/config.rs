@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
+    env, fs,
+    path::{Component, Path, PathBuf},
 };
 
 use serde::Deserialize;
@@ -30,11 +30,15 @@ impl SwitchboardConfig {
             ))
         })?;
 
-        Self::from_source(&source, &format!("switchboard config at {}", path.display()))
+        Self::from_source_with_base(
+            &source,
+            &format!("switchboard config at {}", path.display()),
+            path.parent(),
+        )
     }
 
     pub fn from_toml_str(source: &str) -> Result<Self> {
-        Self::from_source(source, "switchboard config")
+        Self::from_source_with_base(source, "switchboard config", None)
     }
 
     pub fn into_stores(self) -> (StaticNamespaceStore, StaticAuthStore, StaticSecretStore) {
@@ -45,9 +49,10 @@ impl SwitchboardConfig {
         ConfiguredPolicyEngine::new(self.write_policy)
     }
 
-    fn from_source(source: &str, source_label: &str) -> Result<Self> {
-        let config: RawConfig = toml::from_str(source)
+    fn from_source_with_base(source: &str, source_label: &str, base_dir: Option<&Path>) -> Result<Self> {
+        let mut config: RawConfig = toml::from_str(source)
             .map_err(|error| Error::Config(format!("failed to parse {source_label}: {error}")))?;
+        config.resolve_paths(base_dir, config_home_dir().as_deref());
         let secrets = build_secret_store(config.secret)?;
         let explicit_auth = build_auth_store(config.auth, &secrets)?;
         let (namespaces, implicit_auth) = build_namespace_store(config.namespace, &explicit_auth)?;
@@ -69,9 +74,7 @@ fn build_secret_store(raw_secrets: BTreeMap<String, RawSecret>) -> Result<Static
     for (secret_ref, raw) in raw_secrets {
         let source = match raw {
             RawSecret::Env { name } => SecretSource::Env { name },
-            RawSecret::File { path } => SecretSource::File {
-                path: PathBuf::from(path),
-            },
+            RawSecret::File { path } => SecretSource::File { path },
             RawSecret::OnePasswordItem {
                 account,
                 item,
@@ -228,7 +231,7 @@ fn build_namespace_store(
                 namespace.account,
                 auth_ref.as_str(),
                 namespace.default_read,
-                namespace.state_dir.map(PathBuf::from),
+                namespace.state_dir,
             )?);
         }
     }
@@ -284,7 +287,7 @@ enum RawSecret {
     #[serde(rename = "env")]
     Env { name: String },
     #[serde(rename = "file")]
-    File { path: String },
+    File { path: PathBuf },
     #[serde(rename = "onepassword_item", alias = "one_password_item")]
     OnePasswordItem {
         account: String,
@@ -435,16 +438,75 @@ struct RawNamespace {
     #[serde(default)]
     default_read: bool,
     #[serde(default)]
-    state_dir: Option<String>,
+    state_dir: Option<PathBuf>,
+}
+
+impl RawConfig {
+    fn resolve_paths(&mut self, base_dir: Option<&Path>, home_dir: Option<&Path>) {
+        for secret in self.secret.values_mut() {
+            if let RawSecret::File { path } = secret {
+                *path = resolve_configured_path(path, base_dir, home_dir);
+            }
+        }
+
+        for provider_namespaces in self.namespace.values_mut() {
+            for namespace in provider_namespaces.values_mut() {
+                if let Some(state_dir) = namespace.state_dir.as_mut() {
+                    *state_dir = resolve_configured_path(state_dir, base_dir, home_dir);
+                }
+            }
+        }
+    }
+}
+
+fn config_home_dir() -> Option<PathBuf> {
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+fn resolve_configured_path(path: &Path, base_dir: Option<&Path>, home_dir: Option<&Path>) -> PathBuf {
+    let expanded = expand_home_prefix(path, home_dir);
+    if expanded.is_absolute() {
+        expanded
+    } else if let Some(base_dir) = base_dir {
+        base_dir.join(expanded)
+    } else {
+        expanded
+    }
+}
+
+fn expand_home_prefix(path: &Path, home_dir: Option<&Path>) -> PathBuf {
+    let Some(home_dir) = home_dir else {
+        return path.to_path_buf();
+    };
+    let mut components = path.components();
+    match components.next() {
+        Some(Component::Normal(component)) if component == "~" => {
+            let remainder = components.as_path();
+            if remainder.as_os_str().is_empty() {
+                home_dir.to_path_buf()
+            } else {
+                home_dir.join(remainder)
+            }
+        }
+        _ => path.to_path_buf(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use switchboard_core::{
-        AuthKind, AuthRef, AuthStore, Error, NamespaceId, NamespaceStore, SecretStore, WritePolicy,
+    use std::{
+        fs,
+        path::{Path, PathBuf},
     };
 
-    use super::SwitchboardConfig;
+    use switchboard_core::{
+        AuthKind, AuthRef, AuthStore, Error, NamespaceId, NamespaceStore, SecretRef, SecretSource, SecretStore,
+        WritePolicy,
+    };
+
+    use super::{resolve_configured_path, SwitchboardConfig};
 
     const BASIC_CONFIG_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -646,11 +708,79 @@ mod tests {
         );
     }
 
+    #[test]
+    fn from_file_resolves_relative_secret_paths_and_state_dirs_against_config_directory() {
+        let temp_dir = temp_fixture_directory();
+        let config_dir = temp_dir.join("xdg").join("switchboard");
+        fs::create_dir_all(config_dir.join("secrets")).expect("config dir should exist");
+        let config_path = config_dir.join("config.toml");
+        let config_contents = BASIC_CONFIG_TEMPLATE
+            .replace("__GOOGLE_PERSONAL_OAUTH_PATH__", "secrets/google-personal-oauth.json")
+            .replace("/tmp/switchboard-google-work", "state/google-work")
+            .replace("/tmp/switchboard-google-personal", "state/google-personal")
+            .replace("/tmp/switchboard-mychart-ucla", "state/mychart-ucla");
+        fs::write(&config_path, config_contents).expect("config should write");
+
+        let config = SwitchboardConfig::from_file(&config_path).expect("config should parse from file");
+        let (namespaces, _auth, secrets) = config.into_stores();
+
+        let google_personal_secret = secrets
+            .get(&SecretRef::new("google_personal_oauth").expect("secret ref should parse"))
+            .expect("google personal secret should exist");
+        assert_eq!(
+            google_personal_secret.source,
+            SecretSource::File {
+                path: config_dir.join("secrets").join("google-personal-oauth.json"),
+            }
+        );
+
+        let google_personal = namespaces
+            .get(&NamespaceId::new("google.personal").expect("namespace should parse"))
+            .expect("google.personal should exist");
+        assert_eq!(
+            google_personal.state_dir,
+            Some(config_dir.join("state").join("google-personal"))
+        );
+
+        let mychart_ucla = namespaces
+            .get(&NamespaceId::new("mychart.ucla").expect("namespace should parse"))
+            .expect("mychart.ucla should exist");
+        assert_eq!(
+            mychart_ucla.state_dir,
+            Some(config_dir.join("state").join("mychart-ucla"))
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn configured_paths_expand_home_and_then_resolve_relative_paths() {
+        let home_dir = Path::new("/home/alice");
+        let base_dir = Path::new("/configs/switchboard");
+
+        assert_eq!(
+            resolve_configured_path(Path::new("~/state/google"), Some(base_dir), Some(home_dir)),
+            PathBuf::from("/home/alice/state/google")
+        );
+        assert_eq!(
+            resolve_configured_path(Path::new("state/google"), Some(base_dir), Some(home_dir)),
+            PathBuf::from("/configs/switchboard/state/google")
+        );
+    }
+
     fn render_basic_config(google_personal_oauth_path: &str) -> String {
         BASIC_CONFIG_TEMPLATE.replace("__GOOGLE_PERSONAL_OAUTH_PATH__", google_personal_oauth_path)
     }
 
     fn render_allow_writes_config(google_personal_oauth_path: &str) -> String {
         ALLOW_WRITES_CONFIG_TEMPLATE.replace("__GOOGLE_PERSONAL_OAUTH_PATH__", google_personal_oauth_path)
+    }
+
+    fn temp_fixture_directory() -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("switchboard-store-config-test-{}-{stamp}", std::process::id()))
     }
 }
