@@ -4,7 +4,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
     sync::{Arc, Mutex},
     thread,
@@ -12,10 +12,12 @@ use std::{
 };
 
 use clap::Parser;
+use rusqlite::{params, Connection};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
 use super::{
+    cache::PlaidCacheStore,
     main_entry, render_cli_error, run,
     state::{PlaidEnvironment, PlaidState, StateStore, DEFAULT_PLAID_VERSION},
     Cli,
@@ -28,7 +30,7 @@ fn main_entry_returns_success_for_help() {
 
 #[test]
 fn exchange_public_token_stores_access_token_and_item_id() {
-    let capture = Arc::new(Mutex::new(None));
+    let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
         json!({
             "access_token": "access-sandbox-1234",
@@ -79,7 +81,7 @@ fn exchange_public_token_stores_access_token_and_item_id() {
 
 #[test]
 fn link_token_create_builds_user_products_and_transactions_options() {
-    let capture = Arc::new(Mutex::new(None));
+    let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
         json!({
             "link_token": "link-sandbox-1234",
@@ -138,23 +140,22 @@ fn link_token_create_builds_user_products_and_transactions_options() {
 }
 
 #[test]
-fn accounts_balance_uses_stored_access_token_and_filters() {
-    let capture = Arc::new(Mutex::new(None));
+fn item_get_caches_item_and_remembers_item_id() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
         json!({
-            "accounts": [
-                {
-                    "account_id": "acc-123",
-                    "balances": {
-                        "available": 100.5,
-                        "current": 125.0
-                    }
-                }
-            ],
             "item": {
-                "item_id": "item-1234"
+                "item_id": "item-1234",
+                "institution_id": "ins_109508",
+                "webhook": "https://example.com/plaid",
+                "error": null
             },
-            "request_id": "request-3"
+            "status": {
+                "transactions": {
+                    "last_successful_update": "2026-03-30T00:00:00Z"
+                }
+            },
+            "request_id": "request-item"
         })
         .to_string(),
         200,
@@ -169,7 +170,64 @@ fn accounts_balance_uses_stored_access_token_and_filters() {
             client_id: Some("client-id".into()),
             secret: Some("secret-value".into()),
             access_token: Some("stored-access-token".into()),
-            item_id: Some("item-1234".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let output: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "item",
+        "get",
+    ]);
+
+    let request = captured_request(&capture);
+    assert_eq!(request.path, "/item/get");
+    assert_eq!(output["item"]["item_id"], "item-1234");
+
+    let state = StateStore::new(config_path.clone()).load().expect("state should load");
+    assert_eq!(state.item_id.as_deref(), Some("item-1234"));
+    let item = cached_item(&cache_db_path(&config_path), "item-1234");
+    assert_eq!(item["institution_id"], "ins_109508");
+}
+
+#[test]
+fn accounts_balance_uses_stored_access_token_filters_and_caches_accounts() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "accounts": [
+                {
+                    "account_id": "acc-123",
+                    "balances": {
+                        "available": 100.5,
+                        "current": 125.0
+                    },
+                    "mask": "0000",
+                    "name": "Cash"
+                }
+            ],
+            "item": {
+                "item_id": "item-1234",
+                "institution_id": "ins_109508"
+            },
+            "request_id": "request-3"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-transactions-sync");
+    let config_path = temp_dir.join("config.json");
+    let store = StateStore::new(config_path.clone());
+    store
+        .save(&PlaidState {
+            base_url: Some(server.base_url()),
+            client_id: Some("client-id".into()),
+            secret: Some("secret-value".into()),
+            access_token: Some("stored-access-token".into()),
             ..PlaidState::default()
         })
         .expect("state should save");
@@ -194,22 +252,67 @@ fn accounts_balance_uses_stored_access_token_and_filters() {
     assert_eq!(body["options"]["account_ids"], json!(["acc-123"]));
     assert_eq!(body["options"]["min_last_updated_datetime"], "2026-03-30T00:00:00Z");
     assert_eq!(output.accounts[0].account_id, "acc-123");
+
+    let item = cached_item(&cache_db_path(&config_path), "item-1234");
+    assert_eq!(item["institution_id"], "ins_109508");
+    let account = cached_account(&cache_db_path(&config_path), "acc-123");
+    assert_eq!(account["balances"]["available"], 100.5);
+    assert_eq!(account["name"], "Cash");
 }
 
 #[test]
-fn transactions_sync_sends_cursor_count_and_options() {
-    let capture = Arc::new(Mutex::new(None));
-    let server = TestServer::spawn(
-        json!({
-            "added": [],
-            "modified": [],
-            "removed": [],
-            "next_cursor": "cursor-next",
-            "has_more": false,
-            "request_id": "request-4"
-        })
-        .to_string(),
-        200,
+fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn_sequence(
+        vec![
+            ResponseSpec::json(
+                json!({
+                    "added": [
+                        {
+                            "transaction_id": "tx-1",
+                            "account_id": "acc-123",
+                            "amount": 12.34,
+                            "name": "Coffee"
+                        }
+                    ],
+                    "modified": [],
+                    "removed": [],
+                    "next_cursor": "cursor-page-1",
+                    "has_more": true,
+                    "request_id": "request-page-1"
+                }),
+                200,
+            ),
+            ResponseSpec::json(
+                json!({
+                    "added": [
+                        {
+                            "transaction_id": "tx-2",
+                            "account_id": "acc-123",
+                            "amount": 56.78,
+                            "name": "Groceries"
+                        }
+                    ],
+                    "modified": [
+                        {
+                            "transaction_id": "tx-1",
+                            "account_id": "acc-123",
+                            "amount": 22.34,
+                            "name": "Coffee Shop"
+                        }
+                    ],
+                    "removed": [
+                        {
+                            "transaction_id": "tx-3"
+                        }
+                    ],
+                    "next_cursor": "cursor-final",
+                    "has_more": false,
+                    "request_id": "request-page-2"
+                }),
+                200,
+            ),
+        ],
         Some(capture.clone()),
     );
     let temp_dir = temp_dir("plaid-transactions-sync");
@@ -221,6 +324,7 @@ fn transactions_sync_sends_cursor_count_and_options() {
             client_id: Some("client-id".into()),
             secret: Some("secret-value".into()),
             access_token: Some("stored-access-token".into()),
+            item_id: Some("item-1234".into()),
             ..PlaidState::default()
         })
         .expect("state should save");
@@ -232,8 +336,6 @@ fn transactions_sync_sends_cursor_count_and_options() {
         "--compact",
         "transactions",
         "sync",
-        "--cursor",
-        "now",
         "--count",
         "250",
         "--days-requested",
@@ -243,15 +345,63 @@ fn transactions_sync_sends_cursor_count_and_options() {
         "--include-original-description",
     ]);
 
-    let request = captured_request(&capture);
-    let body: Value = request.json_body();
-    assert_eq!(request.path, "/transactions/sync");
-    assert_eq!(body["cursor"], "now");
-    assert_eq!(body["count"], 250);
-    assert_eq!(body["options"]["account_id"], "acc-123");
-    assert_eq!(body["options"]["days_requested"], 180);
-    assert_eq!(body["options"]["include_original_description"], true);
-    assert_eq!(output.next_cursor, "cursor-next");
+    let requests = captured_requests(&capture);
+    assert_eq!(requests.len(), 2);
+    let first_body: Value = requests[0].json_body();
+    assert_eq!(requests[0].path, "/transactions/sync");
+    assert!(first_body.get("cursor").is_none());
+    assert_eq!(first_body["count"], 250);
+    assert_eq!(first_body["options"]["account_id"], "acc-123");
+    assert_eq!(first_body["options"]["days_requested"], 180);
+    assert_eq!(first_body["options"]["include_original_description"], true);
+
+    let second_body: Value = requests[1].json_body();
+    assert_eq!(second_body["cursor"], "cursor-page-1");
+    assert_eq!(output.next_cursor, "cursor-final");
+    assert_eq!(output.pages_fetched, 2);
+
+    assert_eq!(
+        cached_cursor(&cache_db_path(&config_path), "item-1234", Some("acc-123")).as_deref(),
+        Some("cursor-final")
+    );
+    let updated_transaction = cached_transaction(&cache_db_path(&config_path), "tx-1");
+    assert_eq!(updated_transaction["amount"], 22.34);
+    let added_transaction = cached_transaction(&cache_db_path(&config_path), "tx-2");
+    assert_eq!(added_transaction["name"], "Groceries");
+    assert!(cached_transaction_removed(&cache_db_path(&config_path), "tx-3"));
+
+    let second_capture = Arc::new(Mutex::new(Vec::new()));
+    let second_server = TestServer::spawn(
+        json!({
+            "added": [],
+            "modified": [],
+            "removed": [],
+            "next_cursor": "cursor-after-cache",
+            "has_more": false,
+            "request_id": "request-page-3"
+        })
+        .to_string(),
+        200,
+        Some(second_capture.clone()),
+    );
+    let second_output: TransactionsSyncResponse = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--base-url",
+        &second_server.base_url(),
+        "--compact",
+        "transactions",
+        "sync",
+        "--account-id",
+        "acc-123",
+    ]);
+
+    let cached_request = captured_request(&second_capture);
+    let cached_body: Value = cached_request.json_body();
+    assert_eq!(cached_body["cursor"], "cursor-final");
+    assert_eq!(second_output.next_cursor, "cursor-after-cache");
+    assert_eq!(second_output.pages_fetched, 1);
 }
 
 #[test]
@@ -279,6 +429,211 @@ fn sandbox_public_token_create_rejects_transaction_options_without_transactions_
     );
 }
 
+#[test]
+fn cache_items_defaults_to_current_item_and_supports_all() {
+    let temp_dir = temp_dir("plaid-cache-items");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            item_id: Some("item-a".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let cache = PlaidCacheStore::open(cache_db_path(&config_path)).expect("cache should open");
+    cache
+        .cache_item(&json!({
+            "item_id": "item-a",
+            "institution_id": "ins_1",
+            "webhook": "https://example.com/a"
+        }))
+        .expect("item a should cache");
+    cache
+        .cache_item(&json!({
+            "item_id": "item-b",
+            "institution_id": "ins_2",
+            "webhook": "https://example.com/b"
+        }))
+        .expect("item b should cache");
+
+    let current: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "items",
+    ]);
+    assert_eq!(current["source"], "cache");
+    assert_eq!(current["item_id"], "item-a");
+    assert_eq!(current["count"], 1);
+    assert_eq!(current["items"][0]["item_id"], "item-a");
+
+    let all: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "items",
+        "--all",
+    ]);
+    assert_eq!(all["count"], 2);
+    assert_eq!(
+        all["items"]
+            .as_array()
+            .expect("items should be an array")
+            .iter()
+            .map(|item| item["item_id"].as_str().expect("item_id should be a string"))
+            .collect::<Vec<_>>(),
+        vec!["item-a", "item-b"]
+    );
+}
+
+#[test]
+fn cache_accounts_reads_cached_accounts_without_credentials() {
+    let temp_dir = temp_dir("plaid-cache-accounts");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            item_id: Some("item-a".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let cache = PlaidCacheStore::open(cache_db_path(&config_path)).expect("cache should open");
+    cache
+        .cache_accounts(
+            "item-a",
+            &[json!({
+                "account_id": "acc-a",
+                "name": "Checking",
+                "balances": { "available": 11.0 }
+            })],
+        )
+        .expect("account a should cache");
+    cache
+        .cache_accounts(
+            "item-b",
+            &[json!({
+                "account_id": "acc-b",
+                "name": "Savings",
+                "balances": { "available": 22.0 }
+            })],
+        )
+        .expect("account b should cache");
+
+    let current: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "accounts",
+    ]);
+    assert_eq!(current["source"], "cache");
+    assert_eq!(current["item_id"], "item-a");
+    assert_eq!(current["count"], 1);
+    assert_eq!(current["accounts"][0]["account_id"], "acc-a");
+    assert_eq!(current["accounts"][0]["account"]["name"], "Checking");
+
+    let filtered: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "accounts",
+        "--all",
+        "--account-id",
+        "acc-b",
+    ]);
+    assert_eq!(filtered["count"], 1);
+    assert_eq!(filtered["account_ids"], json!(["acc-b"]));
+    assert_eq!(filtered["accounts"][0]["item_id"], "item-b");
+    assert_eq!(filtered["accounts"][0]["account"]["balances"]["available"], 22.0);
+}
+
+#[test]
+fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
+    let temp_dir = temp_dir("plaid-cache-transactions");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            item_id: Some("item-a".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let cache = PlaidCacheStore::open(cache_db_path(&config_path)).expect("cache should open");
+    cache
+        .cache_transactions_sync(
+            "item-a",
+            Some("acc-a"),
+            "cursor-a",
+            &[json!({
+                "transaction_id": "tx-a",
+                "account_id": "acc-a",
+                "amount": 11.25,
+                "name": "Lunch"
+            })],
+            &[],
+            &[json!({
+                "transaction_id": "tx-removed"
+            })],
+        )
+        .expect("transactions should cache");
+    cache
+        .cache_transactions_sync(
+            "item-b",
+            Some("acc-b"),
+            "cursor-b",
+            &[json!({
+                "transaction_id": "tx-b",
+                "account_id": "acc-b",
+                "amount": 48.50,
+                "name": "Books"
+            })],
+            &[],
+            &[],
+        )
+        .expect("other item transactions should cache");
+
+    let current: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "transactions",
+        "--account-id",
+        "acc-a",
+    ]);
+    assert_eq!(current["source"], "cache");
+    assert_eq!(current["item_id"], "item-a");
+    assert_eq!(current["account_id"], "acc-a");
+    assert_eq!(current["cursor"], "cursor-a");
+    assert_eq!(current["count"], 1);
+    assert_eq!(current["transactions"][0]["transaction_id"], "tx-a");
+    assert_eq!(current["transactions"][0]["removed"], false);
+
+    let removed: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "transactions",
+        "--include-removed",
+        "--transaction-id",
+        "tx-removed",
+    ]);
+    assert_eq!(removed["count"], 1);
+    assert_eq!(removed["include_removed"], true);
+    assert_eq!(removed["transactions"][0]["transaction_id"], "tx-removed");
+    assert_eq!(removed["transactions"][0]["removed"], true);
+}
+
 #[derive(Debug, Deserialize)]
 struct ExchangePublicTokenResponse {
     access_token: String,
@@ -302,6 +657,7 @@ struct AccountSummary {
 #[derive(Debug, Deserialize)]
 struct TransactionsSyncResponse {
     next_cursor: String,
+    pages_fetched: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -331,32 +687,42 @@ struct TestServer {
 }
 
 impl TestServer {
-    fn spawn(body: String, status_code: u16, capture: Option<Arc<Mutex<Option<CapturedRequest>>>>) -> Self {
+    fn spawn(body: String, status_code: u16, capture: Option<Arc<Mutex<Vec<CapturedRequest>>>>) -> Self {
+        Self::spawn_sequence(vec![ResponseSpec { body, status_code }], capture)
+    }
+
+    fn spawn_sequence(responses: Vec<ResponseSpec>, capture: Option<Arc<Mutex<Vec<CapturedRequest>>>>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
         let address = listener.local_addr().expect("local addr should exist");
 
         let handle = thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let request = read_request(&mut stream);
-                if let Some(capture) = capture {
-                    if let Ok(mut guard) = capture.lock() {
-                        *guard = Some(request);
+            for response in responses {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let request = read_request(&mut stream);
+                    if let Some(capture) = capture.as_ref() {
+                        if let Ok(mut guard) = capture.lock() {
+                            guard.push(request);
+                        }
                     }
-                }
 
-                let status_text = match status_code {
-                    200 => "OK",
-                    201 => "Created",
-                    400 => "Bad Request",
-                    401 => "Unauthorized",
-                    _ => "OK",
-                };
-                let response = format!(
-                    "HTTP/1.1 {status_code} {status_text}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
-                let _ = stream.write_all(response.as_bytes());
+                    let status_text = match response.status_code {
+                        200 => "OK",
+                        201 => "Created",
+                        400 => "Bad Request",
+                        401 => "Unauthorized",
+                        _ => "OK",
+                    };
+                    let payload = format!(
+                        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        response.status_code,
+                        status_text,
+                        response.body.len(),
+                        response.body
+                    );
+                    let _ = stream.write_all(payload.as_bytes());
+                } else {
+                    break;
+                }
             }
         });
 
@@ -368,6 +734,20 @@ impl TestServer {
 
     fn base_url(&self) -> String {
         self.address.clone()
+    }
+}
+
+struct ResponseSpec {
+    body: String,
+    status_code: u16,
+}
+
+impl ResponseSpec {
+    fn json(body: Value, status_code: u16) -> Self {
+        Self {
+            body: body.to_string(),
+            status_code,
+        }
     }
 }
 
@@ -418,12 +798,18 @@ impl CapturedRequest {
     }
 }
 
-fn captured_request(capture: &Arc<Mutex<Option<CapturedRequest>>>) -> CapturedRequest {
+fn captured_request(capture: &Arc<Mutex<Vec<CapturedRequest>>>) -> CapturedRequest {
     capture
         .lock()
         .expect("capture lock should work")
         .clone()
+        .into_iter()
+        .next()
         .expect("request should be captured")
+}
+
+fn captured_requests(capture: &Arc<Mutex<Vec<CapturedRequest>>>) -> Vec<CapturedRequest> {
+    capture.lock().expect("capture lock should work").clone()
 }
 
 fn read_request(stream: &mut std::net::TcpStream) -> CapturedRequest {
@@ -472,4 +858,69 @@ fn temp_dir(prefix: &str) -> PathBuf {
     ));
     fs::create_dir_all(&path).expect("temp dir should be created");
     path
+}
+
+fn cache_db_path(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .expect("config path should have a parent")
+        .join("plaid-cache.sqlite3")
+}
+
+fn cached_item(path: &Path, item_id: &str) -> Value {
+    let connection = Connection::open(path).expect("cache db should open");
+    let data: String = connection
+        .query_row(
+            "SELECT data_json FROM plaid_items WHERE item_id = ?1",
+            params![item_id],
+            |row| row.get(0),
+        )
+        .expect("cached item should exist");
+    serde_json::from_str(&data).expect("cached item json should parse")
+}
+
+fn cached_account(path: &Path, account_id: &str) -> Value {
+    let connection = Connection::open(path).expect("cache db should open");
+    let data: String = connection
+        .query_row(
+            "SELECT data_json FROM plaid_accounts WHERE account_id = ?1",
+            params![account_id],
+            |row| row.get(0),
+        )
+        .expect("cached account should exist");
+    serde_json::from_str(&data).expect("cached account json should parse")
+}
+
+fn cached_transaction(path: &Path, transaction_id: &str) -> Value {
+    let connection = Connection::open(path).expect("cache db should open");
+    let data: String = connection
+        .query_row(
+            "SELECT data_json FROM plaid_transactions WHERE transaction_id = ?1",
+            params![transaction_id],
+            |row| row.get(0),
+        )
+        .expect("cached transaction should exist");
+    serde_json::from_str(&data).expect("cached transaction json should parse")
+}
+
+fn cached_transaction_removed(path: &Path, transaction_id: &str) -> bool {
+    let connection = Connection::open(path).expect("cache db should open");
+    connection
+        .query_row(
+            "SELECT is_removed FROM plaid_transactions WHERE transaction_id = ?1",
+            params![transaction_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .expect("cached removed transaction should exist")
+}
+
+fn cached_cursor(path: &Path, item_id: &str, account_scope: Option<&str>) -> Option<String> {
+    let connection = Connection::open(path).expect("cache db should open");
+    connection
+        .query_row(
+            "SELECT cursor FROM plaid_sync_cursors WHERE item_id = ?1 AND account_scope = ?2",
+            params![item_id, account_scope.unwrap_or("")],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
 }

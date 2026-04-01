@@ -14,17 +14,25 @@ pub(crate) enum ItemSubcommand {
     Get,
 }
 
-pub(crate) fn run_item(command: ItemSubcommand, client: &PlaidClient, context: &ResolvedContext) -> Result<Value> {
+pub(crate) fn run_item(command: ItemSubcommand, client: &PlaidClient, context: &mut ResolvedContext) -> Result<Value> {
     match command {
         ItemSubcommand::Get => {
             let credentials = credentials(context)?;
-            client.post(
+            let response = client.post(
                 credentials,
                 "/item/get",
                 json!({
                     "access_token": context.require_access_token()?,
                 }),
-            )
+            )?;
+
+            if let Some(item) = response.get("item") {
+                if let Some(item_id) = context.cache.cache_item(item)? {
+                    context.remember_item_id(item_id)?;
+                }
+            }
+
+            Ok(response)
         }
     }
 }
