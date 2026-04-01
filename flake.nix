@@ -104,6 +104,10 @@
         cargoPackage = "momence-cli";
         pname = "momence";
       };
+      plaid = buildCli {
+        cargoPackage = "plaid-cli";
+        pname = "plaid";
+      };
       schwab = buildCli {
         cargoPackage = "schwab-cli";
         pname = "schwab";

@@ -7,7 +7,10 @@ use std::{
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, GlobalArgs, Result};
+use crate::{
+    cache::{PlaidCacheStore, DEFAULT_CACHE_DB_FILE},
+    Error, GlobalArgs, Result,
+};
 
 pub(crate) const DEFAULT_PLAID_VERSION: &str = "2020-09-14";
 pub(crate) const ENV_PLAID_CONFIG: &str = "PLAID_CONFIG";
@@ -19,6 +22,7 @@ pub(crate) const ENV_PLAID_ACCESS_TOKEN: &str = "PLAID_ACCESS_TOKEN";
 pub(crate) const ENV_PLAID_ITEM_ID: &str = "PLAID_ITEM_ID";
 pub(crate) const ENV_PLAID_VERSION: &str = "PLAID_VERSION";
 pub(crate) const ENV_PLAID_CLIENT_NAME: &str = "PLAID_CLIENT_NAME";
+pub(crate) const ENV_PLAID_CACHE_DB: &str = "PLAID_CACHE_DB";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -121,6 +125,7 @@ pub(crate) struct ResolvedContext {
     pub(crate) item_id: Option<String>,
     pub(crate) plaid_version: String,
     pub(crate) client_name: String,
+    pub(crate) cache: PlaidCacheStore,
     store: StateStore,
     state: PlaidState,
 }
@@ -128,6 +133,7 @@ pub(crate) struct ResolvedContext {
 impl ResolvedContext {
     pub(crate) fn from_global(global: &GlobalArgs) -> Result<Self> {
         let path = resolve_state_path(global.config.as_deref())?;
+        let cache_db_path = resolve_cache_db_path(global.cache_db.as_deref(), &path);
         let store = StateStore::new(path);
         let state = store.load()?;
 
@@ -148,6 +154,7 @@ impl ResolvedContext {
                 .unwrap_or_else(|| DEFAULT_PLAID_VERSION.to_owned()),
             client_name: pick(global.client_name.clone(), state.client_name.clone())
                 .unwrap_or_else(|| format!("plaid-cli/{}", env!("CARGO_PKG_VERSION"))),
+            cache: PlaidCacheStore::open(cache_db_path)?,
             store,
             state,
         })
@@ -187,6 +194,13 @@ impl ResolvedContext {
         self.store.save(&self.state)
     }
 
+    pub(crate) fn remember_item_id(&mut self, item_id: impl Into<String>) -> Result<()> {
+        let item_id = item_id.into();
+        self.state.item_id = Some(item_id.clone());
+        self.item_id = Some(item_id);
+        self.store.save(&self.state)
+    }
+
     pub(crate) fn clear_auth_state(&mut self) -> Result<()> {
         self.state.access_token = None;
         self.state.item_id = None;
@@ -218,6 +232,18 @@ fn resolve_state_path(explicit: Option<&Path>) -> Result<PathBuf> {
     Err(Error::Config(
         "could not resolve Plaid config path, pass --config or set PLAID_CONFIG".into(),
     ))
+}
+
+fn resolve_cache_db_path(explicit: Option<&Path>, state_path: &Path) -> PathBuf {
+    if let Some(path) = explicit {
+        return path.to_path_buf();
+    }
+
+    state_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(DEFAULT_CACHE_DB_FILE)
 }
 
 fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {

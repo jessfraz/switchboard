@@ -33,25 +33,50 @@ pub(crate) struct AccountsBalanceArgs {
 pub(crate) fn run_accounts(
     command: AccountsSubcommand,
     client: &PlaidClient,
-    context: &ResolvedContext,
+    context: &mut ResolvedContext,
 ) -> Result<Value> {
     let credentials = credentials(context)?;
     match command {
-        AccountsSubcommand::Get(args) => client.post(
-            credentials,
-            "/accounts/get",
-            accounts_get_body(context.require_access_token()?, &args.account_ids),
-        ),
-        AccountsSubcommand::Balance(args) => client.post(
-            credentials,
-            "/accounts/balance/get",
-            accounts_balance_body(
-                context.require_access_token()?,
-                &args.account_ids,
-                args.min_last_updated_datetime,
-            ),
-        ),
+        AccountsSubcommand::Get(args) => {
+            let response = client.post(
+                credentials,
+                "/accounts/get",
+                accounts_get_body(context.require_access_token()?, &args.account_ids),
+            )?;
+            cache_accounts_response(context, &response)?;
+            Ok(response)
+        }
+        AccountsSubcommand::Balance(args) => {
+            let response = client.post(
+                credentials,
+                "/accounts/balance/get",
+                accounts_balance_body(
+                    context.require_access_token()?,
+                    &args.account_ids,
+                    args.min_last_updated_datetime,
+                ),
+            )?;
+            cache_accounts_response(context, &response)?;
+            Ok(response)
+        }
     }
+}
+
+fn cache_accounts_response(context: &mut ResolvedContext, response: &Value) -> Result<()> {
+    let Some(item) = response.get("item") else {
+        return Ok(());
+    };
+    let Some(item_id) = context.cache.cache_item(item)? else {
+        return Ok(());
+    };
+    context.remember_item_id(item_id.clone())?;
+
+    let accounts = response
+        .get("accounts")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    context.cache.cache_accounts(&item_id, &accounts)
 }
 
 fn accounts_get_body(access_token: &str, account_ids: &[String]) -> Value {

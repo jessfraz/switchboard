@@ -878,6 +878,7 @@ dependencies = [
  "anyhow",
  "clap",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror",

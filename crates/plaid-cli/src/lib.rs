@@ -1,3 +1,4 @@
+mod cache;
 mod client;
 mod commands;
 mod state;
@@ -15,12 +16,14 @@ pub(crate) use crate::{
 };
 use crate::{
     commands::{
-        run_accounts, run_auth, run_institutions, run_item, run_link, run_sandbox, run_transactions, AccountsCommand,
-        AuthCommand, InstitutionsCommand, ItemCommand, LinkCommand, SandboxCommand, TransactionsCommand,
+        run_accounts, run_auth, run_cache, run_institutions, run_item, run_link, run_sandbox, run_transactions,
+        AccountsCommand, AuthCommand, CacheCommand, InstitutionsCommand, ItemCommand, LinkCommand, SandboxCommand,
+        TransactionsCommand,
     },
     state::{
-        PlaidEnvironment, ENV_PLAID_ACCESS_TOKEN, ENV_PLAID_BASE_URL, ENV_PLAID_CLIENT_ID, ENV_PLAID_CLIENT_NAME,
-        ENV_PLAID_CONFIG, ENV_PLAID_ENVIRONMENT, ENV_PLAID_ITEM_ID, ENV_PLAID_SECRET, ENV_PLAID_VERSION,
+        PlaidEnvironment, ENV_PLAID_ACCESS_TOKEN, ENV_PLAID_BASE_URL, ENV_PLAID_CACHE_DB, ENV_PLAID_CLIENT_ID,
+        ENV_PLAID_CLIENT_NAME, ENV_PLAID_CONFIG, ENV_PLAID_ENVIRONMENT, ENV_PLAID_ITEM_ID, ENV_PLAID_SECRET,
+        ENV_PLAID_VERSION,
     },
 };
 
@@ -32,6 +35,7 @@ const AFTER_HELP: &str = concat!(
     "  plaid accounts get --account-id account-123\n",
     "  plaid accounts balance --account-id account-123\n",
     "  plaid transactions sync --cursor now --count 250 --days-requested 180\n",
+    "  plaid cache transactions --account-id account-123 --limit 50\n",
     "  plaid link token-create --client-user-id user-123 --product transactions --country-code US --days-requested 180\n",
     "\n",
     "This CLI is aimed at Plaid Item, account, institution, and transaction workflows,\n",
@@ -80,9 +84,10 @@ fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
         Commands::Auth(command) => run_auth(command.command, &client, &mut context),
         Commands::Link(command) => run_link(command.command, &client, &context),
         Commands::Institutions(command) => run_institutions(command.command, &client, &context),
-        Commands::Item(command) => run_item(command.command, &client, &context),
-        Commands::Accounts(command) => run_accounts(command.command, &client, &context),
+        Commands::Item(command) => run_item(command.command, &client, &mut context),
+        Commands::Accounts(command) => run_accounts(command.command, &client, &mut context),
         Commands::Transactions(command) => run_transactions(command.command, &client, &context),
+        Commands::Cache(command) => run_cache(command.command, &context),
         Commands::Sandbox(command) => run_sandbox(command.command, &client, &context),
     }
     .context("Plaid command failed")?;
@@ -135,6 +140,9 @@ pub(crate) struct GlobalArgs {
     #[arg(long = "client-name", global = true, env = ENV_PLAID_CLIENT_NAME, value_name = "NAME")]
     client_name: Option<String>,
 
+    #[arg(long = "cache-db", global = true, env = ENV_PLAID_CACHE_DB, value_name = "PATH")]
+    cache_db: Option<PathBuf>,
+
     #[arg(long, global = true)]
     compact: bool,
 }
@@ -147,6 +155,7 @@ enum Commands {
     Item(ItemCommand),
     Accounts(AccountsCommand),
     Transactions(TransactionsCommand),
+    Cache(CacheCommand),
     Sandbox(SandboxCommand),
 }
 
@@ -158,6 +167,8 @@ pub(crate) enum Error {
     Api { status_code: u16, body: Value },
     #[error("config error: {0}")]
     Config(String),
+    #[error("cache failure: {0}")]
+    Cache(String),
     #[error("HTTP failure: {0}")]
     Http(String),
     #[error("I/O failure: {0}")]
@@ -188,6 +199,14 @@ impl Error {
                 &MessageErrorResponse {
                     status: "error",
                     kind: "config",
+                    message,
+                },
+                compact,
+            ),
+            Self::Cache(message) => render_json(
+                &MessageErrorResponse {
+                    status: "error",
+                    kind: "cache",
                     message,
                 },
                 compact,
