@@ -130,6 +130,11 @@ pub(crate) struct ResolvedContext {
     state: PlaidState,
 }
 
+pub(crate) struct ForgetItemStateResult {
+    pub(crate) access_token_cleared: bool,
+    pub(crate) item_id_cleared: bool,
+}
+
 impl ResolvedContext {
     pub(crate) fn from_global(global: &GlobalArgs) -> Result<Self> {
         let path = resolve_state_path(global.config.as_deref())?;
@@ -199,6 +204,46 @@ impl ResolvedContext {
         self.state.item_id = Some(item_id.clone());
         self.item_id = Some(item_id);
         self.store.save(&self.state)
+    }
+
+    pub(crate) fn forget_removed_item(
+        &mut self,
+        removed_item_id: Option<&str>,
+        removed_access_token: Option<&str>,
+    ) -> Result<ForgetItemStateResult> {
+        let mut access_token_cleared = false;
+        let mut item_id_cleared = false;
+
+        if let Some(access_token) = removed_access_token {
+            if self.state.access_token.as_deref() == Some(access_token) {
+                self.state.access_token = None;
+                access_token_cleared = true;
+            }
+            if self.access_token.as_deref() == Some(access_token) {
+                self.access_token = None;
+                access_token_cleared = true;
+            }
+        }
+
+        if let Some(item_id) = removed_item_id {
+            if self.state.item_id.as_deref() == Some(item_id) {
+                self.state.item_id = None;
+                item_id_cleared = true;
+            }
+            if self.item_id.as_deref() == Some(item_id) {
+                self.item_id = None;
+                item_id_cleared = true;
+            }
+        }
+
+        if access_token_cleared || item_id_cleared {
+            self.store.save(&self.state)?;
+        }
+
+        Ok(ForgetItemStateResult {
+            access_token_cleared,
+            item_id_cleared,
+        })
     }
 
     pub(crate) fn clear_auth_state(&mut self) -> Result<()> {

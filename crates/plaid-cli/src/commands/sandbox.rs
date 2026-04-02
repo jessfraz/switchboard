@@ -2,8 +2,8 @@ use clap::{Args, Subcommand};
 use serde_json::{Map, Value};
 
 use crate::{
-    commands::shared::{product_values, Product},
-    Error, PlaidClient, PlaidCredentials, ResolvedContext, Result,
+    commands::shared::{credentials, product_values, Product},
+    Error, PlaidClient, ResolvedContext, Result,
 };
 
 #[derive(Debug, Args)]
@@ -98,9 +98,4 @@ pub(crate) fn run_sandbox(
 
 fn uses_transactions_options(args: &SandboxPublicTokenCreateArgs) -> bool {
     args.start_date.is_some() || args.end_date.is_some() || args.days_requested.is_some()
-}
-
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
 }

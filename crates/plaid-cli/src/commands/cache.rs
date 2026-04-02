@@ -102,6 +102,8 @@ fn cache_accounts(args: CacheAccountsArgs, context: &ResolvedContext) -> Result<
                     json!({
                         "account_id": row.account_id,
                         "item_id": row.item_id,
+                        "source_endpoint": row.source.endpoint(),
+                        "balance_freshness": row.source.balance_freshness(),
                         "updated_at": row.updated_at,
                         "account": row.account,
                     })

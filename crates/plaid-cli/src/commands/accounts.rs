@@ -1,7 +1,11 @@
 use clap::{Args, Subcommand};
 use serde_json::{Map, Value};
 
-use crate::{commands::shared::maybe_insert_options, PlaidClient, PlaidCredentials, ResolvedContext, Result};
+use crate::{
+    cache::AccountSnapshotSource,
+    commands::shared::{credentials, maybe_insert_options},
+    PlaidClient, ResolvedContext, Result,
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct AccountsCommand {
@@ -43,7 +47,7 @@ pub(crate) fn run_accounts(
                 "/accounts/get",
                 accounts_get_body(context.require_access_token()?, &args.account_ids),
             )?;
-            cache_accounts_response(context, &response)?;
+            cache_accounts_response(context, &response, AccountSnapshotSource::AccountsGet)?;
             Ok(response)
         }
         AccountsSubcommand::Balance(args) => {
@@ -56,13 +60,17 @@ pub(crate) fn run_accounts(
                     args.min_last_updated_datetime,
                 ),
             )?;
-            cache_accounts_response(context, &response)?;
+            cache_accounts_response(context, &response, AccountSnapshotSource::AccountsBalanceGet)?;
             Ok(response)
         }
     }
 }
 
-fn cache_accounts_response(context: &mut ResolvedContext, response: &Value) -> Result<()> {
+fn cache_accounts_response(
+    context: &mut ResolvedContext,
+    response: &Value,
+    source: AccountSnapshotSource,
+) -> Result<()> {
     let Some(item) = response.get("item") else {
         return Ok(());
     };
@@ -76,7 +84,7 @@ fn cache_accounts_response(context: &mut ResolvedContext, response: &Value) -> R
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    context.cache.cache_accounts(&item_id, &accounts)
+    context.cache.cache_accounts(&item_id, &accounts, source)
 }
 
 fn accounts_get_body(access_token: &str, account_ids: &[String]) -> Value {
@@ -114,9 +122,4 @@ fn accounts_balance_body(
     }
     maybe_insert_options(&mut body, options);
     Value::Object(body)
-}
-
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
 }

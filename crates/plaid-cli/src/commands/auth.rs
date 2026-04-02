@@ -2,8 +2,8 @@ use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 
 use crate::{
-    commands::shared::{redact_secret, require_response_string},
-    Error, PlaidClient, PlaidCredentials, ResolvedContext, Result,
+    commands::shared::{credentials, redact_secret, require_response_string},
+    Error, PlaidClient, ResolvedContext, Result,
 };
 
 #[derive(Debug, Args)]
@@ -161,9 +161,4 @@ fn auth_status(client: &PlaidClient, context: &ResolvedContext) -> Result<Value>
         "item_id": context.item_id,
         "probe": probe,
     }))
-}
-
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
 }

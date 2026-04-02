@@ -32,6 +32,7 @@ const AFTER_HELP: &str = concat!(
     "  plaid auth status\n",
     "  plaid sandbox public-token-create --institution-id ins_109508 --product transactions --product auth\n",
     "  plaid auth exchange-public-token --public-token public-sandbox-...\n",
+    "  plaid item remove\n",
     "  plaid accounts get --account-id account-123\n",
     "  plaid accounts balance --account-id account-123\n",
     "  plaid transactions sync --cursor now --count 250 --days-requested 180\n",
@@ -86,7 +87,7 @@ fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
         Commands::Institutions(command) => run_institutions(command.command, &client, &context),
         Commands::Item(command) => run_item(command.command, &client, &mut context),
         Commands::Accounts(command) => run_accounts(command.command, &client, &mut context),
-        Commands::Transactions(command) => run_transactions(command.command, &client, &context),
+        Commands::Transactions(command) => run_transactions(command.command, &client, &mut context),
         Commands::Cache(command) => run_cache(command.command, &context),
         Commands::Sandbox(command) => run_sandbox(command.command, &client, &context),
     }
