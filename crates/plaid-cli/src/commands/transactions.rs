@@ -1,7 +1,12 @@
 use clap::{Args, Subcommand};
 use serde_json::{Map, Value};
 
-use crate::{commands::shared::maybe_insert_options, PlaidClient, PlaidCredentials, ResolvedContext, Result};
+use crate::{
+    commands::shared::{credentials, ensure_item_id, maybe_insert_options},
+    Error, PlaidClient, ResolvedContext, Result,
+};
+
+const MAX_SYNC_RESTARTS: u32 = 3;
 
 #[derive(Debug, Args)]
 pub(crate) struct TransactionsCommand {
@@ -35,96 +40,111 @@ pub(crate) struct TransactionsSyncArgs {
 pub(crate) fn run_transactions(
     command: TransactionsSubcommand,
     client: &PlaidClient,
-    context: &ResolvedContext,
+    context: &mut ResolvedContext,
 ) -> Result<Value> {
     match command {
         TransactionsSubcommand::Sync(args) => run_transactions_sync(args, client, context),
     }
 }
 
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
-}
-
-fn run_transactions_sync(args: TransactionsSyncArgs, client: &PlaidClient, context: &ResolvedContext) -> Result<Value> {
+fn run_transactions_sync(
+    args: TransactionsSyncArgs,
+    client: &PlaidClient,
+    context: &mut ResolvedContext,
+) -> Result<Value> {
     let access_token = context.require_access_token()?.to_owned();
+    let item_id = ensure_item_id(client, context)?;
     let account_scope = args.account_id.clone();
     let initial_cursor = if let Some(cursor) = args.cursor.clone() {
         Some(cursor)
-    } else if let Some(item_id) = context.item_id.as_deref() {
-        context.cache.cached_cursor(item_id, account_scope.as_deref())?
     } else {
-        None
+        context.cache.cached_cursor(&item_id, account_scope.as_deref())?
     };
 
-    let mut cursor = initial_cursor.clone();
-    let mut added = Vec::new();
-    let mut modified = Vec::new();
-    let mut removed = Vec::new();
-    let mut request_ids = Vec::new();
-    let mut pages_fetched = 0_u64;
+    let mut restart_count = 0_u32;
+    'pagination: loop {
+        let mut cursor = initial_cursor.clone();
+        let mut added = Vec::new();
+        let mut modified = Vec::new();
+        let mut removed = Vec::new();
+        let mut request_ids = Vec::new();
+        let mut pages_fetched = 0_u64;
 
-    loop {
-        let response = client.post(
-            credentials(context)?,
-            "/transactions/sync",
-            transactions_sync_body(
-                &access_token,
-                cursor.clone(),
-                args.count,
-                args.include_original_description,
-                account_scope.clone(),
-                args.days_requested,
-            ),
-        )?;
-        pages_fetched += 1;
+        loop {
+            let response = match client.post(
+                credentials(context)?,
+                "/transactions/sync",
+                transactions_sync_body(
+                    &access_token,
+                    cursor.clone(),
+                    args.count,
+                    args.include_original_description,
+                    account_scope.clone(),
+                    args.days_requested,
+                ),
+            ) {
+                Ok(response) => response,
+                Err(Error::Api { status_code, body })
+                    if is_sync_mutation_during_pagination(status_code, &body) && restart_count < MAX_SYNC_RESTARTS =>
+                {
+                    restart_count += 1;
+                    continue 'pagination;
+                }
+                Err(Error::Api { status_code, body }) if is_sync_mutation_during_pagination(status_code, &body) => {
+                    return Err(Error::Http(format!(
+                        "Plaid transactions sync kept mutating during pagination after {MAX_SYNC_RESTARTS} restart attempts"
+                    )));
+                }
+                Err(error) => return Err(error),
+            };
+            pages_fetched += 1;
 
-        if let Some(request_id) = response.get("request_id").and_then(Value::as_str) {
-            request_ids.push(Value::String(request_id.to_owned()));
+            if let Some(request_id) = response.get("request_id").and_then(Value::as_str) {
+                request_ids.push(Value::String(request_id.to_owned()));
+            }
+            added.extend(value_array(&response, "added"));
+            modified.extend(value_array(&response, "modified"));
+            removed.extend(value_array(&response, "removed"));
+
+            let next_cursor = response
+                .get("next_cursor")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+                .unwrap_or_default();
+            let has_more = response.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+            cursor = Some(next_cursor);
+
+            if !has_more {
+                break;
+            }
         }
-        added.extend(value_array(&response, "added"));
-        modified.extend(value_array(&response, "modified"));
-        removed.extend(value_array(&response, "removed"));
 
-        let next_cursor = response
-            .get("next_cursor")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .unwrap_or_default();
-        let has_more = response.get("has_more").and_then(Value::as_bool).unwrap_or(false);
-        cursor = Some(next_cursor);
-
-        if !has_more {
-            break;
-        }
-    }
-
-    let final_cursor = cursor.unwrap_or_default();
-    if let Some(item_id) = context.item_id.as_deref() {
+        let final_cursor = cursor.unwrap_or_default();
         context.cache.cache_transactions_sync(
-            item_id,
+            &item_id,
             account_scope.as_deref(),
             &final_cursor,
             &added,
             &modified,
             &removed,
         )?;
-    }
 
-    let mut output = Map::new();
-    output.insert("added".into(), Value::Array(added));
-    output.insert("modified".into(), Value::Array(modified));
-    output.insert("removed".into(), Value::Array(removed));
-    output.insert("next_cursor".into(), Value::String(final_cursor));
-    output.insert("has_more".into(), Value::Bool(false));
-    output.insert("pages_fetched".into(), Value::Number(pages_fetched.into()));
-    if let Some(last_request_id) = request_ids.last().cloned() {
-        output.insert("request_id".into(), last_request_id);
-    }
-    output.insert("request_ids".into(), Value::Array(request_ids));
+        let mut output = Map::new();
+        output.insert("item_id".into(), Value::String(item_id.clone()));
+        output.insert("added".into(), Value::Array(added));
+        output.insert("modified".into(), Value::Array(modified));
+        output.insert("removed".into(), Value::Array(removed));
+        output.insert("next_cursor".into(), Value::String(final_cursor));
+        output.insert("has_more".into(), Value::Bool(false));
+        output.insert("pages_fetched".into(), Value::Number(pages_fetched.into()));
+        output.insert("restart_count".into(), Value::Number(restart_count.into()));
+        if let Some(last_request_id) = request_ids.last().cloned() {
+            output.insert("request_id".into(), last_request_id);
+        }
+        output.insert("request_ids".into(), Value::Array(request_ids));
 
-    Ok(Value::Object(output))
+        return Ok(Value::Object(output));
+    }
 }
 
 fn transactions_sync_body(
@@ -161,4 +181,13 @@ fn transactions_sync_body(
 
 fn value_array(response: &Value, key: &str) -> Vec<Value> {
     response.get(key).and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
+fn is_sync_mutation_during_pagination(status_code: u16, body: &Value) -> bool {
+    status_code == 400
+        && body
+            .get("error_code")
+            .and_then(Value::as_str)
+            .map(|error_code| error_code == "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION")
+            .unwrap_or(false)
 }

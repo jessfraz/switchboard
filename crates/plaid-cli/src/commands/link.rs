@@ -2,8 +2,8 @@ use clap::{ArgGroup, Args, Subcommand};
 use serde_json::{json, Map, Value};
 
 use crate::{
-    commands::shared::{non_empty_country_codes, product_values, string_values, Product},
-    Error, PlaidClient, PlaidCredentials, ResolvedContext, Result,
+    commands::shared::{credentials, non_empty_country_codes, product_values, string_values, Product},
+    Error, PlaidClient, ResolvedContext, Result,
 };
 
 #[derive(Debug, Args)]
@@ -121,9 +121,4 @@ fn run_link_token_create(args: LinkTokenCreateArgs, client: &PlaidClient, contex
     }
 
     client.post(credentials, "/link/token/create", Value::Object(body))
-}
-
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
 }

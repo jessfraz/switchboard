@@ -7,6 +7,38 @@ use crate::{Error, Result};
 
 pub(crate) const DEFAULT_CACHE_DB_FILE: &str = "plaid-cache.sqlite3";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AccountSnapshotSource {
+    AccountsGet,
+    AccountsBalanceGet,
+}
+
+impl AccountSnapshotSource {
+    pub(crate) fn endpoint(self) -> &'static str {
+        match self {
+            Self::AccountsGet => "/accounts/get",
+            Self::AccountsBalanceGet => "/accounts/balance/get",
+        }
+    }
+
+    pub(crate) fn balance_freshness(self) -> &'static str {
+        match self {
+            Self::AccountsGet => "cached",
+            Self::AccountsBalanceGet => "realtime",
+        }
+    }
+
+    fn from_endpoint(endpoint: &str) -> Result<Self> {
+        match endpoint {
+            "/accounts/get" => Ok(Self::AccountsGet),
+            "/accounts/balance/get" => Ok(Self::AccountsBalanceGet),
+            _ => Err(Error::Cache(format!(
+                "unknown Plaid account cache source endpoint {endpoint:?}"
+            ))),
+        }
+    }
+}
+
 pub(crate) struct CachedItemRecord {
     pub(crate) item_id: String,
     pub(crate) institution_id: Option<String>,
@@ -17,6 +49,7 @@ pub(crate) struct CachedItemRecord {
 pub(crate) struct CachedAccountRecord {
     pub(crate) account_id: String,
     pub(crate) item_id: String,
+    pub(crate) source: AccountSnapshotSource,
     pub(crate) updated_at: String,
     pub(crate) account: Value,
 }
@@ -42,6 +75,13 @@ pub(crate) struct CachedTransactionQuery<'a> {
 
 pub(crate) struct PlaidCacheStore {
     path: PathBuf,
+}
+
+pub(crate) struct PurgedItemRows {
+    pub(crate) items_deleted: u64,
+    pub(crate) accounts_deleted: u64,
+    pub(crate) transactions_deleted: u64,
+    pub(crate) cursors_deleted: u64,
 }
 
 impl PlaidCacheStore {
@@ -90,7 +130,12 @@ impl PlaidCacheStore {
         Ok(Some(item_id.to_owned()))
     }
 
-    pub(crate) fn cache_accounts(&self, item_id: &str, accounts: &[Value]) -> Result<()> {
+    pub(crate) fn cache_accounts(
+        &self,
+        item_id: &str,
+        accounts: &[Value],
+        source: AccountSnapshotSource,
+    ) -> Result<()> {
         let mut connection = self.connect()?;
         let transaction = connection
             .transaction()
@@ -103,13 +148,14 @@ impl PlaidCacheStore {
             let data_json = encode_json(account, "Plaid account")?;
             transaction
                 .execute(
-                    "INSERT INTO plaid_accounts (account_id, item_id, data_json, updated_at)
-                     VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+                    "INSERT INTO plaid_accounts (account_id, item_id, source_endpoint, data_json, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
                      ON CONFLICT(account_id) DO UPDATE SET
                        item_id = excluded.item_id,
+                       source_endpoint = excluded.source_endpoint,
                        data_json = excluded.data_json,
                        updated_at = CURRENT_TIMESTAMP",
-                    params![account_id, item_id, data_json],
+                    params![account_id, item_id, source.endpoint(), data_json],
                 )
                 .map_err(|error| Error::Cache(format!("failed to upsert Plaid account {account_id}: {error}")))?;
         }
@@ -117,6 +163,48 @@ impl PlaidCacheStore {
         transaction
             .commit()
             .map_err(|error| Error::Cache(format!("failed to commit Plaid account cache transaction: {error}")))
+    }
+
+    pub(crate) fn purge_item(&self, item_id: &str) -> Result<PurgedItemRows> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction().map_err(|error| {
+            Error::Cache(format!(
+                "failed to begin Plaid purge transaction for {item_id}: {error}"
+            ))
+        })?;
+
+        let transactions_deleted = transaction
+            .execute("DELETE FROM plaid_transactions WHERE item_id = ?1", params![item_id])
+            .map_err(|error| {
+                Error::Cache(format!(
+                    "failed to delete cached Plaid transactions for {item_id}: {error}"
+                ))
+            })? as u64;
+        let accounts_deleted = transaction
+            .execute("DELETE FROM plaid_accounts WHERE item_id = ?1", params![item_id])
+            .map_err(|error| Error::Cache(format!("failed to delete cached Plaid accounts for {item_id}: {error}")))?
+            as u64;
+        let cursors_deleted = transaction
+            .execute("DELETE FROM plaid_sync_cursors WHERE item_id = ?1", params![item_id])
+            .map_err(|error| Error::Cache(format!("failed to delete Plaid sync cursors for {item_id}: {error}")))?
+            as u64;
+        let items_deleted = transaction
+            .execute("DELETE FROM plaid_items WHERE item_id = ?1", params![item_id])
+            .map_err(|error| Error::Cache(format!("failed to delete cached Plaid item {item_id}: {error}")))?
+            as u64;
+
+        transaction.commit().map_err(|error| {
+            Error::Cache(format!(
+                "failed to commit Plaid purge transaction for {item_id}: {error}"
+            ))
+        })?;
+
+        Ok(PurgedItemRows {
+            items_deleted,
+            accounts_deleted,
+            transactions_deleted,
+            cursors_deleted,
+        })
     }
 
     pub(crate) fn cache_transactions_sync(
@@ -253,7 +341,7 @@ impl PlaidCacheStore {
     ) -> Result<Vec<CachedAccountRecord>> {
         let connection = self.connect()?;
         let mut sql = String::from(
-            "SELECT account_id, item_id, data_json, updated_at
+            "SELECT account_id, item_id, source_endpoint, data_json, updated_at
              FROM plaid_accounts",
         );
         let mut clauses = Vec::new();
@@ -279,18 +367,20 @@ impl PlaidCacheStore {
             .query_map(params_from_iter(params), |row| {
                 let account_id = row.get::<_, String>(0)?;
                 let item_id = row.get::<_, String>(1)?;
-                let data_json = row.get::<_, String>(2)?;
-                let updated_at = row.get::<_, String>(3)?;
-                Ok((account_id, item_id, data_json, updated_at))
+                let source_endpoint = row.get::<_, String>(2)?;
+                let data_json = row.get::<_, String>(3)?;
+                let updated_at = row.get::<_, String>(4)?;
+                Ok((account_id, item_id, source_endpoint, data_json, updated_at))
             })
             .map_err(|error| Error::Cache(format!("failed to query cached Plaid accounts: {error}")))?;
 
         rows.map(|row| {
-            let (account_id, item_id, data_json, updated_at) =
+            let (account_id, item_id, source_endpoint, data_json, updated_at) =
                 row.map_err(|error| Error::Cache(format!("failed to read cached Plaid account row: {error}")))?;
             Ok(CachedAccountRecord {
                 account_id: account_id.clone(),
                 item_id,
+                source: AccountSnapshotSource::from_endpoint(&source_endpoint)?,
                 updated_at,
                 account: decode_json(&data_json, "cached Plaid account", &account_id)?,
             })
@@ -410,6 +500,7 @@ impl PlaidCacheStore {
                  CREATE TABLE IF NOT EXISTS plaid_accounts (
                    account_id TEXT PRIMARY KEY,
                    item_id TEXT NOT NULL,
+                   source_endpoint TEXT NOT NULL DEFAULT '/accounts/get',
                    data_json TEXT NOT NULL,
                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                  );
@@ -443,6 +534,12 @@ impl PlaidCacheStore {
                     self.path.display()
                 ))
             })?;
+        ensure_column(
+            &connection,
+            "plaid_accounts",
+            "source_endpoint",
+            "TEXT NOT NULL DEFAULT '/accounts/get'",
+        )?;
         ensure_column(&connection, "plaid_transactions", "removed_json", "TEXT")?;
         ensure_column(&connection, "plaid_transactions", "removed_at", "TEXT")?;
 

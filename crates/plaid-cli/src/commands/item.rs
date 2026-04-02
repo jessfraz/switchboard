@@ -1,7 +1,10 @@
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
 
-use crate::{PlaidClient, PlaidCredentials, ResolvedContext, Result};
+use crate::{
+    commands::shared::{credentials, ensure_item_id},
+    PlaidClient, ResolvedContext, Result,
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct ItemCommand {
@@ -12,6 +15,7 @@ pub(crate) struct ItemCommand {
 #[derive(Debug, Subcommand)]
 pub(crate) enum ItemSubcommand {
     Get,
+    Remove,
 }
 
 pub(crate) fn run_item(command: ItemSubcommand, client: &PlaidClient, context: &mut ResolvedContext) -> Result<Value> {
@@ -34,10 +38,40 @@ pub(crate) fn run_item(command: ItemSubcommand, client: &PlaidClient, context: &
 
             Ok(response)
         }
-    }
-}
+        ItemSubcommand::Remove => {
+            let item_id = ensure_item_id(client, context)?;
+            let access_token = context.require_access_token()?.to_owned();
+            let mut response = client.post(
+                credentials(context)?,
+                "/item/remove",
+                json!({
+                    "access_token": access_token.clone(),
+                }),
+            )?;
+            let purged = context.cache.purge_item(&item_id)?;
+            let forgotten = context.forget_removed_item(Some(&item_id), Some(&access_token))?;
 
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
+            if let Some(object) = response.as_object_mut() {
+                object.insert("item_id".into(), Value::String(item_id));
+                object.insert(
+                    "local_cache_purged".into(),
+                    json!({
+                        "items_deleted": purged.items_deleted,
+                        "accounts_deleted": purged.accounts_deleted,
+                        "transactions_deleted": purged.transactions_deleted,
+                        "cursors_deleted": purged.cursors_deleted,
+                    }),
+                );
+                object.insert(
+                    "local_state".into(),
+                    json!({
+                        "access_token_cleared": forgotten.access_token_cleared,
+                        "item_id_cleared": forgotten.item_id_cleared,
+                    }),
+                );
+            }
+
+            Ok(response)
+        }
+    }
 }

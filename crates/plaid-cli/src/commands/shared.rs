@@ -1,7 +1,7 @@
 use clap::ValueEnum;
 use serde_json::{json, Map, Value};
 
-use crate::{Error, Result};
+use crate::{Error, PlaidClient, PlaidCredentials, ResolvedContext, Result};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum Product {
@@ -126,6 +126,35 @@ pub(crate) fn require_response_string(value: &Value, key: &str) -> Result<String
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
         .ok_or_else(|| Error::Config(format!("Plaid response is missing required field {key:?}")))
+}
+
+pub(crate) fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
+    let (client_id, secret) = context.require_client_credentials()?;
+    Ok(PlaidCredentials { client_id, secret })
+}
+
+pub(crate) fn ensure_item_id(client: &PlaidClient, context: &mut ResolvedContext) -> Result<String> {
+    if let Some(item_id) = context.item_id.clone() {
+        return Ok(item_id);
+    }
+
+    let response = client.post(
+        credentials(context)?,
+        "/item/get",
+        json!({
+            "access_token": context.require_access_token()?,
+        }),
+    )?;
+    let item = response
+        .get("item")
+        .ok_or_else(|| Error::Config("Plaid item lookup response was missing the item payload".into()))?;
+    let item_id = context
+        .cache
+        .cache_item(item)?
+        .ok_or_else(|| Error::Config("Plaid item lookup response was missing item_id".into()))?;
+    context.remember_item_id(item_id.clone())?;
+
+    Ok(item_id)
 }
 
 pub(crate) fn redact_secret(value: &str) -> Value {

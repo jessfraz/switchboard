@@ -2,8 +2,8 @@ use clap::{Args, Subcommand};
 use serde_json::{Map, Value};
 
 use crate::{
-    commands::shared::{non_empty_country_codes, product_values, string_values, Product},
-    PlaidClient, PlaidCredentials, ResolvedContext, Result,
+    commands::shared::{credentials, non_empty_country_codes, product_values, string_values, Product},
+    PlaidClient, ResolvedContext, Result,
 };
 
 #[derive(Debug, Args)]
@@ -71,9 +71,4 @@ pub(crate) fn run_institutions(
             client.post(credentials, "/institutions/search", Value::Object(body))
         }
     }
-}
-
-fn credentials(context: &ResolvedContext) -> Result<PlaidCredentials<'_>> {
-    let (client_id, secret) = context.require_client_credentials()?;
-    Ok(PlaidCredentials { client_id, secret })
 }
