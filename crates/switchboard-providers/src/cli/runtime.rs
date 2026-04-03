@@ -42,11 +42,13 @@ impl CliProviderBackend {
             .probe
             .inspect(&spec.binary, &program, &spec.capability, self.executor.as_ref())?;
         let args = spec.args.build_args(action)?;
+        let stdio_mode = spec.args.stdio_mode(action)?;
         let runtime = self.materializer.prepare(target)?;
         let output = self.executor.execute(CliInvocation {
             program: program.clone(),
             args,
             runtime,
+            stdio_mode,
         })?;
 
         spec.decode.decode(

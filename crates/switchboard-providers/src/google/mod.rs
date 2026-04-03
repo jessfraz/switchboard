@@ -444,6 +444,40 @@ mod tests {
     }
 
     #[test]
+    fn raw_cli_auth_login_uses_interactive_passthrough() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![
+                ToolArgument::option("argv-json", serde_json::json!(["auth", "login"]).to_string())
+                    .expect("option should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        assert_eq!(output.fields.get("status"), Some(&Value::String("ok".into())));
+        assert!(!output.fields.contains_key("stdout_text"));
+        assert!(!output.fields.contains_key("cli_stderr"));
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=auth login"));
+    }
+
+    #[test]
     fn generated_raw_calendar_tool_executes_with_fixed_cli_prefix() {
         let _env_guard = lock_env();
         let script = google_test_script();

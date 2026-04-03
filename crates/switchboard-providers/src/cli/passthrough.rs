@@ -3,7 +3,7 @@ use switchboard_core::{
     Error, ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolArguments, ToolOutput, ToolRequest,
 };
 
-use crate::cli::command::CliResponse;
+use crate::cli::{command::CliResponse, executor::CliStdioMode};
 
 pub(crate) fn summarize_prefixed_passthrough(
     namespace: &ResolvedNamespace,
@@ -21,6 +21,15 @@ pub(crate) fn summarize_prefixed_passthrough(
 
 pub(crate) fn build_prefixed_passthrough_args(action: &PlannedAction, prefix: &[String]) -> Result<Vec<String>> {
     Ok(merge_prefixed_argv(prefix, parse_passthrough_argv(&action.args)?))
+}
+
+pub(crate) fn prefixed_passthrough_stdio_mode(action: &PlannedAction, prefix: &[String]) -> Result<CliStdioMode> {
+    let argv = merge_prefixed_argv(prefix, parse_passthrough_argv(&action.args)?);
+    Ok(if requires_interactive_stdio(&argv) {
+        CliStdioMode::Inherit
+    } else {
+        CliStdioMode::Capture
+    })
 }
 
 pub(crate) fn decode_prefixed_passthrough(
@@ -121,4 +130,70 @@ fn summarize_argv(argv: &[String]) -> String {
 
 fn merge_prefixed_argv(prefix: &[String], argv: Vec<String>) -> Vec<String> {
     prefix.iter().cloned().chain(argv).collect()
+}
+
+fn requires_interactive_stdio(argv: &[String]) -> bool {
+    argv.windows(2)
+        .any(|window| window[0] == "auth" && window[1].starts_with("login"))
+}
+
+#[cfg(test)]
+mod tests {
+    use switchboard_core::{BackendKind, ExecutionMode, PlannedAction, ToolArgument, ToolKind, ToolRequest};
+
+    use crate::cli::{executor::CliStdioMode, passthrough::prefixed_passthrough_stdio_mode};
+
+    fn passthrough_action(argv: serde_json::Value) -> PlannedAction {
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![ToolArgument::option("argv-json", argv.to_string()).expect("argv-json should build")],
+        )
+        .expect("request should build");
+
+        PlannedAction {
+            tool: request.tool.clone(),
+            namespace: request.namespace.clone(),
+            auth_ref: switchboard_core::AuthRef::new("google_work").expect("auth ref should build"),
+            kind: ToolKind::Write,
+            mode: request.mode,
+            summary: "raw".into(),
+            backend: BackendKind::Cli,
+            approval_required: true,
+            approval_reason: Some("approval".into()),
+            args: request.args,
+            operation_id: None,
+            compensates_operation_id: None,
+        }
+    }
+
+    #[test]
+    fn auth_login_passthrough_uses_inherited_stdio() {
+        let action = passthrough_action(serde_json::json!(["auth", "login"]));
+
+        let mode = prefixed_passthrough_stdio_mode(&action, &[]).expect("stdio mode should resolve");
+
+        assert_eq!(mode, CliStdioMode::Inherit);
+    }
+
+    #[test]
+    fn portal_auth_login_password_uses_inherited_stdio() {
+        let action = passthrough_action(serde_json::json!(["portal", "auth", "login-password"]));
+
+        let mode = prefixed_passthrough_stdio_mode(&action, &[]).expect("stdio mode should resolve");
+
+        assert_eq!(mode, CliStdioMode::Inherit);
+    }
+
+    #[test]
+    fn json_passthrough_keeps_captured_stdio() {
+        let action = passthrough_action(serde_json::json!([
+            "gmail", "users", "messages", "list", "--format", "json"
+        ]));
+
+        let mode = prefixed_passthrough_stdio_mode(&action, &[]).expect("stdio mode should resolve");
+
+        assert_eq!(mode, CliStdioMode::Capture);
+    }
 }

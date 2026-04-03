@@ -130,5 +130,20 @@ JSON
   exit 0
 fi
 
+if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  echo "Open this URL in your browser to authenticate:"
+  echo "https://accounts.google.com/o/oauth2/auth?test=1"
+  exit 0
+fi
+
 echo "unexpected args: $*" >&2
 exit 1
