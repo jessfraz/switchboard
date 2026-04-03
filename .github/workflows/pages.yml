@@ -44,7 +44,7 @@ jobs:
         run: cargo run -p switchboard-cli --bin switchboard-docs-gen -- site --output-dir target/pages-site
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         with:
           enablement: true
 
