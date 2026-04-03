@@ -9,7 +9,7 @@ use switchboard_core::{Error, Result};
 use crate::{
     cli::{
         command::{CliBinarySpec, CliCapabilityProbe},
-        executor::{CliExecutor, CliInvocation},
+        executor::{CliExecutor, CliInvocation, CliStdioMode},
     },
     process_runtime::ProcessContext,
 };
@@ -60,6 +60,7 @@ impl DefaultCliProbe {
             program: program.to_path_buf(),
             args: binary.version_args.clone(),
             runtime: ProcessContext::new(),
+            stdio_mode: CliStdioMode::Capture,
         })?;
         let version = output
             .stdout
@@ -107,6 +108,7 @@ impl DefaultCliProbe {
             program: program.to_path_buf(),
             args: capability.args.clone(),
             runtime: ProcessContext::new(),
+            stdio_mode: CliStdioMode::Capture,
         })?;
 
         match self.capabilities.lock() {

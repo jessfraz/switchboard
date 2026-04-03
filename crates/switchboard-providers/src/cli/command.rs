@@ -7,6 +7,7 @@ use switchboard_core::{
 
 use crate::cli::{
     declarative::{CliArgsTemplate, CliJsonProjection, CliSummaryTemplate},
+    executor::CliStdioMode,
     passthrough,
 };
 
@@ -49,6 +50,13 @@ impl CliArgsStrategy {
         match self {
             Self::Template(template) => template.build_args(action),
             Self::RawInventory { prefix } => passthrough::build_prefixed_passthrough_args(action, prefix),
+        }
+    }
+
+    pub(crate) fn stdio_mode(&self, action: &PlannedAction) -> Result<CliStdioMode> {
+        match self {
+            Self::Template(_) => Ok(CliStdioMode::Capture),
+            Self::RawInventory { prefix } => passthrough::prefixed_passthrough_stdio_mode(action, prefix),
         }
     }
 
