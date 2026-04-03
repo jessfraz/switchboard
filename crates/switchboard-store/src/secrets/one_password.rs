@@ -12,7 +12,7 @@ use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, S
 use crate::secrets::{env_secret::normalize_secret, SecretBackend};
 
 pub(super) struct OnePasswordSecretBackend {
-    sessions: Mutex<BTreeMap<String, String>>,
+    sessions: Mutex<BTreeMap<String, CachedSession>>,
     items: Mutex<BTreeMap<OnePasswordItemKey, BTreeMap<String, SecretString>>>,
     session_cache_path: Option<PathBuf>,
 }
@@ -170,6 +170,12 @@ struct SessionCacheFile {
     sessions: BTreeMap<String, String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CachedSession {
+    Token(String),
+    AppIntegration,
+}
+
 fn fetch_item_fields(
     secret_ref: &SecretRef,
     item_key: &OnePasswordItemKey,
@@ -206,20 +212,20 @@ fn parse_item_fields(secret_ref: &SecretRef, output: &str) -> Result<BTreeMap<St
 
 fn ensure_session(
     secret_ref: &SecretRef,
-    sessions: &Mutex<BTreeMap<String, String>>,
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
     session_cache_path: Option<&Path>,
     account: &str,
 ) -> Result<Option<String>> {
-    if let Some(token) = cached_session(sessions, account) {
-        if whoami(account, Some(&token))? {
-            return Ok(Some(token));
-        }
-        forget_session(sessions, session_cache_path, account);
+    if let Some(session) = cached_session(sessions, account) {
+        return match session {
+            CachedSession::Token(token) => Ok(Some(token)),
+            CachedSession::AppIntegration => Ok(None),
+        };
     }
 
     if let Some(token) = cached_session_on_disk(session_cache_path, account) {
         if whoami(account, Some(&token))? {
-            cache_session(sessions, session_cache_path, account, &token);
+            cache_token_session(sessions, session_cache_path, account, &token);
             return Ok(Some(token));
         }
         forget_session(sessions, session_cache_path, account);
@@ -227,18 +233,24 @@ fn ensure_session(
 
     if let Some(token) = env_session() {
         if whoami(account, Some(&token))? {
-            cache_session(sessions, session_cache_path, account, &token);
+            cache_token_session(sessions, session_cache_path, account, &token);
             return Ok(Some(token));
         }
     }
 
+    if whoami(account, None)? {
+        cache_app_session(sessions, account);
+        return Ok(None);
+    }
+
     let token = sign_in(secret_ref, account)?;
     if let Some(token) = token {
-        cache_session(sessions, session_cache_path, account, &token);
+        cache_token_session(sessions, session_cache_path, account, &token);
         return Ok(Some(token));
     }
 
     if whoami(account, None)? {
+        cache_app_session(sessions, account);
         return Ok(None);
     }
 
@@ -339,32 +351,47 @@ fn env_session() -> Option<String> {
     env::var("OP_SESSION").ok().filter(|token| !token.trim().is_empty())
 }
 
-fn cached_session(sessions: &Mutex<BTreeMap<String, String>>, account: &str) -> Option<String> {
+fn cached_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, account: &str) -> Option<CachedSession> {
     match sessions.lock() {
         Ok(sessions) => sessions.get(account).cloned(),
         Err(poisoned) => poisoned.into_inner().get(account).cloned(),
     }
 }
 
-fn cache_session(
-    sessions: &Mutex<BTreeMap<String, String>>,
+fn cache_token_session(
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
     session_cache_path: Option<&Path>,
     account: &str,
     token: &str,
 ) {
     match sessions.lock() {
         Ok(mut sessions) => {
-            sessions.insert(account.to_owned(), token.to_owned());
+            sessions.insert(account.to_owned(), CachedSession::Token(token.to_owned()));
         }
         Err(poisoned) => {
-            poisoned.into_inner().insert(account.to_owned(), token.to_owned());
+            poisoned
+                .into_inner()
+                .insert(account.to_owned(), CachedSession::Token(token.to_owned()));
         }
     }
 
     let _ = write_session_cache(session_cache_path, account, Some(token));
 }
 
-fn forget_session(sessions: &Mutex<BTreeMap<String, String>>, session_cache_path: Option<&Path>, account: &str) {
+fn cache_app_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, account: &str) {
+    match sessions.lock() {
+        Ok(mut sessions) => {
+            sessions.insert(account.to_owned(), CachedSession::AppIntegration);
+        }
+        Err(poisoned) => {
+            poisoned
+                .into_inner()
+                .insert(account.to_owned(), CachedSession::AppIntegration);
+        }
+    }
+}
+
+fn forget_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, session_cache_path: Option<&Path>, account: &str) {
     match sessions.lock() {
         Ok(mut sessions) => {
             sessions.remove(account);
@@ -608,6 +635,88 @@ esac
     }
 
     #[test]
+    fn reuses_cached_token_sessions_across_item_lookups() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" --session session-token whoami --account my.1password.com "*)
+    ;;
+  *" --session session-token --account my.1password.com item get item-one --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"first-secret"}
+]}
+EOF
+    ;;
+  *" --session session-token --account my.1password.com item get item-two --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"second-secret"}
+]}
+EOF
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let log_path = fixture.path.join("op.log");
+        fs::write(&log_path, "").expect("log file should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _op_session_guard = EnvVarGuard::set("OP_SESSION", "session-token".into());
+
+        let backend = OnePasswordSecretBackend::default();
+        let first_secret = ResolvedSecret::new(
+            "first_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-one".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+        let second_secret = ResolvedSecret::new(
+            "second_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-two".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let first = backend.resolve(&first_secret).expect("first secret should resolve");
+        let second = backend.resolve(&second_secret).expect("second secret should resolve");
+
+        assert_eq!(first.expose(), "first-secret");
+        assert_eq!(second.expose(), "second-secret");
+
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(
+            log.lines()
+                .filter(|line| line.contains("--session session-token whoami --account my.1password.com"))
+                .count(),
+            1
+        );
+        assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 0);
+        assert_eq!(log.lines().filter(|line| line.contains("item get")).count(), 2);
+    }
+
+    #[test]
     fn persists_sessions_across_backend_instances() {
         let _guard = match ENV_LOCK.lock() {
             Ok(guard) => guard,
@@ -669,10 +778,97 @@ esac
 
         let log = fs::read_to_string(&log_path).expect("log should be readable");
         assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 1);
-        assert_eq!(log.lines().filter(|line| line.contains("whoami --account")).count(), 1);
+        assert_eq!(
+            log.lines()
+                .filter(|line| line.contains("--session persisted-session whoami --account my.1password.com"))
+                .count(),
+            1
+        );
         assert!(fs::read_to_string(&cache_path)
             .expect("cache file should exist")
             .contains("persisted-session"));
+    }
+
+    #[test]
+    fn reuses_existing_app_integration_sessions_across_item_lookups() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" whoami --account my.1password.com "*)
+    ;;
+  *" --account my.1password.com item get item-one --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"first-secret"}
+]}
+EOF
+    ;;
+  *" --account my.1password.com item get item-two --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"second-secret"}
+]}
+EOF
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let log_path = fixture.path.join("op.log");
+        fs::write(&log_path, "").expect("log file should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
+
+        let backend = OnePasswordSecretBackend::default();
+        let first_secret = ResolvedSecret::new(
+            "first_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-one".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+        let second_secret = ResolvedSecret::new(
+            "second_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-two".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let first = backend.resolve(&first_secret).expect("first secret should resolve");
+        let second = backend.resolve(&second_secret).expect("second secret should resolve");
+
+        assert_eq!(first.expose(), "first-secret");
+        assert_eq!(second.expose(), "second-secret");
+
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(
+            log.lines()
+                .filter(|line| *line == "whoami --account my.1password.com")
+                .count(),
+            1
+        );
+        assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 0);
+        assert_eq!(log.lines().filter(|line| line.contains("item get")).count(), 2);
     }
 
     #[test]
@@ -697,10 +893,17 @@ case " $* " in
   *" signin --account my.1password.com --raw "*)
     : > "$SWITCHBOARD_APP_SIGNED_IN"
     ;;
-  *" --account my.1password.com item get "*)
+  *" --account my.1password.com item get item-one --format json "*)
     cat <<'EOF'
 {"fields":[
-  {"label":"credential","value":"personal-client-secret"}
+  {"label":"credential","value":"first-secret"}
+]}
+EOF
+    ;;
+  *" --account my.1password.com item get item-two --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"second-secret"}
 ]}
 EOF
     ;;
@@ -721,31 +924,48 @@ esac
         let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
 
         let backend = OnePasswordSecretBackend::default();
-        let secret = ResolvedSecret::new(
-            "google_personal_client_secret",
+        let first_secret = ResolvedSecret::new(
+            "google_personal_client_secret_one",
             SecretSource::OnePasswordItem {
                 account: "my.1password.com".into(),
                 vault: None,
-                item: "gws cli".into(),
+                item: "item-one".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+        let second_secret = ResolvedSecret::new(
+            "google_personal_client_secret_two",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-two".into(),
                 field: "credential".into(),
             },
         )
         .expect("secret should build");
 
-        let value = backend.resolve(&secret).expect("secret should resolve");
+        let first = backend.resolve(&first_secret).expect("first secret should resolve");
+        let second = backend.resolve(&second_secret).expect("second secret should resolve");
 
-        assert_eq!(value.expose(), "personal-client-secret");
+        assert_eq!(first.expose(), "first-secret");
+        assert_eq!(second.expose(), "second-secret");
 
         let log = fs::read_to_string(&log_path).expect("log should be readable");
         assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 1);
         assert!(
-            log.lines().any(|line| line == "whoami --account my.1password.com"),
-            "expected a no-session whoami probe after app sign-in"
+            log.lines()
+                .filter(|line| *line == "whoami --account my.1password.com")
+                .count()
+                == 2,
+            "expected one whoami probe before app sign-in and one after it"
         );
         assert!(
             log.lines()
-                .any(|line| line.contains("--account my.1password.com item get")),
-            "expected item lookup to run without a session token"
+                .filter(|line| line.contains("--account my.1password.com item get"))
+                .count()
+                == 2,
+            "expected both item lookups to run without a session token"
         );
     }
 
