@@ -17,6 +17,7 @@ pub(crate) struct TransactionsCommand {
 #[derive(Debug, Subcommand)]
 pub(crate) enum TransactionsSubcommand {
     Sync(TransactionsSyncArgs),
+    Refresh,
 }
 
 #[derive(Debug, Args)]
@@ -44,7 +45,28 @@ pub(crate) fn run_transactions(
 ) -> Result<Value> {
     match command {
         TransactionsSubcommand::Sync(args) => run_transactions_sync(args, client, context),
+        TransactionsSubcommand::Refresh => run_transactions_refresh(client, context),
     }
+}
+
+fn run_transactions_refresh(client: &PlaidClient, context: &mut ResolvedContext) -> Result<Value> {
+    let access_token = context.require_access_token()?.to_owned();
+    let item_id = ensure_item_id(client, context)?;
+    let mut response = client.post(
+        credentials(context)?,
+        "/transactions/refresh",
+        Value::Object(
+            [("access_token".into(), Value::String(access_token))]
+                .into_iter()
+                .collect(),
+        ),
+    )?;
+
+    if let Some(object) = response.as_object_mut() {
+        object.insert("item_id".into(), Value::String(item_id));
+    }
+
+    Ok(response)
 }
 
 fn run_transactions_sync(
