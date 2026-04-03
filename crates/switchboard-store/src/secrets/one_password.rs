@@ -233,12 +233,24 @@ fn ensure_session(
     }
 
     let token = sign_in(secret_ref, account)?;
-    cache_session(sessions, session_cache_path, account, &token);
+    if let Some(token) = token {
+        cache_session(sessions, session_cache_path, account, &token);
+        return Ok(Some(token));
+    }
 
-    Ok(Some(token))
+    if whoami(account, None)? {
+        return Ok(None);
+    }
+
+    Err(Error::SecretResolution {
+        secret_ref: secret_ref.to_string(),
+        reason: format!(
+            "`op signin --account {account} --raw` succeeded but did not authenticate the CLI for that account"
+        ),
+    })
 }
 
-fn sign_in(secret_ref: &SecretRef, account: &str) -> Result<String> {
+fn sign_in(secret_ref: &SecretRef, account: &str) -> Result<Option<String>> {
     let output = op_command()
         .args(["signin", "--account", account, "--raw"])
         .output()
@@ -261,16 +273,21 @@ fn sign_in(secret_ref: &SecretRef, account: &str) -> Result<String> {
         secret_ref: secret_ref.to_string(),
         reason: format!("`op signin --account {account} --raw` produced non-UTF-8 output: {error}"),
     })?;
+
+    if token.trim_end_matches(['\n', '\r']).is_empty() {
+        return Ok(None);
+    }
+
     let token = normalize_secret(secret_ref, token)?;
-    Ok(token.expose().to_owned())
+    Ok(Some(token.expose().to_owned()))
 }
 
 fn whoami(account: &str, session: Option<&str>) -> Result<bool> {
     let mut command = op_command();
-    command.args(["whoami", "--account", account]);
     if let Some(session) = session {
-        command.env("OP_SESSION", session);
+        command.args(["--session", session]);
     }
+    command.args(["whoami", "--account", account]);
 
     let output = command
         .output()
@@ -281,10 +298,10 @@ fn whoami(account: &str, session: Option<&str>) -> Result<bool> {
 
 fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>) -> Result<String> {
     let mut command = op_command();
-    command.args(args);
     if let Some(session) = session {
-        command.env("OP_SESSION", session);
+        command.args(["--session", session]);
     }
+    command.args(args);
 
     let output = command.output().map_err(|error| Error::SecretResolution {
         secret_ref: secret_ref.to_string(),
@@ -309,10 +326,13 @@ fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>) -> Result
 }
 
 fn op_command() -> Command {
-    match env::var_os("SWITCHBOARD_OP_BIN") {
+    let mut command = match env::var_os("SWITCHBOARD_OP_BIN") {
         Some(path) => Command::new(path),
         None => Command::new("op"),
-    }
+    };
+    command.env_remove("OP_ACCOUNT");
+    command.env_remove("OP_SESSION");
+    command
 }
 
 fn env_session() -> Option<String> {
@@ -524,11 +544,9 @@ mod tests {
 set -eu
 printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
 case " $* " in
-  *" whoami --account my.1password.com "*)
-    [ "${OP_SESSION-}" = "session-token" ]
+  *" --session session-token whoami --account my.1password.com "*)
     ;;
-  *" --format json "*)
-    [ "${OP_SESSION-}" = "session-token" ]
+  *" --session session-token --account my.1password.com item get "*" --format json "*)
     cat <<'EOF'
 {"fields":[
   {"label":"username","value":"personal-client-id"},
@@ -600,16 +618,14 @@ esac
             "op",
             r#"#!/bin/sh
 set -eu
-printf '%s|%s\n' "${OP_SESSION-}" "$*" >> "$SWITCHBOARD_OP_LOG"
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
 case " $* " in
   *" signin --account my.1password.com --raw "*)
     printf 'persisted-session\n'
     ;;
-  *" whoami --account my.1password.com "*)
-    [ "${OP_SESSION-}" = "persisted-session" ]
+  *" --session persisted-session whoami --account my.1password.com "*)
     ;;
-  *" --format json "*)
-    [ "${OP_SESSION-}" = "persisted-session" ]
+  *" --session persisted-session --account my.1password.com item get "*" --format json "*)
     cat <<'EOF'
 {"fields":[
   {"label":"credential","value":"personal-client-secret"}
@@ -657,6 +673,80 @@ esac
         assert!(fs::read_to_string(&cache_path)
             .expect("cache file should exist")
             .contains("persisted-session"));
+    }
+
+    #[test]
+    fn resolves_items_via_app_integration_when_signin_returns_no_session_token() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" whoami --account my.1password.com "*)
+    if [ -f "$SWITCHBOARD_APP_SIGNED_IN" ]; then
+      exit 0
+    fi
+    exit 1
+    ;;
+  *" signin --account my.1password.com --raw "*)
+    : > "$SWITCHBOARD_APP_SIGNED_IN"
+    ;;
+  *" --account my.1password.com item get "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"personal-client-secret"}
+]}
+EOF
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let signed_in_path = fixture.path.join("signed-in");
+        let log_path = fixture.path.join("op.log");
+        fs::write(&log_path, "").expect("log file should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _signed_in_guard = EnvVarGuard::set("SWITCHBOARD_APP_SIGNED_IN", signed_in_path.clone().into_os_string());
+        let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
+
+        let backend = OnePasswordSecretBackend::default();
+        let secret = ResolvedSecret::new(
+            "google_personal_client_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "gws cli".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let value = backend.resolve(&secret).expect("secret should resolve");
+
+        assert_eq!(value.expose(), "personal-client-secret");
+
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 1);
+        assert!(
+            log.lines().any(|line| line == "whoami --account my.1password.com"),
+            "expected a no-session whoami probe after app sign-in"
+        );
+        assert!(
+            log.lines()
+                .any(|line| line.contains("--account my.1password.com item get")),
+            "expected item lookup to run without a session token"
+        );
     }
 
     struct TempFixtureDir {
