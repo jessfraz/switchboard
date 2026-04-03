@@ -140,6 +140,110 @@ fn link_token_create_builds_user_products_and_transactions_options() {
 }
 
 #[test]
+fn link_token_create_supports_optional_required_additional_products_and_account_filters() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "link_token": "link-sandbox-advanced",
+            "expiration": "2026-04-01T00:00:00Z",
+            "request_id": "request-link-advanced"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-link-token-advanced");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            base_url: Some(server.base_url()),
+            client_id: Some("client-id".into()),
+            secret: Some("secret-value".into()),
+            access_token: Some("stored-access-token".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let output: LinkTokenCreateResponse = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "link",
+        "token-create",
+        "--client-user-id",
+        "user-123",
+        "--product",
+        "transactions",
+        "--optional-product",
+        "auth",
+        "--required-if-supported-product",
+        "identity",
+        "--additional-consented-product",
+        "balance_plus",
+        "--country-code",
+        "US",
+        "--update-mode",
+        "--link-customization-name",
+        "default",
+        "--android-package-name",
+        "com.example.switchboard",
+        "--routing-number",
+        "021000021",
+        "--depository-subtype",
+        "checking",
+        "--investment-subtype",
+        "brokerage",
+        "--days-requested",
+        "90",
+    ]);
+
+    let request = captured_request(&capture);
+    let body: Value = request.json_body();
+    assert_eq!(request.path, "/link/token/create");
+    assert_eq!(body["products"], json!(["transactions"]));
+    assert_eq!(body["optional_products"], json!(["auth"]));
+    assert_eq!(body["required_if_supported_products"], json!(["identity"]));
+    assert_eq!(body["additional_consented_products"], json!(["balance_plus"]));
+    assert_eq!(body["access_token"], "stored-access-token");
+    assert_eq!(body["link_customization_name"], "default");
+    assert_eq!(body["android_package_name"], "com.example.switchboard");
+    assert_eq!(body["institution_data"]["routing_number"], "021000021");
+    assert_eq!(
+        body["account_filters"]["depository"]["account_subtypes"],
+        json!(["checking"])
+    );
+    assert_eq!(
+        body["account_filters"]["investment"]["account_subtypes"],
+        json!(["brokerage"])
+    );
+    assert_eq!(body["transactions"]["days_requested"], 90);
+    assert_eq!(output.link_token, "link-sandbox-advanced");
+}
+
+#[test]
+fn link_token_create_rejects_additional_consented_products_without_update_mode() {
+    let error: JsonErrorResponse = run_command_error(&[
+        "plaid",
+        "--client-id",
+        "client-id",
+        "--secret",
+        "secret-value",
+        "link",
+        "token-create",
+        "--client-user-id",
+        "user-123",
+        "--product",
+        "transactions",
+        "--additional-consented-product",
+        "balance_plus",
+    ]);
+
+    assert_eq!(error.kind, "arguments");
+    assert_eq!(error.message, "--additional-consented-product requires --update-mode");
+}
+
+#[test]
 fn item_get_caches_item_and_remembers_item_id() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
@@ -269,6 +373,92 @@ fn accounts_balance_uses_stored_access_token_filters_and_caches_accounts() {
     ]);
     assert_eq!(cached["accounts"][0]["source_endpoint"], "/accounts/balance/get");
     assert_eq!(cached["accounts"][0]["balance_freshness"], "realtime");
+}
+
+#[test]
+fn institutions_get_by_id_builds_country_codes_and_metadata_options() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "institution": {
+                "institution_id": "ins_109508",
+                "name": "First Platypus Bank"
+            },
+            "request_id": "request-institution"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let output: Value = run_command(&[
+        "plaid",
+        "--base-url",
+        &server.base_url(),
+        "--client-id",
+        "client-id",
+        "--secret",
+        "secret-value",
+        "--compact",
+        "institutions",
+        "get-by-id",
+        "ins_109508",
+        "--country-code",
+        "US",
+        "--include-status",
+        "--include-auth-metadata",
+        "--include-payment-initiation-metadata",
+    ]);
+
+    let request = captured_request(&capture);
+    let body: Value = request.json_body();
+    assert_eq!(request.path, "/institutions/get_by_id");
+    assert_eq!(body["institution_id"], "ins_109508");
+    assert_eq!(body["country_codes"], json!(["US"]));
+    assert_eq!(body["options"]["include_status"], true);
+    assert_eq!(body["options"]["include_auth_metadata"], true);
+    assert_eq!(body["options"]["include_payment_initiation_metadata"], true);
+    assert_eq!(output["institution"]["name"], "First Platypus Bank");
+}
+
+#[test]
+fn transactions_refresh_posts_access_token_and_reports_item_id() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "request_id": "request-refresh"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-transactions-refresh");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            base_url: Some(server.base_url()),
+            client_id: Some("client-id".into()),
+            secret: Some("secret-value".into()),
+            access_token: Some("stored-access-token".into()),
+            item_id: Some("item-1234".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let output: Value = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "transactions",
+        "refresh",
+    ]);
+
+    let request = captured_request(&capture);
+    let body: Value = request.json_body();
+    assert_eq!(request.path, "/transactions/refresh");
+    assert_eq!(body["access_token"], "stored-access-token");
+    assert_eq!(output["item_id"], "item-1234");
+    assert_eq!(output["request_id"], "request-refresh");
 }
 
 #[test]

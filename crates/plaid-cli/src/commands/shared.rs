@@ -11,14 +11,22 @@ pub(crate) enum Product {
     Auth,
     #[value(name = "balance")]
     Balance,
+    #[value(name = "balance_plus")]
+    BalancePlus,
     #[value(name = "beacon")]
     Beacon,
+    #[value(name = "credit_details")]
+    CreditDetails,
     #[value(name = "employment")]
     Employment,
     #[value(name = "identity")]
     Identity,
+    #[value(name = "identity_match")]
+    IdentityMatch,
     #[value(name = "income_verification")]
     IncomeVerification,
+    #[value(name = "income")]
+    Income,
     #[value(name = "identity_verification")]
     IdentityVerification,
     #[value(name = "investments")]
@@ -37,8 +45,18 @@ pub(crate) enum Product {
     Statements,
     #[value(name = "transactions")]
     Transactions,
+    #[value(name = "transactions_refresh")]
+    TransactionsRefresh,
+    #[value(name = "recurring_transactions")]
+    RecurringTransactions,
     #[value(name = "transfer")]
     Transfer,
+    #[value(name = "processor_payments")]
+    ProcessorPayments,
+    #[value(name = "processor_identity")]
+    ProcessorIdentity,
+    #[value(name = "profile")]
+    Profile,
     #[value(name = "cra_base_report")]
     CraBaseReport,
     #[value(name = "cra_income_insights")]
@@ -55,8 +73,12 @@ pub(crate) enum Product {
     CraMonitoring,
     #[value(name = "layer")]
     Layer,
+    #[value(name = "pay_by_bank")]
+    PayByBank,
     #[value(name = "protect_linked_bank")]
     ProtectLinkedBank,
+    #[value(name = "protect_transactions")]
+    ProtectTransactions,
 }
 
 impl Product {
@@ -65,10 +87,14 @@ impl Product {
             Self::Assets => "assets",
             Self::Auth => "auth",
             Self::Balance => "balance",
+            Self::BalancePlus => "balance_plus",
             Self::Beacon => "beacon",
+            Self::CreditDetails => "credit_details",
             Self::Employment => "employment",
             Self::Identity => "identity",
+            Self::IdentityMatch => "identity_match",
             Self::IncomeVerification => "income_verification",
+            Self::Income => "income",
             Self::IdentityVerification => "identity_verification",
             Self::Investments => "investments",
             Self::InvestmentsAuth => "investments_auth",
@@ -78,7 +104,12 @@ impl Product {
             Self::Signal => "signal",
             Self::Statements => "statements",
             Self::Transactions => "transactions",
+            Self::TransactionsRefresh => "transactions_refresh",
+            Self::RecurringTransactions => "recurring_transactions",
             Self::Transfer => "transfer",
+            Self::ProcessorPayments => "processor_payments",
+            Self::ProcessorIdentity => "processor_identity",
+            Self::Profile => "profile",
             Self::CraBaseReport => "cra_base_report",
             Self::CraIncomeInsights => "cra_income_insights",
             Self::CraCashflowInsights => "cra_cashflow_insights",
@@ -87,7 +118,9 @@ impl Product {
             Self::CraNetworkInsights => "cra_network_insights",
             Self::CraMonitoring => "cra_monitoring",
             Self::Layer => "layer",
+            Self::PayByBank => "pay_by_bank",
             Self::ProtectLinkedBank => "protect_linked_bank",
+            Self::ProtectTransactions => "protect_transactions",
         }
     }
 }

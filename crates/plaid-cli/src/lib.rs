@@ -35,8 +35,10 @@ const AFTER_HELP: &str = concat!(
     "  plaid item remove\n",
     "  plaid accounts get --account-id account-123\n",
     "  plaid accounts balance --account-id account-123\n",
+    "  plaid transactions refresh\n",
     "  plaid transactions sync --cursor now --count 250 --days-requested 180\n",
     "  plaid cache transactions --account-id account-123 --limit 50\n",
+    "  plaid institutions get-by-id ins_109508 --include-status --include-auth-metadata\n",
     "  plaid link token-create --client-user-id user-123 --product transactions --country-code US --days-requested 180\n",
     "\n",
     "This CLI is aimed at Plaid Item, account, institution, and transaction workflows,\n",
@@ -151,7 +153,7 @@ pub(crate) struct GlobalArgs {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Auth(AuthCommand),
-    Link(LinkCommand),
+    Link(Box<LinkCommand>),
     Institutions(InstitutionsCommand),
     Item(ItemCommand),
     Accounts(AccountsCommand),
