@@ -57,8 +57,14 @@ impl SecretBackend for OnePasswordSecretBackend {
             return Ok(value);
         }
 
-        let session = ensure_session(&secret.id, &self.sessions, self.session_cache_path.as_deref(), account)?;
-        match fetch_item_fields(&secret.id, &item_key, session.as_deref()) {
+        let mut session = ensure_session(&secret.id, &self.sessions, self.session_cache_path.as_deref(), account)?;
+        match fetch_item_fields_with_retry(
+            &secret.id,
+            &item_key,
+            &mut session,
+            &self.sessions,
+            self.session_cache_path.as_deref(),
+        ) {
             Ok(fields) => {
                 cache_item_fields(&self.items, &item_key, &fields);
                 if let Some(value) = fields.get(field) {
@@ -74,7 +80,14 @@ impl SecretBackend for OnePasswordSecretBackend {
         }
 
         let args = item_args(account, vault.as_deref(), item, field);
-        let output = run(&secret.id, &args, session.as_deref())?;
+        let output = run_with_retry(
+            &secret.id,
+            account,
+            &args,
+            &mut session,
+            &self.sessions,
+            self.session_cache_path.as_deref(),
+        )?;
         let value = normalize_secret(&secret.id, output)?;
         cache_item_field(&self.items, &item_key, field, &value);
         Ok(value)
@@ -167,13 +180,93 @@ impl OnePasswordItemField {
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct SessionCacheFile {
     #[serde(default)]
-    sessions: BTreeMap<String, String>,
+    sessions: BTreeMap<String, PersistedSession>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum CachedSession {
     Token(String),
     AppIntegration,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum PersistedSession {
+    LegacyToken(String),
+    Entry(PersistedSessionEntry),
+}
+
+impl PersistedSession {
+    fn from_cached(session: &CachedSession) -> Option<Self> {
+        match session {
+            CachedSession::Token(token) if !token.trim().is_empty() => Some(Self::Entry(PersistedSessionEntry {
+                kind: PersistedSessionKind::Token,
+                token: Some(token.clone()),
+            })),
+            CachedSession::Token(_) => None,
+            CachedSession::AppIntegration => Some(Self::Entry(PersistedSessionEntry {
+                kind: PersistedSessionKind::AppIntegration,
+                token: None,
+            })),
+        }
+    }
+
+    fn into_cached(self) -> Option<CachedSession> {
+        match self {
+            Self::LegacyToken(token) => {
+                let token = token.trim().to_owned();
+                if token.is_empty() {
+                    None
+                } else {
+                    Some(CachedSession::Token(token))
+                }
+            }
+            Self::Entry(entry) => entry.into_cached(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct PersistedSessionEntry {
+    kind: PersistedSessionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+}
+
+impl PersistedSessionEntry {
+    fn into_cached(self) -> Option<CachedSession> {
+        match self.kind {
+            PersistedSessionKind::Token => self
+                .token
+                .map(|token| token.trim().to_owned())
+                .filter(|token| !token.is_empty())
+                .map(CachedSession::Token),
+            PersistedSessionKind::AppIntegration => Some(CachedSession::AppIntegration),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PersistedSessionKind {
+    Token,
+    AppIntegration,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SessionHandle {
+    token: Option<String>,
+    optimistic_app_integration: bool,
+}
+
+impl SessionHandle {
+    fn token(&self) -> Option<&str> {
+        self.token.as_deref()
+    }
+
+    fn optimistic_app_integration(&self) -> bool {
+        self.optimistic_app_integration
+    }
 }
 
 fn fetch_item_fields(
@@ -215,43 +308,75 @@ fn ensure_session(
     sessions: &Mutex<BTreeMap<String, CachedSession>>,
     session_cache_path: Option<&Path>,
     account: &str,
-) -> Result<Option<String>> {
+) -> Result<SessionHandle> {
     if let Some(session) = cached_session(sessions, account) {
         return match session {
-            CachedSession::Token(token) => Ok(Some(token)),
-            CachedSession::AppIntegration => Ok(None),
+            CachedSession::Token(token) => Ok(SessionHandle {
+                token: Some(token),
+                optimistic_app_integration: false,
+            }),
+            CachedSession::AppIntegration => Ok(SessionHandle {
+                token: None,
+                optimistic_app_integration: false,
+            }),
         };
     }
 
-    if let Some(token) = cached_session_on_disk(session_cache_path, account) {
-        if whoami(account, Some(&token))? {
-            cache_token_session(sessions, session_cache_path, account, &token);
-            return Ok(Some(token));
+    if let Some(session) = cached_session_on_disk(session_cache_path, account) {
+        match session {
+            CachedSession::Token(token) => {
+                if whoami(account, Some(&token))? {
+                    cache_token_session(sessions, session_cache_path, account, &token);
+                    return Ok(SessionHandle {
+                        token: Some(token),
+                        optimistic_app_integration: false,
+                    });
+                }
+                forget_session(sessions, session_cache_path, account);
+            }
+            CachedSession::AppIntegration => {
+                cache_app_session(sessions, session_cache_path, account);
+                return Ok(SessionHandle {
+                    token: None,
+                    optimistic_app_integration: true,
+                });
+            }
         }
-        forget_session(sessions, session_cache_path, account);
     }
 
     if let Some(token) = env_session() {
         if whoami(account, Some(&token))? {
             cache_token_session(sessions, session_cache_path, account, &token);
-            return Ok(Some(token));
+            return Ok(SessionHandle {
+                token: Some(token),
+                optimistic_app_integration: false,
+            });
         }
     }
 
     if whoami(account, None)? {
-        cache_app_session(sessions, account);
-        return Ok(None);
+        cache_app_session(sessions, session_cache_path, account);
+        return Ok(SessionHandle {
+            token: None,
+            optimistic_app_integration: false,
+        });
     }
 
     let token = sign_in(secret_ref, account)?;
     if let Some(token) = token {
         cache_token_session(sessions, session_cache_path, account, &token);
-        return Ok(Some(token));
+        return Ok(SessionHandle {
+            token: Some(token),
+            optimistic_app_integration: false,
+        });
     }
 
     if whoami(account, None)? {
-        cache_app_session(sessions, account);
-        return Ok(None);
+        cache_app_session(sessions, session_cache_path, account);
+        return Ok(SessionHandle {
+            token: None,
+            optimistic_app_integration: false,
+        });
     }
 
     Err(Error::SecretResolution {
@@ -337,6 +462,51 @@ fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>) -> Result
     })
 }
 
+fn fetch_item_fields_with_retry(
+    secret_ref: &SecretRef,
+    item_key: &OnePasswordItemKey,
+    session: &mut SessionHandle,
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
+    session_cache_path: Option<&Path>,
+) -> Result<BTreeMap<String, SecretString>> {
+    match fetch_item_fields(secret_ref, item_key, session.token()) {
+        Ok(fields) => Ok(fields),
+        Err(_) if session.optimistic_app_integration() => {
+            *session = refresh_session(secret_ref, sessions, session_cache_path, &item_key.account)?;
+            fetch_item_fields(secret_ref, item_key, session.token())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn run_with_retry(
+    secret_ref: &SecretRef,
+    account: &str,
+    args: &[String],
+    session: &mut SessionHandle,
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
+    session_cache_path: Option<&Path>,
+) -> Result<String> {
+    match run(secret_ref, args, session.token()) {
+        Ok(output) => Ok(output),
+        Err(_) if session.optimistic_app_integration() => {
+            *session = refresh_session(secret_ref, sessions, session_cache_path, account)?;
+            run(secret_ref, args, session.token())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn refresh_session(
+    secret_ref: &SecretRef,
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
+    session_cache_path: Option<&Path>,
+    account: &str,
+) -> Result<SessionHandle> {
+    forget_session(sessions, session_cache_path, account);
+    ensure_session(secret_ref, sessions, session_cache_path, account)
+}
+
 fn op_command() -> Command {
     let mut command = match env::var_os("SWITCHBOARD_OP_BIN") {
         Some(path) => Command::new(path),
@@ -375,10 +545,15 @@ fn cache_token_session(
         }
     }
 
-    let _ = write_session_cache(session_cache_path, account, Some(token));
+    let session = CachedSession::Token(token.to_owned());
+    let _ = write_session_cache(session_cache_path, account, Some(&session));
 }
 
-fn cache_app_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, account: &str) {
+fn cache_app_session(
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
+    session_cache_path: Option<&Path>,
+    account: &str,
+) {
     match sessions.lock() {
         Ok(mut sessions) => {
             sessions.insert(account.to_owned(), CachedSession::AppIntegration);
@@ -389,6 +564,9 @@ fn cache_app_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, account:
                 .insert(account.to_owned(), CachedSession::AppIntegration);
         }
     }
+
+    let session = CachedSession::AppIntegration;
+    let _ = write_session_cache(session_cache_path, account, Some(&session));
 }
 
 fn forget_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, session_cache_path: Option<&Path>, account: &str) {
@@ -404,13 +582,9 @@ fn forget_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, session_cac
     let _ = write_session_cache(session_cache_path, account, None);
 }
 
-fn cached_session_on_disk(session_cache_path: Option<&Path>, account: &str) -> Option<String> {
+fn cached_session_on_disk(session_cache_path: Option<&Path>, account: &str) -> Option<CachedSession> {
     let cache = read_session_cache(session_cache_path?)?;
-    cache
-        .sessions
-        .get(account)
-        .cloned()
-        .filter(|token| !token.trim().is_empty())
+    cache.sessions.get(account).cloned()?.into_cached()
 }
 
 fn read_session_cache(path: &Path) -> Option<SessionCacheFile> {
@@ -418,15 +592,19 @@ fn read_session_cache(path: &Path) -> Option<SessionCacheFile> {
     serde_json::from_str(&contents).ok()
 }
 
-fn write_session_cache(session_cache_path: Option<&Path>, account: &str, token: Option<&str>) -> std::io::Result<()> {
+fn write_session_cache(
+    session_cache_path: Option<&Path>,
+    account: &str,
+    session: Option<&CachedSession>,
+) -> std::io::Result<()> {
     let Some(path) = session_cache_path else {
         return Ok(());
     };
 
     let mut cache = read_session_cache(path).unwrap_or_default();
-    match token {
-        Some(token) if !token.trim().is_empty() => {
-            cache.sessions.insert(account.to_owned(), token.to_owned());
+    match session.and_then(PersistedSession::from_cached) {
+        Some(session) => {
+            cache.sessions.insert(account.to_owned(), session);
         }
         _ => {
             cache.sessions.remove(account);
@@ -787,6 +965,243 @@ esac
         assert!(fs::read_to_string(&cache_path)
             .expect("cache file should exist")
             .contains("persisted-session"));
+    }
+
+    #[test]
+    fn reads_legacy_token_session_cache_files() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" --session legacy-session whoami --account my.1password.com "*)
+    ;;
+  *" --session legacy-session --account my.1password.com item get "*" --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"legacy-secret"}
+]}
+EOF
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let cache_path = fixture.path.join("onepassword-sessions.json");
+        let log_path = fixture.path.join("op.log");
+        fs::write(&log_path, "").expect("log file should exist");
+        fs::write(&cache_path, r#"{"sessions":{"my.1password.com":"legacy-session"}}"#)
+            .expect("legacy cache should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
+
+        let backend = OnePasswordSecretBackend::new(Some(cache_path));
+        let secret = ResolvedSecret::new(
+            "google_personal_client_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "gws cli".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let value = backend.resolve(&secret).expect("legacy cached secret should resolve");
+
+        assert_eq!(value.expose(), "legacy-secret");
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(log.lines().filter(|line| line.contains("signin --account")).count(), 0);
+        assert_eq!(
+            log.lines()
+                .filter(|line| line.contains("--session legacy-session whoami --account my.1password.com"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn persists_app_integration_sessions_across_backend_instances() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" whoami --account my.1password.com "*)
+    ;;
+  *" --account my.1password.com item get item-one --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"first-secret"}
+]}
+EOF
+    ;;
+  *" --account my.1password.com item get item-two --format json "*)
+    cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"second-secret"}
+]}
+EOF
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let cache_path = fixture.path.join("onepassword-sessions.json");
+        let log_path = fixture.path.join("op.log");
+        fs::write(&log_path, "").expect("log file should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
+
+        let first = OnePasswordSecretBackend::new(Some(cache_path.clone()));
+        let second = OnePasswordSecretBackend::new(Some(cache_path));
+
+        let first_secret = ResolvedSecret::new(
+            "first_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-one".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+        let second_secret = ResolvedSecret::new(
+            "second_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-two".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let first_value = first.resolve(&first_secret).expect("first backend should resolve");
+        let second_value = second.resolve(&second_secret).expect("second backend should resolve");
+
+        assert_eq!(first_value.expose(), "first-secret");
+        assert_eq!(second_value.expose(), "second-secret");
+
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(
+            log.lines()
+                .filter(|line| *line == "whoami --account my.1password.com")
+                .count(),
+            1
+        );
+        assert_eq!(
+            log.lines()
+                .filter(|line| line.contains("--account my.1password.com item get"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn stale_app_integration_cache_revalidates_and_retries() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let op_script = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SWITCHBOARD_OP_LOG"
+case " $* " in
+  *" whoami --account my.1password.com "*)
+    : > "$SWITCHBOARD_ALLOW_ITEM_GET"
+    ;;
+  *" --account my.1password.com item get item-one --format json "*)
+    if [ -f "$SWITCHBOARD_ALLOW_ITEM_GET" ]; then
+      cat <<'EOF'
+{"fields":[
+  {"label":"credential","value":"revalidated-secret"}
+]}
+EOF
+    else
+      echo "not signed in" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 1
+    ;;
+esac
+"#,
+        );
+        let cache_path = fixture.path.join("onepassword-sessions.json");
+        let log_path = fixture.path.join("op.log");
+        let allow_item_get_path = fixture.path.join("allow-item-get");
+        fs::write(&log_path, "").expect("log file should exist");
+        fs::write(
+            &cache_path,
+            r#"{"sessions":{"my.1password.com":{"kind":"app_integration"}}}"#,
+        )
+        .expect("app integration cache should exist");
+
+        let _op_bin_guard = EnvVarGuard::set("SWITCHBOARD_OP_BIN", op_script.into_os_string());
+        let _op_log_guard = EnvVarGuard::set("SWITCHBOARD_OP_LOG", log_path.clone().into_os_string());
+        let _allow_item_get_guard = EnvVarGuard::set(
+            "SWITCHBOARD_ALLOW_ITEM_GET",
+            allow_item_get_path.clone().into_os_string(),
+        );
+        let _op_session_guard = EnvVarGuard::remove("OP_SESSION");
+        fs::remove_file(&allow_item_get_path).ok();
+
+        let backend = OnePasswordSecretBackend::new(Some(cache_path));
+        let secret = ResolvedSecret::new(
+            "google_personal_client_secret",
+            SecretSource::OnePasswordItem {
+                account: "my.1password.com".into(),
+                vault: None,
+                item: "item-one".into(),
+                field: "credential".into(),
+            },
+        )
+        .expect("secret should build");
+
+        let value = backend.resolve(&secret).expect("stale app cache should recover");
+
+        assert_eq!(value.expose(), "revalidated-secret");
+        let log = fs::read_to_string(&log_path).expect("log should be readable");
+        assert_eq!(
+            log.lines()
+                .filter(|line| *line == "whoami --account my.1password.com")
+                .count(),
+            1
+        );
+        assert_eq!(
+            log.lines()
+                .filter(|line| line.contains("--account my.1password.com item get item-one --format json"))
+                .count(),
+            2
+        );
     }
 
     #[test]
