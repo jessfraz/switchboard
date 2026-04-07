@@ -2450,7 +2450,7 @@
         "create"
       ],
       "command": "gws chat users sections create",
-      "summary": "Developer Preview: Creates a section in Google Chat. Sections help users group conversations and customize the list of spaces displayed in Chat navigation panel.",
+      "summary": "Creates a section in Google Chat. Sections help users group conversations and customize the list of spaces displayed in Chat navigation panel. Only sections of type `CUSTOM_SECTION` can be created.",
       "usage": "gws users sections create [OPTIONS]",
       "help_args": [
         "chat",
@@ -2479,7 +2479,7 @@
         "delete"
       ],
       "command": "gws chat users sections delete",
-      "summary": "Developer Preview: Deletes a section of type `CUSTOM_SECTION`. If the section contains items, such as spaces, the items are moved to Google Chat's default sections and are not deleted.",
+      "summary": "Deletes a section of type `CUSTOM_SECTION`. If the section contains items, such as spaces, the items are moved to Google Chat's default sections and are not deleted.",
       "usage": "gws users sections delete [OPTIONS]",
       "help_args": [
         "chat",
@@ -2530,7 +2530,7 @@
         "list"
       ],
       "command": "gws chat users sections items list",
-      "summary": "Developer Preview: Lists items in a section. Only spaces can be section items. For details, see Create and organize sections in Google Chat.",
+      "summary": "Lists items in a section. Only spaces can be section items. For details, see Create and organize sections in Google Chat.",
       "usage": "gws users sections items list [OPTIONS]",
       "help_args": [
         "chat",
@@ -2555,7 +2555,7 @@
         "move"
       ],
       "command": "gws chat users sections items move",
-      "summary": "Developer Preview: Moves an item from one section to another. For example, if a section contains spaces, this method can be used to move a space to a different section.",
+      "summary": "Moves an item from one section to another. For example, if a section contains spaces, this method can be used to move a space to a different section.",
       "usage": "gws users sections items move [OPTIONS]",
       "help_args": [
         "chat",
@@ -2579,7 +2579,7 @@
         "list"
       ],
       "command": "gws chat users sections list",
-      "summary": "Developer Preview: Lists sections available to the Chat user. Sections help users group their conversations and customize the list of spaces displayed in Chat navigation panel.",
+      "summary": "Lists sections available to the Chat user. Sections help users group their conversations and customize the list of spaces displayed in Chat navigation panel.",
       "usage": "gws users sections list [OPTIONS]",
       "help_args": [
         "chat",
@@ -2602,7 +2602,7 @@
         "patch"
       ],
       "command": "gws chat users sections patch",
-      "summary": "Developer Preview: Updates a section. Only sections of type `CUSTOM_SECTION` can be updated. For details, see Create and organize sections in Google Chat.",
+      "summary": "Updates a section. Only sections of type `CUSTOM_SECTION` can be updated. For details, see Create and organize sections in Google Chat.",
       "usage": "gws users sections patch [OPTIONS]",
       "help_args": [
         "chat",
@@ -2625,7 +2625,7 @@
         "position"
       ],
       "command": "gws chat users sections position",
-      "summary": "Developer Preview: Changes the sort order of a section. For details, see Create and organize sections in Google Chat.",
+      "summary": "Changes the sort order of a section. For details, see Create and organize sections in Google Chat.",
       "usage": "gws users sections position [OPTIONS]",
       "help_args": [
         "chat",

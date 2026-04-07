@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use super::{
     cache::{AccountSnapshotSource, PlaidCacheStore},
     commands::{
-        accounts::AccountsBalanceRequest,
+        accounts::{AccountsBalanceRequest, AccountsRequestOptions},
         auth::ExchangePublicTokenRequest,
         cache::{CacheAccountsOutput, CacheItemsOutput, CacheTransactionsOutput},
         institutions::{InstitutionRequestOptions, InstitutionsGetByIdRequest},
@@ -29,7 +29,7 @@ use super::{
             LinkTokenTransactions, LinkTokenUser,
         },
         shared::AccessTokenRequest,
-        transactions::{TransactionsSyncOutput, TransactionsSyncRequest, TransactionsSyncOptions},
+        transactions::{TransactionsSyncOptions, TransactionsSyncOutput, TransactionsSyncRequest},
     },
     main_entry, render_cli_error, run,
     state::{PlaidEnvironment, PlaidState, StateStore, DEFAULT_PLAID_VERSION},
@@ -152,10 +152,7 @@ fn link_token_create_builds_user_products_and_transactions_options() {
     );
     assert_eq!(body.products, Some(vec!["transactions".into(), "auth".into()]));
     assert_eq!(body.country_codes, vec!["US", "CA"]);
-    assert_eq!(
-        body.transactions,
-        Some(LinkTokenTransactions { days_requested: 180 })
-    );
+    assert_eq!(body.transactions, Some(LinkTokenTransactions { days_requested: 180 }));
     assert_eq!(body.webhook.as_deref(), Some("https://example.com/plaid-webhook"));
     assert_eq!(output.link_token, "link-sandbox-1234");
 }
@@ -226,20 +223,11 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
     assert_eq!(request.path, "/link/token/create");
     assert_eq!(body.products, Some(vec!["transactions".into()]));
     assert_eq!(body.optional_products, Some(vec!["auth".into()]));
-    assert_eq!(
-        body.required_if_supported_products,
-        Some(vec!["identity".into()])
-    );
-    assert_eq!(
-        body.additional_consented_products,
-        Some(vec!["balance_plus".into()])
-    );
+    assert_eq!(body.required_if_supported_products, Some(vec!["identity".into()]));
+    assert_eq!(body.additional_consented_products, Some(vec!["balance_plus".into()]));
     assert_eq!(body.access_token.as_deref(), Some("stored-access-token"));
     assert_eq!(body.link_customization_name.as_deref(), Some("default"));
-    assert_eq!(
-        body.android_package_name.as_deref(),
-        Some("com.example.switchboard")
-    );
+    assert_eq!(body.android_package_name.as_deref(), Some("com.example.switchboard"));
     assert_eq!(
         body.redirect_uri.as_deref(),
         Some("https://jessfraz.github.io/switchboard/plaid-callback/")
@@ -262,10 +250,7 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
             ..LinkTokenAccountFilters::default()
         })
     );
-    assert_eq!(
-        body.transactions,
-        Some(LinkTokenTransactions { days_requested: 90 })
-    );
+    assert_eq!(body.transactions, Some(LinkTokenTransactions { days_requested: 90 }));
     assert_eq!(output.link_token, "link-sandbox-advanced");
 }
 
@@ -631,14 +616,26 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
         cached_cursor(&cache_db_path(&config_path), "item-1234", Some("acc-123")).as_deref(),
         Some("cursor-final")
     );
-    let updated_transaction: CachedTransaction =
-        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-1");
+    let updated_transaction: CachedTransaction = cached_json(
+        &cache_db_path(&config_path),
+        "plaid_transactions",
+        "transaction_id",
+        "tx-1",
+    );
     assert_eq!(updated_transaction.amount, Some(22.34));
-    let added_transaction: CachedTransaction =
-        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-2");
-    assert_eq!(added_transaction.name, "Groceries");
-    let removed_transaction: CachedTransaction =
-        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-3");
+    let added_transaction: CachedTransaction = cached_json(
+        &cache_db_path(&config_path),
+        "plaid_transactions",
+        "transaction_id",
+        "tx-2",
+    );
+    assert_eq!(added_transaction.name.as_deref(), Some("Groceries"));
+    let removed_transaction: CachedTransaction = cached_json(
+        &cache_db_path(&config_path),
+        "plaid_transactions",
+        "transaction_id",
+        "tx-3",
+    );
     assert_eq!(removed_transaction.account_id.as_deref(), Some("acc-123"));
     assert!(cached_transaction_removed(&cache_db_path(&config_path), "tx-3"));
 
@@ -656,7 +653,7 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
         200,
         Some(second_capture.clone()),
     );
-    let second_output: TransactionsSyncResponse = run_command(&[
+    let second_output: TransactionsSyncOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -746,9 +743,13 @@ fn transactions_sync_bootstraps_item_id_before_caching() {
         cached_cursor(&cache_db_path(&config_path), "item-bootstrap", None).as_deref(),
         Some("cursor-bootstrap")
     );
-    let cached: CachedTransaction =
-        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-bootstrap");
-    assert_eq!(cached.name, "Bootstrap");
+    let cached: CachedTransaction = cached_json(
+        &cache_db_path(&config_path),
+        "plaid_transactions",
+        "transaction_id",
+        "tx-bootstrap",
+    );
+    assert_eq!(cached.name.as_deref(), Some("Bootstrap"));
 }
 
 #[test]
@@ -863,12 +864,20 @@ fn transactions_sync_restarts_from_initial_cursor_after_pagination_mutation() {
         cached_cursor(&cache_db_path(&config_path), "item-1234", Some("acc-123")).as_deref(),
         Some("cursor-final")
     );
-    let tx_1: CachedTransaction =
-        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-1");
-    assert_eq!(tx_1.name, "Coffee");
-    let tx_2: CachedTransaction =
-        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-2");
-    assert_eq!(tx_2.name, "Groceries");
+    let tx_1: CachedTransaction = cached_json(
+        &cache_db_path(&config_path),
+        "plaid_transactions",
+        "transaction_id",
+        "tx-1",
+    );
+    assert_eq!(tx_1.name.as_deref(), Some("Coffee"));
+    let tx_2: CachedTransaction = cached_json(
+        &cache_db_path(&config_path),
+        "plaid_transactions",
+        "transaction_id",
+        "tx-2",
+    );
+    assert_eq!(tx_2.name.as_deref(), Some("Groceries"));
     assert_eq!(
         row_count(
             &cache_db_path(&config_path),
@@ -1133,22 +1142,20 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
     assert_eq!(removed.transactions[0].transaction_id, "tx-removed");
     assert!(removed.transactions[0].removed);
     assert_eq!(removed.transactions[0].account_id.as_deref(), Some("acc-a"));
-    let removed_transaction: CachedTransaction =
-        decode_json_value(removed.transactions[0].transaction.clone(), "removed transaction payload");
-    assert_eq!(removed_transaction.name, "Dinner");
-    assert_eq!(removed_transaction.amount, Some(18.75));
-    let removal: CachedRemoval =
-        decode_json_value(
-            removed.transactions[0]
-                .removal
-                .clone()
-                .expect("removed transaction should include removal details"),
-            "removed transaction tombstone",
-        );
-    assert_eq!(
-        removal.pending_transaction_id.as_deref(),
-        Some("pending-tx-removed")
+    let removed_transaction: CachedTransaction = decode_json_value(
+        removed.transactions[0].transaction.clone(),
+        "removed transaction payload",
     );
+    assert_eq!(removed_transaction.name.as_deref(), Some("Dinner"));
+    assert_eq!(removed_transaction.amount, Some(18.75));
+    let removal: CachedRemoval = decode_json_value(
+        removed.transactions[0]
+            .removal
+            .clone()
+            .expect("removed transaction should include removal details"),
+        "removed transaction tombstone",
+    );
+    assert_eq!(removal.pending_transaction_id.as_deref(), Some("pending-tx-removed"));
 }
 
 #[test]
@@ -1195,7 +1202,7 @@ fn cache_store_migrates_transaction_tombstone_columns_without_losing_snapshots()
         .expect("removed transaction should cache after migration");
 
     let migrated: CachedTransaction = cached_json(&cache_path, "plaid_transactions", "transaction_id", "tx-legacy");
-    assert_eq!(migrated.name, "Legacy");
+    assert_eq!(migrated.name.as_deref(), Some("Legacy"));
     assert_eq!(migrated.amount, Some(44.10));
     assert_eq!(migrated.account_id.as_deref(), Some("acc-a"));
     assert!(cached_transaction_removed(&cache_path, "tx-legacy"));
@@ -1350,15 +1357,59 @@ struct AccountSummary {
 }
 
 #[derive(Debug, Deserialize)]
-struct TransactionsSyncResponse {
-    next_cursor: String,
-    pages_fetched: u64,
-}
-
-#[derive(Debug, Deserialize)]
 struct JsonErrorResponse {
     kind: String,
     message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ItemGetOutput {
+    item: CachedItem,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransactionsRefreshOutput {
+    item_id: String,
+    request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstitutionsGetByIdOutput {
+    institution: InstitutionSummary,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstitutionSummary {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedItem {
+    item_id: String,
+    institution_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedAccount {
+    name: String,
+    balances: CachedBalances,
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedBalances {
+    available: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedTransaction {
+    account_id: Option<String>,
+    amount: Option<f64>,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedRemoval {
+    pending_transaction_id: Option<String>,
 }
 
 fn run_command<T: DeserializeOwned>(args: &[&str]) -> T {
@@ -1374,6 +1425,10 @@ fn run_command_error<T: DeserializeOwned>(args: &[&str]) -> T {
     let error = run(cli).expect_err("command should fail");
     let rendered = render_cli_error(&error, compact);
     serde_json::from_str(&rendered).expect("error output should match expected type")
+}
+
+fn decode_json_value<T: DeserializeOwned>(value: Value, context: &str) -> T {
+    serde_json::from_value(value).unwrap_or_else(|error| panic!("{context} should deserialize: {error}"))
 }
 
 struct TestServer {
@@ -1562,40 +1617,16 @@ fn cache_db_path(config_path: &Path) -> PathBuf {
         .join("plaid-cache.sqlite3")
 }
 
-fn cached_item(path: &Path, item_id: &str) -> Value {
+fn cached_json<T: DeserializeOwned>(path: &Path, table: &str, key_column: &str, key_value: &str) -> T {
     let connection = Connection::open(path).expect("cache db should open");
     let data: String = connection
         .query_row(
-            "SELECT data_json FROM plaid_items WHERE item_id = ?1",
-            params![item_id],
+            &format!("SELECT data_json FROM {table} WHERE {key_column} = ?1"),
+            params![key_value],
             |row| row.get(0),
         )
-        .expect("cached item should exist");
-    serde_json::from_str(&data).expect("cached item json should parse")
-}
-
-fn cached_account(path: &Path, account_id: &str) -> Value {
-    let connection = Connection::open(path).expect("cache db should open");
-    let data: String = connection
-        .query_row(
-            "SELECT data_json FROM plaid_accounts WHERE account_id = ?1",
-            params![account_id],
-            |row| row.get(0),
-        )
-        .expect("cached account should exist");
-    serde_json::from_str(&data).expect("cached account json should parse")
-}
-
-fn cached_transaction(path: &Path, transaction_id: &str) -> Value {
-    let connection = Connection::open(path).expect("cache db should open");
-    let data: String = connection
-        .query_row(
-            "SELECT data_json FROM plaid_transactions WHERE transaction_id = ?1",
-            params![transaction_id],
-            |row| row.get(0),
-        )
-        .expect("cached transaction should exist");
-    serde_json::from_str(&data).expect("cached transaction json should parse")
+        .expect("cached json should exist");
+    serde_json::from_str(&data).expect("cached json should parse")
 }
 
 fn cached_transaction_removed(path: &Path, transaction_id: &str) -> bool {
