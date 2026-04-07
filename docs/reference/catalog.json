@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 716,
+    "tool_count": 738,
     "curated_count": 15,
-    "raw_count": 701,
+    "raw_count": 723,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -37,6 +37,16 @@
       "planning_only_count": 0,
       "undoable_count": 0,
       "doc_path": "docs/reference/providers/mychart.md"
+    },
+    {
+      "provider": "schwab",
+      "tool_count": 22,
+      "curated_count": 0,
+      "raw_count": 22,
+      "stable_count": 0,
+      "planning_only_count": 0,
+      "undoable_count": 0,
+      "doc_path": "docs/reference/providers/schwab.md"
     }
   ],
   "tools": [
@@ -24747,6 +24757,750 @@
         "switchboard mychart.cli.write --ns mychart.default --argv-json '[\"portal\",\"auth\",\"logout\"]' --apply --json"
       ],
       "doc_path": "reference/#tool=mychart.cli.write"
+    },
+    {
+      "name": "schwab.cli.accounts.get",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab accounts get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.accounts.get --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.accounts.get --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: accounts get"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.accounts.get"
+    },
+    {
+      "name": "schwab.cli.accounts.list",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab accounts list",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.accounts.list --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.accounts.list --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: accounts list"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.accounts.list"
+    },
+    {
+      "name": "schwab.cli.accounts.numbers",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab accounts numbers",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.accounts.numbers --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.accounts.numbers --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: accounts numbers"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.accounts.numbers"
+    },
+    {
+      "name": "schwab.cli.auth.authorize-url",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth authorize-url",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.authorize-url --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.auth.authorize-url --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth authorize-url"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.authorize-url"
+    },
+    {
+      "name": "schwab.cli.auth.exchange-code",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth exchange-code",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.exchange-code --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.auth.exchange-code --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth exchange-code"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.exchange-code"
+    },
+    {
+      "name": "schwab.cli.auth.exchange-url",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth exchange-url",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.exchange-url --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.auth.exchange-url --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth exchange-url"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.exchange-url"
+    },
+    {
+      "name": "schwab.cli.auth.logout",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth logout",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.logout --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.auth.logout --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth logout"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.logout"
+    },
+    {
+      "name": "schwab.cli.auth.refresh",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth refresh",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.refresh --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.auth.refresh --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth refresh"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.refresh"
+    },
+    {
+      "name": "schwab.cli.auth.status",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth status",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.status --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.auth.status --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: auth status"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.status"
+    },
+    {
+      "name": "schwab.cli.market.price-history",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market price-history",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.price-history --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.price-history --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market price-history"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.price-history"
+    },
+    {
+      "name": "schwab.cli.market.quote",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market quote",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.quote --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.quote --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market quote"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.quote"
+    },
+    {
+      "name": "schwab.cli.market.quotes",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market quotes",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.quotes --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.quotes --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market quotes"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.quotes"
+    },
+    {
+      "name": "schwab.cli.orders.cancel",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab orders cancel",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.orders.cancel --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.orders.cancel --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: orders cancel"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.orders.cancel"
+    },
+    {
+      "name": "schwab.cli.orders.get",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab orders get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.orders.get --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.orders.get --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: orders get"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.orders.get"
+    },
+    {
+      "name": "schwab.cli.orders.list",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab orders list",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.orders.list --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.orders.list --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: orders list"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.orders.list"
+    },
+    {
+      "name": "schwab.cli.orders.place",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab orders place",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.orders.place --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.orders.place --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: orders place"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.orders.place"
+    },
+    {
+      "name": "schwab.cli.orders.replace",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab orders replace",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.orders.replace --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.orders.replace --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: orders replace"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.orders.replace"
+    },
+    {
+      "name": "schwab.cli.preferences.get",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab preferences get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.preferences.get --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.preferences.get --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: preferences get"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.preferences.get"
+    },
+    {
+      "name": "schwab.cli.read",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run a raw schwab read command",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.read --ns schwab.default -- ..."
+      ],
+      "doc_path": "reference/#tool=schwab.cli.read"
+    },
+    {
+      "name": "schwab.cli.transactions.get",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab transactions get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.transactions.get --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.transactions.get --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: transactions get"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.transactions.get"
+    },
+    {
+      "name": "schwab.cli.transactions.list",
+      "provider": "schwab",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab transactions list",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.transactions.list --ns schwab.default --json -- --format json",
+        "switchboard schwab.cli.transactions.list --ns schwab.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: transactions list"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.transactions.list"
+    },
+    {
+      "name": "schwab.cli.write",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run a raw schwab write command",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.write --ns schwab.default -- ..."
+      ],
+      "doc_path": "reference/#tool=schwab.cli.write"
     }
   ]
 }

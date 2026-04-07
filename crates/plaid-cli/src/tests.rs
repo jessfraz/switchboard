@@ -18,6 +18,19 @@ use serde_json::{json, Value};
 
 use super::{
     cache::{AccountSnapshotSource, PlaidCacheStore},
+    commands::{
+        accounts::AccountsBalanceRequest,
+        auth::ExchangePublicTokenRequest,
+        cache::{CacheAccountsOutput, CacheItemsOutput, CacheTransactionsOutput},
+        institutions::{InstitutionRequestOptions, InstitutionsGetByIdRequest},
+        item::ItemRemoveOutput,
+        link::{
+            LinkTokenAccountFilters, LinkTokenAccountSubtypeFilter, LinkTokenCreateRequest, LinkTokenInstitutionData,
+            LinkTokenTransactions, LinkTokenUser,
+        },
+        shared::AccessTokenRequest,
+        transactions::{TransactionsSyncOutput, TransactionsSyncRequest, TransactionsSyncOptions},
+    },
     main_entry, render_cli_error, run,
     state::{PlaidEnvironment, PlaidState, StateStore, DEFAULT_PLAID_VERSION},
     Cli,
@@ -64,13 +77,13 @@ fn exchange_public_token_stores_access_token_and_item_id() {
     ]);
 
     let request = captured_request(&capture);
-    let body: Value = request.json_body();
+    let body: ExchangePublicTokenRequest = request.json_body();
     assert_eq!(request.method, "POST");
     assert_eq!(request.path, "/item/public_token/exchange");
     assert_eq!(request.header("plaid-client-id"), Some("client-id"));
     assert_eq!(request.header("plaid-secret"), Some("secret-value"));
     assert_eq!(request.header("plaid-version"), Some(DEFAULT_PLAID_VERSION));
-    assert_eq!(body["public_token"], "public-sandbox-abc");
+    assert_eq!(body.public_token, "public-sandbox-abc");
 
     let state = StateStore::new(config_path).load().expect("state should load");
     assert_eq!(state.environment, Some(PlaidEnvironment::Sandbox));
@@ -127,15 +140,23 @@ fn link_token_create_builds_user_products_and_transactions_options() {
     ]);
 
     let request = captured_request(&capture);
-    let body: Value = request.json_body();
+    let body: LinkTokenCreateRequest = request.json_body();
     assert_eq!(request.path, "/link/token/create");
-    assert_eq!(body["client_name"], "switchboard");
-    assert_eq!(body["language"], "en");
-    assert_eq!(body["user"]["client_user_id"], "user-123");
-    assert_eq!(body["products"], json!(["transactions", "auth"]));
-    assert_eq!(body["country_codes"], json!(["US", "CA"]));
-    assert_eq!(body["transactions"]["days_requested"], 180);
-    assert_eq!(body["webhook"], "https://example.com/plaid-webhook");
+    assert_eq!(body.client_name, "switchboard");
+    assert_eq!(body.language, "en");
+    assert_eq!(
+        body.user,
+        Some(LinkTokenUser {
+            client_user_id: "user-123".into(),
+        })
+    );
+    assert_eq!(body.products, Some(vec!["transactions".into(), "auth".into()]));
+    assert_eq!(body.country_codes, vec!["US", "CA"]);
+    assert_eq!(
+        body.transactions,
+        Some(LinkTokenTransactions { days_requested: 180 })
+    );
+    assert_eq!(body.webhook.as_deref(), Some("https://example.com/plaid-webhook"));
     assert_eq!(output.link_token, "link-sandbox-1234");
 }
 
@@ -201,29 +222,50 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
     ]);
 
     let request = captured_request(&capture);
-    let body: Value = request.json_body();
+    let body: LinkTokenCreateRequest = request.json_body();
     assert_eq!(request.path, "/link/token/create");
-    assert_eq!(body["products"], json!(["transactions"]));
-    assert_eq!(body["optional_products"], json!(["auth"]));
-    assert_eq!(body["required_if_supported_products"], json!(["identity"]));
-    assert_eq!(body["additional_consented_products"], json!(["balance_plus"]));
-    assert_eq!(body["access_token"], "stored-access-token");
-    assert_eq!(body["link_customization_name"], "default");
-    assert_eq!(body["android_package_name"], "com.example.switchboard");
+    assert_eq!(body.products, Some(vec!["transactions".into()]));
+    assert_eq!(body.optional_products, Some(vec!["auth".into()]));
     assert_eq!(
-        body["redirect_uri"],
-        "https://jessfraz.github.io/switchboard/plaid-callback/"
-    );
-    assert_eq!(body["institution_data"]["routing_number"], "021000021");
-    assert_eq!(
-        body["account_filters"]["depository"]["account_subtypes"],
-        json!(["checking"])
+        body.required_if_supported_products,
+        Some(vec!["identity".into()])
     );
     assert_eq!(
-        body["account_filters"]["investment"]["account_subtypes"],
-        json!(["brokerage"])
+        body.additional_consented_products,
+        Some(vec!["balance_plus".into()])
     );
-    assert_eq!(body["transactions"]["days_requested"], 90);
+    assert_eq!(body.access_token.as_deref(), Some("stored-access-token"));
+    assert_eq!(body.link_customization_name.as_deref(), Some("default"));
+    assert_eq!(
+        body.android_package_name.as_deref(),
+        Some("com.example.switchboard")
+    );
+    assert_eq!(
+        body.redirect_uri.as_deref(),
+        Some("https://jessfraz.github.io/switchboard/plaid-callback/")
+    );
+    assert_eq!(
+        body.institution_data,
+        Some(LinkTokenInstitutionData {
+            routing_number: "021000021".into(),
+        })
+    );
+    assert_eq!(
+        body.account_filters,
+        Some(LinkTokenAccountFilters {
+            depository: Some(LinkTokenAccountSubtypeFilter {
+                account_subtypes: vec!["checking".into()],
+            }),
+            investment: Some(LinkTokenAccountSubtypeFilter {
+                account_subtypes: vec!["brokerage".into()],
+            }),
+            ..LinkTokenAccountFilters::default()
+        })
+    );
+    assert_eq!(
+        body.transactions,
+        Some(LinkTokenTransactions { days_requested: 90 })
+    );
     assert_eq!(output.link_token, "link-sandbox-advanced");
 }
 
@@ -284,7 +326,7 @@ fn item_get_caches_item_and_remembers_item_id() {
         })
         .expect("state should save");
 
-    let output: Value = run_command(&[
+    let output: ItemGetOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -295,12 +337,12 @@ fn item_get_caches_item_and_remembers_item_id() {
 
     let request = captured_request(&capture);
     assert_eq!(request.path, "/item/get");
-    assert_eq!(output["item"]["item_id"], "item-1234");
+    assert_eq!(output.item.item_id, "item-1234");
 
     let state = StateStore::new(config_path.clone()).load().expect("state should load");
     assert_eq!(state.item_id.as_deref(), Some("item-1234"));
-    let item = cached_item(&cache_db_path(&config_path), "item-1234");
-    assert_eq!(item["institution_id"], "ins_109508");
+    let item: CachedItem = cached_json(&cache_db_path(&config_path), "plaid_items", "item_id", "item-1234");
+    assert_eq!(item.institution_id.as_deref(), Some("ins_109508"));
 }
 
 #[test]
@@ -356,20 +398,25 @@ fn accounts_balance_uses_stored_access_token_filters_and_caches_accounts() {
     ]);
 
     let request = captured_request(&capture);
-    let body: Value = request.json_body();
+    let body: AccountsBalanceRequest = request.json_body();
     assert_eq!(request.path, "/accounts/balance/get");
-    assert_eq!(body["access_token"], "stored-access-token");
-    assert_eq!(body["options"]["account_ids"], json!(["acc-123"]));
-    assert_eq!(body["options"]["min_last_updated_datetime"], "2026-03-30T00:00:00Z");
+    assert_eq!(body.access_token, "stored-access-token");
+    assert_eq!(
+        body.options,
+        Some(AccountsRequestOptions {
+            account_ids: Some(vec!["acc-123".into()]),
+            min_last_updated_datetime: Some("2026-03-30T00:00:00Z".into()),
+        })
+    );
     assert_eq!(output.accounts[0].account_id, "acc-123");
 
-    let item = cached_item(&cache_db_path(&config_path), "item-1234");
-    assert_eq!(item["institution_id"], "ins_109508");
-    let account = cached_account(&cache_db_path(&config_path), "acc-123");
-    assert_eq!(account["balances"]["available"], 100.5);
-    assert_eq!(account["name"], "Cash");
+    let item: CachedItem = cached_json(&cache_db_path(&config_path), "plaid_items", "item_id", "item-1234");
+    assert_eq!(item.institution_id.as_deref(), Some("ins_109508"));
+    let account: CachedAccount = cached_json(&cache_db_path(&config_path), "plaid_accounts", "account_id", "acc-123");
+    assert_eq!(account.balances.available, Some(100.5));
+    assert_eq!(account.name, "Cash");
 
-    let cached: Value = run_command(&[
+    let cached: CacheAccountsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -377,8 +424,8 @@ fn accounts_balance_uses_stored_access_token_filters_and_caches_accounts() {
         "cache",
         "accounts",
     ]);
-    assert_eq!(cached["accounts"][0]["source_endpoint"], "/accounts/balance/get");
-    assert_eq!(cached["accounts"][0]["balance_freshness"], "realtime");
+    assert_eq!(cached.accounts[0].source_endpoint, "/accounts/balance/get");
+    assert_eq!(cached.accounts[0].balance_freshness, "realtime");
 }
 
 #[test]
@@ -396,7 +443,7 @@ fn institutions_get_by_id_builds_country_codes_and_metadata_options() {
         200,
         Some(capture.clone()),
     );
-    let output: Value = run_command(&[
+    let output: InstitutionsGetByIdOutput = run_command(&[
         "plaid",
         "--base-url",
         &server.base_url(),
@@ -416,14 +463,21 @@ fn institutions_get_by_id_builds_country_codes_and_metadata_options() {
     ]);
 
     let request = captured_request(&capture);
-    let body: Value = request.json_body();
+    let body: InstitutionsGetByIdRequest = request.json_body();
     assert_eq!(request.path, "/institutions/get_by_id");
-    assert_eq!(body["institution_id"], "ins_109508");
-    assert_eq!(body["country_codes"], json!(["US"]));
-    assert_eq!(body["options"]["include_status"], true);
-    assert_eq!(body["options"]["include_auth_metadata"], true);
-    assert_eq!(body["options"]["include_payment_initiation_metadata"], true);
-    assert_eq!(output["institution"]["name"], "First Platypus Bank");
+    assert_eq!(body.institution_id, "ins_109508");
+    assert_eq!(body.country_codes, vec!["US"]);
+    assert_eq!(
+        body.options,
+        Some(InstitutionRequestOptions {
+            oauth: None,
+            include_optional_metadata: None,
+            include_status: Some(true),
+            include_auth_metadata: Some(true),
+            include_payment_initiation_metadata: Some(true),
+        })
+    );
+    assert_eq!(output.institution.name, "First Platypus Bank");
 }
 
 #[test]
@@ -450,7 +504,7 @@ fn transactions_refresh_posts_access_token_and_reports_item_id() {
         })
         .expect("state should save");
 
-    let output: Value = run_command(&[
+    let output: TransactionsRefreshOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -460,11 +514,11 @@ fn transactions_refresh_posts_access_token_and_reports_item_id() {
     ]);
 
     let request = captured_request(&capture);
-    let body: Value = request.json_body();
+    let body: AccessTokenRequest = request.json_body();
     assert_eq!(request.path, "/transactions/refresh");
-    assert_eq!(body["access_token"], "stored-access-token");
-    assert_eq!(output["item_id"], "item-1234");
-    assert_eq!(output["request_id"], "request-refresh");
+    assert_eq!(body.access_token, "stored-access-token");
+    assert_eq!(output.item_id, "item-1234");
+    assert_eq!(output.request_id, "request-refresh");
 }
 
 #[test]
@@ -537,7 +591,7 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
         })
         .expect("state should save");
 
-    let output: TransactionsSyncResponse = run_command(&[
+    let output: TransactionsSyncOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -555,16 +609,21 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
 
     let requests = captured_requests(&capture);
     assert_eq!(requests.len(), 2);
-    let first_body: Value = requests[0].json_body();
+    let first_body: TransactionsSyncRequest = requests[0].json_body();
     assert_eq!(requests[0].path, "/transactions/sync");
-    assert!(first_body.get("cursor").is_none());
-    assert_eq!(first_body["count"], 250);
-    assert_eq!(first_body["options"]["account_id"], "acc-123");
-    assert_eq!(first_body["options"]["days_requested"], 180);
-    assert_eq!(first_body["options"]["include_original_description"], true);
+    assert_eq!(first_body.cursor, None);
+    assert_eq!(first_body.count, Some(250));
+    assert_eq!(
+        first_body.options,
+        Some(TransactionsSyncOptions {
+            include_original_description: Some(true),
+            account_id: Some("acc-123".into()),
+            days_requested: Some(180),
+        })
+    );
 
-    let second_body: Value = requests[1].json_body();
-    assert_eq!(second_body["cursor"], "cursor-page-1");
+    let second_body: TransactionsSyncRequest = requests[1].json_body();
+    assert_eq!(second_body.cursor.as_deref(), Some("cursor-page-1"));
     assert_eq!(output.next_cursor, "cursor-final");
     assert_eq!(output.pages_fetched, 2);
 
@@ -572,12 +631,15 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
         cached_cursor(&cache_db_path(&config_path), "item-1234", Some("acc-123")).as_deref(),
         Some("cursor-final")
     );
-    let updated_transaction = cached_transaction(&cache_db_path(&config_path), "tx-1");
-    assert_eq!(updated_transaction["amount"], 22.34);
-    let added_transaction = cached_transaction(&cache_db_path(&config_path), "tx-2");
-    assert_eq!(added_transaction["name"], "Groceries");
-    let removed_transaction = cached_transaction(&cache_db_path(&config_path), "tx-3");
-    assert_eq!(removed_transaction["account_id"], "acc-123");
+    let updated_transaction: CachedTransaction =
+        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-1");
+    assert_eq!(updated_transaction.amount, Some(22.34));
+    let added_transaction: CachedTransaction =
+        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-2");
+    assert_eq!(added_transaction.name, "Groceries");
+    let removed_transaction: CachedTransaction =
+        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-3");
+    assert_eq!(removed_transaction.account_id.as_deref(), Some("acc-123"));
     assert!(cached_transaction_removed(&cache_db_path(&config_path), "tx-3"));
 
     let second_capture = Arc::new(Mutex::new(Vec::new()));
@@ -608,8 +670,8 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
     ]);
 
     let cached_request = captured_request(&second_capture);
-    let cached_body: Value = cached_request.json_body();
-    assert_eq!(cached_body["cursor"], "cursor-final");
+    let cached_body: TransactionsSyncRequest = cached_request.json_body();
+    assert_eq!(cached_body.cursor.as_deref(), Some("cursor-final"));
     assert_eq!(second_output.next_cursor, "cursor-after-cache");
     assert_eq!(second_output.pages_fetched, 1);
 }
@@ -662,7 +724,7 @@ fn transactions_sync_bootstraps_item_id_before_caching() {
         })
         .expect("state should save");
 
-    let output: Value = run_command(&[
+    let output: TransactionsSyncOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -675,8 +737,8 @@ fn transactions_sync_bootstraps_item_id_before_caching() {
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].path, "/item/get");
     assert_eq!(requests[1].path, "/transactions/sync");
-    assert_eq!(output["item_id"], "item-bootstrap");
-    assert_eq!(output["next_cursor"], "cursor-bootstrap");
+    assert_eq!(output.item_id, "item-bootstrap");
+    assert_eq!(output.next_cursor, "cursor-bootstrap");
 
     let state = StateStore::new(config_path.clone()).load().expect("state should load");
     assert_eq!(state.item_id.as_deref(), Some("item-bootstrap"));
@@ -684,8 +746,9 @@ fn transactions_sync_bootstraps_item_id_before_caching() {
         cached_cursor(&cache_db_path(&config_path), "item-bootstrap", None).as_deref(),
         Some("cursor-bootstrap")
     );
-    let cached = cached_transaction(&cache_db_path(&config_path), "tx-bootstrap");
-    assert_eq!(cached["name"], "Bootstrap");
+    let cached: CachedTransaction =
+        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-bootstrap");
+    assert_eq!(cached.name, "Bootstrap");
 }
 
 #[test]
@@ -772,7 +835,7 @@ fn transactions_sync_restarts_from_initial_cursor_after_pagination_mutation() {
         })
         .expect("state should save");
 
-    let output: Value = run_command(&[
+    let output: TransactionsSyncOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -785,29 +848,27 @@ fn transactions_sync_restarts_from_initial_cursor_after_pagination_mutation() {
 
     let requests = captured_requests(&capture);
     assert_eq!(requests.len(), 4);
-    let first_body: Value = requests[0].json_body();
-    let second_body: Value = requests[1].json_body();
-    let third_body: Value = requests[2].json_body();
-    let fourth_body: Value = requests[3].json_body();
-    assert!(first_body.get("cursor").is_none());
-    assert_eq!(second_body["cursor"], "cursor-page-1");
-    assert!(third_body.get("cursor").is_none());
-    assert_eq!(fourth_body["cursor"], "cursor-page-1b");
-    assert_eq!(output["restart_count"], 1);
-    assert_eq!(output["pages_fetched"], 2);
-    assert_eq!(output["request_ids"], json!(["request-page-1b", "request-page-2"]));
+    let first_body: TransactionsSyncRequest = requests[0].json_body();
+    let second_body: TransactionsSyncRequest = requests[1].json_body();
+    let third_body: TransactionsSyncRequest = requests[2].json_body();
+    let fourth_body: TransactionsSyncRequest = requests[3].json_body();
+    assert_eq!(first_body.cursor, None);
+    assert_eq!(second_body.cursor.as_deref(), Some("cursor-page-1"));
+    assert_eq!(third_body.cursor, None);
+    assert_eq!(fourth_body.cursor.as_deref(), Some("cursor-page-1b"));
+    assert_eq!(output.restart_count, 1);
+    assert_eq!(output.pages_fetched, 2);
+    assert_eq!(output.request_ids, vec!["request-page-1b", "request-page-2"]);
     assert_eq!(
         cached_cursor(&cache_db_path(&config_path), "item-1234", Some("acc-123")).as_deref(),
         Some("cursor-final")
     );
-    assert_eq!(
-        cached_transaction(&cache_db_path(&config_path), "tx-1")["name"],
-        "Coffee"
-    );
-    assert_eq!(
-        cached_transaction(&cache_db_path(&config_path), "tx-2")["name"],
-        "Groceries"
-    );
+    let tx_1: CachedTransaction =
+        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-1");
+    assert_eq!(tx_1.name, "Coffee");
+    let tx_2: CachedTransaction =
+        cached_json(&cache_db_path(&config_path), "plaid_transactions", "transaction_id", "tx-2");
+    assert_eq!(tx_2.name, "Groceries");
     assert_eq!(
         row_count(
             &cache_db_path(&config_path),
@@ -870,7 +931,7 @@ fn cache_items_defaults_to_current_item_and_supports_all() {
         }))
         .expect("item b should cache");
 
-    let current: Value = run_command(&[
+    let current: CacheItemsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -878,12 +939,12 @@ fn cache_items_defaults_to_current_item_and_supports_all() {
         "cache",
         "items",
     ]);
-    assert_eq!(current["source"], "cache");
-    assert_eq!(current["item_id"], "item-a");
-    assert_eq!(current["count"], 1);
-    assert_eq!(current["items"][0]["item_id"], "item-a");
+    assert_eq!(current.source, "cache");
+    assert_eq!(current.item_id.as_deref(), Some("item-a"));
+    assert_eq!(current.count, 1);
+    assert_eq!(current.items[0].item_id, "item-a");
 
-    let all: Value = run_command(&[
+    let all: CacheItemsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -892,14 +953,9 @@ fn cache_items_defaults_to_current_item_and_supports_all() {
         "items",
         "--all",
     ]);
-    assert_eq!(all["count"], 2);
+    assert_eq!(all.count, 2);
     assert_eq!(
-        all["items"]
-            .as_array()
-            .expect("items should be an array")
-            .iter()
-            .map(|item| item["item_id"].as_str().expect("item_id should be a string"))
-            .collect::<Vec<_>>(),
+        all.items.iter().map(|item| item.item_id.as_str()).collect::<Vec<_>>(),
         vec!["item-a", "item-b"]
     );
 }
@@ -939,7 +995,7 @@ fn cache_accounts_reads_cached_accounts_without_credentials() {
         )
         .expect("account b should cache");
 
-    let current: Value = run_command(&[
+    let current: CacheAccountsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -947,15 +1003,17 @@ fn cache_accounts_reads_cached_accounts_without_credentials() {
         "cache",
         "accounts",
     ]);
-    assert_eq!(current["source"], "cache");
-    assert_eq!(current["item_id"], "item-a");
-    assert_eq!(current["count"], 1);
-    assert_eq!(current["accounts"][0]["account_id"], "acc-a");
-    assert_eq!(current["accounts"][0]["account"]["name"], "Checking");
-    assert_eq!(current["accounts"][0]["source_endpoint"], "/accounts/get");
-    assert_eq!(current["accounts"][0]["balance_freshness"], "cached");
+    assert_eq!(current.source, "cache");
+    assert_eq!(current.item_id.as_deref(), Some("item-a"));
+    assert_eq!(current.count, 1);
+    assert_eq!(current.accounts[0].account_id, "acc-a");
+    assert_eq!(current.accounts[0].source_endpoint, "/accounts/get");
+    assert_eq!(current.accounts[0].balance_freshness, "cached");
+    let current_account: CachedAccount =
+        decode_json_value(current.accounts[0].account.clone(), "cached account payload");
+    assert_eq!(current_account.name, "Checking");
 
-    let filtered: Value = run_command(&[
+    let filtered: CacheAccountsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -966,12 +1024,14 @@ fn cache_accounts_reads_cached_accounts_without_credentials() {
         "--account-id",
         "acc-b",
     ]);
-    assert_eq!(filtered["count"], 1);
-    assert_eq!(filtered["account_ids"], json!(["acc-b"]));
-    assert_eq!(filtered["accounts"][0]["item_id"], "item-b");
-    assert_eq!(filtered["accounts"][0]["account"]["balances"]["available"], 22.0);
-    assert_eq!(filtered["accounts"][0]["source_endpoint"], "/accounts/balance/get");
-    assert_eq!(filtered["accounts"][0]["balance_freshness"], "realtime");
+    assert_eq!(filtered.count, 1);
+    assert_eq!(filtered.account_ids, Some(vec!["acc-b".into()]));
+    assert_eq!(filtered.accounts[0].item_id, "item-b");
+    assert_eq!(filtered.accounts[0].source_endpoint, "/accounts/balance/get");
+    assert_eq!(filtered.accounts[0].balance_freshness, "realtime");
+    let filtered_account: CachedAccount =
+        decode_json_value(filtered.accounts[0].account.clone(), "filtered cached account payload");
+    assert_eq!(filtered_account.balances.available, Some(22.0));
 }
 
 #[test]
@@ -1039,7 +1099,7 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
         )
         .expect("other item transactions should cache");
 
-    let current: Value = run_command(&[
+    let current: CacheTransactionsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -1049,15 +1109,15 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
         "--account-id",
         "acc-a",
     ]);
-    assert_eq!(current["source"], "cache");
-    assert_eq!(current["item_id"], "item-a");
-    assert_eq!(current["account_id"], "acc-a");
-    assert_eq!(current["cursor"], "cursor-a-removed");
-    assert_eq!(current["count"], 1);
-    assert_eq!(current["transactions"][0]["transaction_id"], "tx-a");
-    assert_eq!(current["transactions"][0]["removed"], false);
+    assert_eq!(current.source, "cache");
+    assert_eq!(current.item_id.as_deref(), Some("item-a"));
+    assert_eq!(current.account_id.as_deref(), Some("acc-a"));
+    assert_eq!(current.cursor.as_deref(), Some("cursor-a-removed"));
+    assert_eq!(current.count, 1);
+    assert_eq!(current.transactions[0].transaction_id, "tx-a");
+    assert!(!current.transactions[0].removed);
 
-    let removed: Value = run_command(&[
+    let removed: CacheTransactionsOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -1068,16 +1128,26 @@ fn cache_transactions_reads_cached_transactions_and_cursor_without_network() {
         "--transaction-id",
         "tx-removed",
     ]);
-    assert_eq!(removed["count"], 1);
-    assert_eq!(removed["include_removed"], true);
-    assert_eq!(removed["transactions"][0]["transaction_id"], "tx-removed");
-    assert_eq!(removed["transactions"][0]["removed"], true);
-    assert_eq!(removed["transactions"][0]["account_id"], "acc-a");
-    assert_eq!(removed["transactions"][0]["transaction"]["name"], "Dinner");
-    assert_eq!(removed["transactions"][0]["transaction"]["amount"], 18.75);
+    assert_eq!(removed.count, 1);
+    assert_eq!(removed.include_removed, Some(true));
+    assert_eq!(removed.transactions[0].transaction_id, "tx-removed");
+    assert!(removed.transactions[0].removed);
+    assert_eq!(removed.transactions[0].account_id.as_deref(), Some("acc-a"));
+    let removed_transaction: CachedTransaction =
+        decode_json_value(removed.transactions[0].transaction.clone(), "removed transaction payload");
+    assert_eq!(removed_transaction.name, "Dinner");
+    assert_eq!(removed_transaction.amount, Some(18.75));
+    let removal: CachedRemoval =
+        decode_json_value(
+            removed.transactions[0]
+                .removal
+                .clone()
+                .expect("removed transaction should include removal details"),
+            "removed transaction tombstone",
+        );
     assert_eq!(
-        removed["transactions"][0]["removal"]["pending_transaction_id"],
-        "pending-tx-removed"
+        removal.pending_transaction_id.as_deref(),
+        Some("pending-tx-removed")
     );
 }
 
@@ -1124,10 +1194,10 @@ fn cache_store_migrates_transaction_tombstone_columns_without_losing_snapshots()
         )
         .expect("removed transaction should cache after migration");
 
-    let migrated = cached_transaction(&cache_path, "tx-legacy");
-    assert_eq!(migrated["name"], "Legacy");
-    assert_eq!(migrated["amount"], 44.10);
-    assert_eq!(migrated["account_id"], "acc-a");
+    let migrated: CachedTransaction = cached_json(&cache_path, "plaid_transactions", "transaction_id", "tx-legacy");
+    assert_eq!(migrated.name, "Legacy");
+    assert_eq!(migrated.amount, Some(44.10));
+    assert_eq!(migrated.account_id.as_deref(), Some("acc-a"));
     assert!(cached_transaction_removed(&cache_path, "tx-legacy"));
 
     let connection = Connection::open(&cache_path).expect("cache db should reopen");
@@ -1138,8 +1208,8 @@ fn cache_store_migrates_transaction_tombstone_columns_without_losing_snapshots()
             |row| row.get(0),
         )
         .expect("removed json should exist");
-    let removal: Value = serde_json::from_str(&removal_json).expect("removed json should parse");
-    assert_eq!(removal["pending_transaction_id"], "pending-legacy");
+    let removal: CachedRemoval = serde_json::from_str(&removal_json).expect("removed json should parse");
+    assert_eq!(removal.pending_transaction_id.as_deref(), Some("pending-legacy"));
 
     let removed_at: String = connection
         .query_row(
@@ -1223,7 +1293,7 @@ fn item_remove_bootstraps_item_id_and_purges_local_state_and_cache() {
         )
         .expect("transactions should cache");
 
-    let output: Value = run_command(&[
+    let output: ItemRemoveOutput = run_command(&[
         "plaid",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -1236,16 +1306,16 @@ fn item_remove_bootstraps_item_id_and_purges_local_state_and_cache() {
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].path, "/item/get");
     assert_eq!(requests[1].path, "/item/remove");
-    let remove_body: Value = requests[1].json_body();
-    assert_eq!(remove_body["access_token"], "stored-access-token");
-    assert_eq!(output["removed"], true);
-    assert_eq!(output["item_id"], "item-remove");
-    assert_eq!(output["local_cache_purged"]["items_deleted"], 1);
-    assert_eq!(output["local_cache_purged"]["accounts_deleted"], 1);
-    assert_eq!(output["local_cache_purged"]["transactions_deleted"], 1);
-    assert_eq!(output["local_cache_purged"]["cursors_deleted"], 1);
-    assert_eq!(output["local_state"]["access_token_cleared"], true);
-    assert_eq!(output["local_state"]["item_id_cleared"], true);
+    let remove_body: AccessTokenRequest = requests[1].json_body();
+    assert_eq!(remove_body.access_token, "stored-access-token");
+    assert!(output.removed);
+    assert_eq!(output.item_id, "item-remove");
+    assert_eq!(output.local_cache_purged.items_deleted, 1);
+    assert_eq!(output.local_cache_purged.accounts_deleted, 1);
+    assert_eq!(output.local_cache_purged.transactions_deleted, 1);
+    assert_eq!(output.local_cache_purged.cursors_deleted, 1);
+    assert!(output.local_state.access_token_cleared);
+    assert!(output.local_state.item_id_cleared);
 
     let state = StateStore::new(config_path).load().expect("state should load");
     assert!(state.access_token.is_none());
