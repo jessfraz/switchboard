@@ -1167,8 +1167,8 @@ switchboard tools list</pre>
             <p>{mychart_tools} tools, {mychart_curated} curated, {mychart_raw} raw. Switchboard pins Epic account selection and config state per namespace so patient portals stop stepping on each other.</p>
           </div>
           <div class="card">
-            <h3>OAuth helper</h3>
-            <p><a href="./mychart-callback/">MyChart callback page</a> stays here because Epic still insists on HTTPS redirect URIs. Boring, but useful.</p>
+            <h3>OAuth helpers</h3>
+            <p><a href="./mychart-callback/">MyChart callback page</a> and <a href="./schwab-callback/">Schwab callback page</a> live here because some APIs still insist on HTTPS redirect URIs. Petty, but useful.</p>
           </div>
         </div>
       </section>
@@ -1272,9 +1272,21 @@ fn render_deploy_site(snapshot: &CatalogSnapshot, output_dir: &Path) -> Result<(
     fs::write(reference_dir.join("index.html"), render_reference_html(snapshot))
         .with_context(|| format!("failed to write {}", reference_dir.join("index.html").display()))?;
 
-    let callback_source = workspace_root().join("pages/mychart-callback");
-    let callback_target = output_dir.join("mychart-callback");
-    copy_directory(&callback_source, &callback_target)?;
+    copy_hosted_pages(&workspace_root().join("pages"), output_dir)?;
+    Ok(())
+}
+
+fn copy_hosted_pages(source_root: &Path, output_dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(source_root).with_context(|| format!("failed to read {}", source_root.display()))? {
+        let entry = entry.context("failed to read directory entry")?;
+        let source_path = entry.path();
+        if !source_path.is_dir() {
+            continue;
+        }
+        let target_path = output_dir.join(entry.file_name());
+        copy_directory(&source_path, &target_path)?;
+    }
+
     Ok(())
 }
 
