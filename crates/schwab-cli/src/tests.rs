@@ -12,7 +12,7 @@ use std::{
 };
 
 use clap::Parser;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::{
@@ -96,7 +96,7 @@ fn auth_authorize_url_generates_and_persists_state() {
     let temp_dir = temp_dir("schwab-auth-authorize");
     let config_path = temp_dir.join("config.json");
 
-    let output: Value = run_command(&[
+    let output: AuthAuthorizeUrlResponse = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -111,16 +111,11 @@ fn auth_authorize_url_generates_and_persists_state() {
         "authorize-url",
     ]);
 
-    let state = output
-        .get("state")
-        .and_then(Value::as_str)
-        .expect("authorize output should include state");
+    let state = output.state.as_str();
     assert_eq!(state.len(), 32);
-    assert!(output
-        .get("authorize_url")
-        .and_then(Value::as_str)
-        .expect("authorize url should exist")
-        .contains(&format!("state={state}")));
+    assert!(output.authorize_url.contains(&format!("state={state}")));
+    assert_eq!(output.redirect_uri, "https://example.com/callback");
+    assert_eq!(output.scope, vec!["readonly"]);
 
     let stored = StateStore::new(config_path).load().expect("stored state should load");
     assert_eq!(stored.redirect_uri.as_deref(), Some("https://example.com/callback"));
@@ -132,7 +127,7 @@ fn auth_authorize_url_defaults_to_pages_redirect_uri() {
     let temp_dir = temp_dir("schwab-auth-authorize-default-redirect");
     let config_path = temp_dir.join("config.json");
 
-    let output: Value = run_command(&[
+    let output: AuthAuthorizeUrlResponse = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -145,10 +140,8 @@ fn auth_authorize_url_defaults_to_pages_redirect_uri() {
         "authorize-url",
     ]);
 
-    assert_eq!(
-        output.get("redirect_uri").and_then(Value::as_str),
-        Some(crate::state::PAGES_REDIRECT_URI)
-    );
+    assert_eq!(output.redirect_uri, crate::state::PAGES_REDIRECT_URI);
+    assert_eq!(output.scope, vec!["readonly"]);
 
     let stored = StateStore::new(config_path).load().expect("stored state should load");
     assert_eq!(stored.redirect_uri.as_deref(), Some(crate::state::PAGES_REDIRECT_URI));
@@ -307,10 +300,7 @@ fn accounts_get_resolves_plain_account_number_to_hash() {
             .as_deref(),
         Some("hash-123")
     );
-    assert_eq!(
-        output.securities_account.get("accountNumber").and_then(Value::as_str),
-        Some("hash-123")
-    );
+    assert_eq!(output.securities_account.account_number, "hash-123");
 }
 
 #[test]
@@ -352,7 +342,12 @@ fn orders_place_returns_location_metadata() {
     assert_eq!(request.len(), 1);
     assert_eq!(request[0].method, "POST");
     assert_eq!(request[0].path, "/accounts/hash-123/orders");
-    assert_eq!(request[0].json_body::<Value>(), json!({ "orderType": "MARKET" }));
+    assert_eq!(
+        request[0].json_body::<OrderPlaceRequestBody>(),
+        OrderPlaceRequestBody {
+            order_type: "MARKET".into(),
+        }
+    );
     assert_eq!(output.status_code, 201);
     assert_eq!(output.location.as_deref(), Some("https://example.test/orders/55"));
 }
@@ -383,7 +378,7 @@ fn orders_preview_posts_expected_body() {
         },
     );
 
-    let output: Value = run_command(&[
+    let output: OrderPreviewResponse = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -401,10 +396,13 @@ fn orders_preview_posts_expected_body() {
     assert_eq!(request[0].method, "POST");
     assert_eq!(request[0].path, "/accounts/hash-123/previewOrder");
     assert_eq!(
-        request[0].json_body::<Value>(),
-        json!({ "orderType": "LIMIT", "price": 12.34 })
+        request[0].json_body::<OrderPreviewRequestBody>(),
+        OrderPreviewRequestBody {
+            order_type: "LIMIT".into(),
+            price: 12.34,
+        }
     );
-    assert_eq!(output.get("orderId").and_then(Value::as_i64), Some(77));
+    assert_eq!(output.order_id, 77);
 }
 
 #[test]
@@ -438,7 +436,7 @@ fn transactions_list_builds_expected_query() {
         },
     );
 
-    let output: Vec<Value> = run_command(&[
+    let output: Vec<TransactionListEntry> = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -465,6 +463,8 @@ fn transactions_list_builds_expected_query() {
     assert_eq!(request[0].query_value("types"), Some("TRADE"));
     assert_eq!(request[0].query_value("symbol"), Some("AAPL"));
     assert_eq!(output.len(), 1);
+    assert_eq!(output[0].transaction_id, 99);
+    assert_eq!(output[0].transaction_type, "TRADE");
 }
 
 #[test]
@@ -495,7 +495,7 @@ fn preferences_get_includes_trader_headers() {
         },
     );
 
-    let _: Value = run_command(&[
+    let output: PreferencesResponse = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -503,6 +503,7 @@ fn preferences_get_includes_trader_headers() {
         "preferences",
         "get",
     ]);
+    assert!(output.accounts.is_empty());
 
     let request = captured_requests(&capture);
     assert_eq!(request.len(), 1);
@@ -552,7 +553,7 @@ fn market_quotes_use_market_data_base_url() {
         },
     );
 
-    let output: BTreeMap<String, Value> = run_command(&[
+    let output: BTreeMap<String, MarketQuoteResponse> = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -585,7 +586,10 @@ fn market_quotes_use_market_data_base_url() {
             .len()
             >= 36
     );
-    assert!(output.contains_key("AAPL"));
+    assert_eq!(
+        output.get("AAPL").map(|quote| quote.asset_main_type.as_str()),
+        Some("EQUITY")
+    );
 }
 
 #[test]
@@ -612,7 +616,7 @@ fn market_chain_builds_expected_query() {
         },
     );
 
-    let output: Value = run_command(&[
+    let output: MarketChainResponse = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -649,7 +653,8 @@ fn market_chain_builds_expected_query() {
     assert_eq!(request[0].query_value("toDate"), Some("2026-04-30"));
     assert_eq!(request[0].query_value("expMonth"), Some("APR"));
     assert_eq!(request[0].query_value("entitlement"), Some("NP"));
-    assert_eq!(output.get("symbol").and_then(Value::as_str), Some("AAPL"));
+    assert_eq!(output.symbol, "AAPL");
+    assert_eq!(output.status, "SUCCESS");
 }
 
 #[test]
@@ -676,7 +681,7 @@ fn market_instrument_fetches_by_cusip() {
         },
     );
 
-    let output: Value = run_command(&[
+    let output: InstrumentResponse = run_command(&[
         "schwab",
         "--config",
         config_path.to_str().expect("config path should be utf-8"),
@@ -689,7 +694,8 @@ fn market_instrument_fetches_by_cusip() {
     let request = captured_requests(&capture);
     assert_eq!(request.len(), 1);
     assert_eq!(request[0].path, "/instruments/037833100");
-    assert_eq!(output.get("symbol").and_then(Value::as_str), Some("AAPL"));
+    assert_eq!(output.symbol, "AAPL");
+    assert_eq!(output.cusip, "037833100");
 }
 
 #[derive(Debug, Deserialize)]
@@ -698,15 +704,82 @@ struct AuthExchangeResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct AuthAuthorizeUrlResponse {
+    authorize_url: String,
+    redirect_uri: String,
+    scope: Vec<String>,
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct AccountGetResponse {
     #[serde(rename = "securitiesAccount")]
-    securities_account: Value,
+    securities_account: SecuritiesAccountResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct SecuritiesAccountResponse {
+    #[serde(rename = "accountNumber")]
+    account_number: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct EmptySuccessResponse {
     status_code: u16,
     location: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OrderPreviewResponse {
+    #[serde(rename = "orderId")]
+    order_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct TransactionListEntry {
+    #[serde(rename = "transactionId")]
+    transaction_id: i64,
+    #[serde(rename = "type")]
+    transaction_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PreferencesResponse {
+    accounts: Vec<PreferencesAccount>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PreferencesAccount;
+
+#[derive(Debug, Deserialize)]
+struct MarketQuoteResponse {
+    #[serde(rename = "assetMainType")]
+    asset_main_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MarketChainResponse {
+    symbol: String,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InstrumentResponse {
+    symbol: String,
+    cusip: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct OrderPlaceRequestBody {
+    #[serde(rename = "orderType")]
+    order_type: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct OrderPreviewRequestBody {
+    #[serde(rename = "orderType")]
+    order_type: String,
+    price: f64,
 }
 
 fn run_command<T: DeserializeOwned>(args: &[&str]) -> T {
@@ -800,10 +873,10 @@ struct ResponseSpec {
 }
 
 impl ResponseSpec {
-    fn json(status_code: u16, body: Value) -> Self {
+    fn json<T: Serialize>(status_code: u16, body: T) -> Self {
         Self {
             status_code,
-            body: body.to_string(),
+            body: serde_json::to_string(&body).expect("response body should serialize"),
             headers: Vec::new(),
         }
     }
