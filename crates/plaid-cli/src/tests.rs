@@ -33,7 +33,7 @@ use super::{
     },
     main_entry, render_cli_error, run,
     state::{PlaidEnvironment, PlaidState, StateStore, DEFAULT_PLAID_VERSION},
-    Cli,
+    Cli, PLAID_GITHUB_PAGES_REDIRECT_URI,
 };
 
 #[test]
@@ -153,6 +153,7 @@ fn link_token_create_builds_user_products_and_transactions_options() {
     assert_eq!(body.products, Some(vec!["transactions".into(), "auth".into()]));
     assert_eq!(body.country_codes, vec!["US", "CA"]);
     assert_eq!(body.transactions, Some(LinkTokenTransactions { days_requested: 180 }));
+    assert_eq!(body.redirect_uri.as_deref(), Some(PLAID_GITHUB_PAGES_REDIRECT_URI));
     assert_eq!(body.webhook.as_deref(), Some("https://example.com/plaid-webhook"));
     assert_eq!(output.link_token, "link-sandbox-1234");
 }
@@ -209,7 +210,7 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
         "--routing-number",
         "021000021",
         "--redirect-uri",
-        "https://jessfraz.github.io/switchboard/plaid-callback/",
+        "https://example.com/plaid-redirect",
         "--depository-subtype",
         "checking",
         "--investment-subtype",
@@ -228,10 +229,7 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
     assert_eq!(body.access_token.as_deref(), Some("stored-access-token"));
     assert_eq!(body.link_customization_name.as_deref(), Some("default"));
     assert_eq!(body.android_package_name.as_deref(), Some("com.example.switchboard"));
-    assert_eq!(
-        body.redirect_uri.as_deref(),
-        Some("https://jessfraz.github.io/switchboard/plaid-callback/")
-    );
+    assert_eq!(body.redirect_uri.as_deref(), Some("https://example.com/plaid-redirect"));
     assert_eq!(
         body.institution_data,
         Some(LinkTokenInstitutionData {

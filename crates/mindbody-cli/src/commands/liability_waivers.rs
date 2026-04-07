@@ -6,9 +6,12 @@ use std::{
 
 use clap::{Args, Subcommand};
 use reqwest::Method;
-use serde_json::{json, Map, Value};
+use serde::Serialize;
+use serde_json::Value;
 
-use crate::{execute, execute_json, Error, MindbodyClient, ResolvedContext, Result};
+use crate::{
+    commands::shared::serialize_payload, execute, execute_json, Error, MindbodyClient, ResolvedContext, Result,
+};
 
 const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -45,18 +48,20 @@ pub(crate) struct SignLiabilityWaiverArgs {
 
 impl SignLiabilityWaiverArgs {
     fn build_body(&self) -> Result<Value> {
-        let mut body = Map::new();
-        body.insert("bookingId".into(), json!(self.booking_id));
-        body.insert(
-            "liabilityWaiverHashedText".into(),
-            json!(self.liability_waiver_hashed_text),
-        );
-        body.insert(
-            "pngBase64UserSignaturePicture".into(),
-            json!(read_and_encode_signature_png(&self.signature_png_file)?),
-        );
-        Ok(Value::Object(body))
+        serialize_payload(LiabilityWaiverSignRequest {
+            booking_id: self.booking_id.clone(),
+            liability_waiver_hashed_text: self.liability_waiver_hashed_text.clone(),
+            png_base64_user_signature_picture: read_and_encode_signature_png(&self.signature_png_file)?,
+        })
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LiabilityWaiverSignRequest {
+    booking_id: String,
+    liability_waiver_hashed_text: String,
+    png_base64_user_signature_picture: String,
 }
 
 pub(crate) fn run_liability_waivers(

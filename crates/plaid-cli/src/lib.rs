@@ -27,6 +27,8 @@ use crate::{
     },
 };
 
+pub(crate) const PLAID_GITHUB_PAGES_REDIRECT_URI: &str = "https://jessfraz.github.io/switchboard/plaid-callback/";
+
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  plaid auth status\n",

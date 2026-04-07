@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 use reqwest::Method;
-use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     commands::shared::{
-        push_optional_query_u64, push_ordering_query, push_window_query, OrderingArgs, WindowedQueryArgs,
+        push_optional_query_u64, push_ordering_query, push_window_query, serialize_payload, OrderingArgs,
+        WindowedQueryArgs,
     },
     execute, execute_json,
     state::validate_unique_user_id,
@@ -172,63 +173,72 @@ impl CreateBookingArgs {
     fn build_body(&self, user_id: &str) -> Result<Value> {
         self.validate(user_id)?;
 
-        let mut reconciliation = Map::new();
-        reconciliation.insert("id".into(), json!(self.reconciliation_id));
-        reconciliation.insert("type".into(), json!(self.reconciliation_type.as_api_value()));
-        reconciliation.insert(
-            "pricingOptionTotal".into(),
-            match self.reconciliation_type {
-                ReconciliationType::Pass => Value::Null,
-                ReconciliationType::PricingOption => json!(self.pricing_option_total),
-            },
-        );
-
-        let mut body = Map::new();
-        body.insert("locationId".into(), json!(self.location_id));
-        body.insert("classId".into(), json!(self.class_id));
-        body.insert("bookingReconciliation".into(), Value::Object(reconciliation));
-        body.insert("uniqueUserId".into(), json!(user_id));
-
-        if self.suppress_booking_confirmation_email {
-            body.insert("suppressBookingConfirmationEmail".into(), Value::Bool(true));
-        }
-
-        match self.reconciliation_type {
-            ReconciliationType::Pass => {
-                body.insert("paymentDetails".into(), Value::Null);
-            }
+        let payment_details = match self.reconciliation_type {
+            ReconciliationType::Pass => None,
             ReconciliationType::PricingOption => {
-                if self.suppress_purchase_receipt_email {
-                    body.insert("suppressPurchaseReceiptEmail".into(), Value::Bool(true));
-                }
-                if self.subscriber_marketing_opt_in {
-                    body.insert("subscriberMarketingOptIn".into(), Value::Bool(true));
-                }
-                if let Some(user_first) = self.user_first.as_ref() {
-                    body.insert("userFirst".into(), json!(user_first));
-                }
-                if let Some(user_last) = self.user_last.as_ref() {
-                    body.insert("userLast".into(), json!(user_last));
-                }
-                if let Some(user_email) = self.user_email.as_ref() {
-                    body.insert("userEmail".into(), json!(user_email));
-                }
-                if let Some(user_phone) = self.user_phone.as_ref() {
-                    body.insert("userPhone".into(), json!(user_phone));
-                }
                 let payment_file = self
                     .payment_file
                     .as_deref()
                     .ok_or_else(|| Error::Arguments("pricing-option bookings require --payment-file".into()))?;
-                body.insert(
-                    "paymentDetails".into(),
-                    read_payment_details(payment_file)?.into_value(),
-                );
+                Some(read_payment_details(payment_file)?.into_payload())
             }
-        }
+        };
 
-        Ok(Value::Object(body))
+        serialize_payload(BookingCreateRequest {
+            location_id: self.location_id,
+            class_id: self.class_id,
+            booking_reconciliation: BookingReconciliationPayload {
+                id: self.reconciliation_id.clone(),
+                r#type: self.reconciliation_type.as_api_value().to_owned(),
+                pricing_option_total: match self.reconciliation_type {
+                    ReconciliationType::Pass => None,
+                    ReconciliationType::PricingOption => self.pricing_option_total,
+                },
+            },
+            unique_user_id: user_id.to_owned(),
+            suppress_booking_confirmation_email: self.suppress_booking_confirmation_email.then_some(true),
+            suppress_purchase_receipt_email: self.suppress_purchase_receipt_email.then_some(true),
+            subscriber_marketing_opt_in: self.subscriber_marketing_opt_in.then_some(true),
+            user_first: self.user_first.clone(),
+            user_last: self.user_last.clone(),
+            user_email: self.user_email.clone(),
+            user_phone: self.user_phone.clone(),
+            payment_details,
+        })
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BookingCreateRequest {
+    location_id: u64,
+    class_id: u64,
+    booking_reconciliation: BookingReconciliationPayload,
+    unique_user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suppress_booking_confirmation_email: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suppress_purchase_receipt_email: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    subscriber_marketing_opt_in: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_first: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_last: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_phone: Option<String>,
+    payment_details: Option<PaymentDetails>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BookingReconciliationPayload {
+    id: String,
+    #[serde(rename = "type")]
+    r#type: String,
+    pricing_option_total: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,30 +265,37 @@ struct PaymentDetailsInput {
     billing_postal_code: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PaymentDetails {
+    credit_card_number: String,
+    credit_card_expiration_year: u16,
+    credit_card_expiration_month: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    credit_card_cvv: Option<String>,
+    billing_name: String,
+    billing_address_line_1: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    billing_address_line_2: Option<String>,
+    billing_city: String,
+    billing_state: String,
+    billing_postal_code: String,
+}
+
 impl PaymentDetailsInput {
-    fn into_value(self) -> Value {
-        let mut value = Map::new();
-        value.insert("creditCardNumber".into(), json!(self.credit_card_number));
-        value.insert(
-            "creditCardExpirationYear".into(),
-            json!(self.credit_card_expiration_year),
-        );
-        value.insert(
-            "creditCardExpirationMonth".into(),
-            json!(self.credit_card_expiration_month),
-        );
-        if let Some(credit_card_cvv) = self.credit_card_cvv {
-            value.insert("creditCardCvv".into(), json!(credit_card_cvv));
+    fn into_payload(self) -> PaymentDetails {
+        PaymentDetails {
+            credit_card_number: self.credit_card_number,
+            credit_card_expiration_year: self.credit_card_expiration_year,
+            credit_card_expiration_month: self.credit_card_expiration_month,
+            credit_card_cvv: self.credit_card_cvv,
+            billing_name: self.billing_name,
+            billing_address_line_1: self.billing_address_line_1,
+            billing_address_line_2: self.billing_address_line_2,
+            billing_city: self.billing_city,
+            billing_state: self.billing_state,
+            billing_postal_code: self.billing_postal_code,
         }
-        value.insert("billingName".into(), json!(self.billing_name));
-        value.insert("billingAddressLine1".into(), json!(self.billing_address_line_1));
-        if let Some(billing_address_line_2) = self.billing_address_line_2 {
-            value.insert("billingAddressLine2".into(), json!(billing_address_line_2));
-        }
-        value.insert("billingCity".into(), json!(self.billing_city));
-        value.insert("billingState".into(), json!(self.billing_state));
-        value.insert("billingPostalCode".into(), json!(self.billing_postal_code));
-        Value::Object(value)
     }
 }
 

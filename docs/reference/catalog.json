@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 746,
+    "tool_count": 747,
     "curated_count": 15,
-    "raw_count": 731,
+    "raw_count": 732,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -40,9 +40,9 @@
     },
     {
       "provider": "schwab",
-      "tool_count": 30,
+      "tool_count": 31,
       "curated_count": 0,
-      "raw_count": 30,
+      "raw_count": 31,
       "stable_count": 0,
       "planning_only_count": 0,
       "undoable_count": 0,
@@ -24961,6 +24961,40 @@
         "# fixed CLI path: auth exchange-url"
       ],
       "doc_path": "reference/#tool=schwab.cli.auth.exchange-url"
+    },
+    {
+      "name": "schwab.cli.auth.login",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab auth login",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.auth.login --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.auth.login --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: auth login"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.auth.login"
     },
     {
       "name": "schwab.cli.auth.logout",
