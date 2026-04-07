@@ -5,7 +5,7 @@
 | `github` | 5 | 2 | 186 | 0 |
 | `google` | 6 | 2 | 483 | 1 |
 | `mychart` | 0 | 0 | 32 | 0 |
-| `schwab` | 0 | 0 | 22 | 0 |
+| `schwab` | 0 | 0 | 30 | 0 |
 
 ## Status meanings
 
