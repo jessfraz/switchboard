@@ -82,6 +82,7 @@ pub(crate) fn run_market(command: MarketSubcommand, context: &ResolvedContext) -
                 method: reqwest::Method::GET,
                 path: format!("/{}/quotes", args.symbol),
                 query,
+                headers: Vec::new(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
@@ -96,6 +97,7 @@ pub(crate) fn run_market(command: MarketSubcommand, context: &ResolvedContext) -
                 method: reqwest::Method::GET,
                 path: "/quotes".into(),
                 query,
+                headers: Vec::new(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
@@ -115,6 +117,7 @@ pub(crate) fn run_market(command: MarketSubcommand, context: &ResolvedContext) -
                 method: reqwest::Method::GET,
                 path: "/pricehistory".into(),
                 query,
+                headers: Vec::new(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })

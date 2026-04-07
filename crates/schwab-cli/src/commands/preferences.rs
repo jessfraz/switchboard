@@ -25,6 +25,7 @@ pub(crate) fn run_preferences(command: PreferenceSubcommand, context: &ResolvedC
             method: reqwest::Method::GET,
             path: "/userPreference".into(),
             query: Vec::new(),
+            headers: context.trader_headers(),
             body: RequestBody::None,
             auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
         }),

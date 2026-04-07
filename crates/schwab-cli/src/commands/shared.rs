@@ -67,6 +67,7 @@ pub(crate) fn resolve_account_id(
         method: Method::GET,
         path: "/accounts/accountNumbers".into(),
         query: Vec::new(),
+        headers: context.trader_headers(),
         body: RequestBody::None,
         auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
     })?;

@@ -1,6 +1,6 @@
 use reqwest::{
     blocking::Client,
-    header::{HeaderMap, LOCATION},
+    header::{HeaderMap, HeaderName, HeaderValue, LOCATION},
     Method, Url,
 };
 use serde_json::{json, Value};
@@ -22,6 +22,7 @@ pub(crate) struct RequestSpec {
     pub(crate) method: Method,
     pub(crate) path: String,
     pub(crate) query: Vec<(String, String)>,
+    pub(crate) headers: Vec<(String, String)>,
     pub(crate) body: RequestBody,
     pub(crate) auth: AuthMode,
 }
@@ -99,6 +100,14 @@ impl SchwabClient {
             AuthMode::Basic { username, password } => request.basic_auth(username, Some(password)),
             AuthMode::Bearer(token) => request.bearer_auth(token),
         };
+
+        for (name, value) in spec.headers {
+            let header_name = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|error| Error::Config(format!("invalid Schwab header name {name:?}: {error}")))?;
+            let header_value = HeaderValue::from_str(&value)
+                .map_err(|error| Error::Config(format!("invalid Schwab header value for {name}: {error}")))?;
+            request = request.header(header_name, header_value);
+        }
 
         request = match spec.body {
             RequestBody::None => request,

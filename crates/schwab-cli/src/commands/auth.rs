@@ -1,3 +1,5 @@
+use std::{fs::File, io::Read};
+
 use clap::{Args, Subcommand};
 use reqwest::Url;
 use serde_json::{json, Value};
@@ -75,6 +77,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             let client_id = context.require_client_id()?;
             let redirect_uri = context.require_redirect_uri(args.redirect_uri)?;
             let scopes = resolve_scopes(args.scopes);
+            let oauth_state = args.state.unwrap_or(generate_oauth_state()?);
             let mut url = Url::parse(&context.authorize_url).map_err(|error| {
                 Error::Config(format!(
                     "invalid Schwab authorize URL {:?}: {error}",
@@ -87,15 +90,16 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
                 pairs.append_pair("client_id", client_id);
                 pairs.append_pair("redirect_uri", &redirect_uri);
                 pairs.append_pair("scope", &scopes.join(" "));
-                if let Some(state) = args.state.as_ref() {
-                    pairs.append_pair("state", state);
-                }
+                pairs.append_pair("state", &oauth_state);
             }
+
+            context.remember_authorization_request(redirect_uri.clone(), oauth_state.clone())?;
 
             Ok(json!({
                 "authorize_url": url.as_str(),
                 "redirect_uri": redirect_uri,
                 "scope": scopes,
+                "state": oauth_state,
             }))
         }
         AuthSubcommand::ExchangeCode(args) => exchange_code(
@@ -107,6 +111,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
         ),
         AuthSubcommand::ExchangeUrl(args) => {
             let callback = parse_callback_input(&args.callback_input)?;
+            validate_callback(context, &callback)?;
             exchange_code(&client, context, callback.code, callback.redirect_uri, args.no_store)
         }
         AuthSubcommand::Refresh(args) => {
@@ -120,6 +125,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
                 method: reqwest::Method::POST,
                 path: context.token_url.clone(),
                 query: Vec::new(),
+                headers: Vec::new(),
                 body: RequestBody::Form(vec![
                     ("grant_type".into(), "refresh_token".into()),
                     ("refresh_token".into(), refresh_token),
@@ -160,6 +166,7 @@ fn exchange_code(
         method: reqwest::Method::POST,
         path: context.token_url.clone(),
         query: Vec::new(),
+        headers: Vec::new(),
         body: RequestBody::Form(vec![
             ("grant_type".into(), "authorization_code".into()),
             ("code".into(), code),
@@ -203,6 +210,7 @@ fn auth_status(client: &SchwabClient, context: &ResolvedContext) -> Result<Value
         method: reqwest::Method::GET,
         path: "/userPreference".into(),
         query: Vec::new(),
+        headers: context.trader_headers(),
         body: RequestBody::None,
         auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
     }) {
@@ -268,6 +276,7 @@ fn split_scope(scope: Option<&str>) -> Vec<String> {
 struct CallbackInput {
     code: String,
     redirect_uri: String,
+    state: Option<String>,
 }
 
 fn parse_callback_input(input: &str) -> Result<CallbackInput> {
@@ -277,6 +286,9 @@ fn parse_callback_input(input: &str) -> Result<CallbackInput> {
         .query_pairs()
         .find_map(|(key, value)| (key == "code").then(|| value.into_owned()))
         .ok_or_else(|| Error::Arguments("callback URL is missing the code query parameter".into()))?;
+    let state = url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "state").then(|| value.into_owned()));
 
     let mut redirect_uri = url.clone();
     redirect_uri.set_query(None);
@@ -285,5 +297,82 @@ fn parse_callback_input(input: &str) -> Result<CallbackInput> {
     Ok(CallbackInput {
         code,
         redirect_uri: redirect_uri.to_string(),
+        state,
     })
+}
+
+fn validate_callback(context: &ResolvedContext, callback: &CallbackInput) -> Result<()> {
+    if let Some(expected_redirect_uri) = context.redirect_uri.as_deref() {
+        let expected = normalize_redirect_uri(expected_redirect_uri)?;
+        let received = normalize_redirect_uri(&callback.redirect_uri)?;
+        if received != expected {
+            return Err(Error::Arguments(format!(
+                "callback redirect URI {received:?} did not match stored redirect URI {expected:?}"
+            )));
+        }
+    }
+
+    if let Some(expected_state) = context.pending_oauth_state.as_deref() {
+        match callback.state.as_deref() {
+            Some(received_state) if received_state == expected_state => {}
+            Some(received_state) => {
+                return Err(Error::Arguments(format!(
+                    "callback state {received_state:?} did not match stored OAuth state"
+                )))
+            }
+            None => {
+                return Err(Error::Arguments(
+                    "callback URL is missing the state query parameter".into(),
+                ))
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn normalize_redirect_uri(value: &str) -> Result<String> {
+    let mut url =
+        Url::parse(value).map_err(|error| Error::Arguments(format!("redirect URI must be a valid URL: {error}")))?;
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string())
+}
+
+fn generate_oauth_state() -> Result<String> {
+    Ok(hex_encode(&random_bytes(16)?))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output
+}
+
+fn random_bytes(bytes: usize) -> Result<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        let mut buffer = vec![0u8; bytes];
+        let mut file = File::open("/dev/urandom").map_err(|error| {
+            Error::Io(format!(
+                "failed to open /dev/urandom for OAuth state generation: {error}"
+            ))
+        })?;
+        file.read_exact(&mut buffer).map_err(|error| {
+            Error::Io(format!(
+                "failed to read random bytes for OAuth state generation: {error}"
+            ))
+        })?;
+        Ok(buffer)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = bytes;
+        Err(Error::Config(
+            "automatic OAuth state generation currently needs an explicit --state on non-unix platforms".into(),
+        ))
+    }
 }

@@ -62,6 +62,7 @@ pub(crate) fn run_transactions(command: TransactionSubcommand, context: &mut Res
                 method: reqwest::Method::GET,
                 path: format!("/accounts/{account_id}/transactions"),
                 query,
+                headers: context.trader_headers(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
@@ -72,6 +73,7 @@ pub(crate) fn run_transactions(command: TransactionSubcommand, context: &mut Res
                 method: reqwest::Method::GET,
                 path: format!("/accounts/{account_id}/transactions/{}", args.transaction_id),
                 query: Vec::new(),
+                headers: context.trader_headers(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })

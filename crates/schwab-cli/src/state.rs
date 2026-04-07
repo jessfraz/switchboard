@@ -23,7 +23,12 @@ pub(crate) const ENV_SCHWAB_CONFIG: &str = "SCHWAB_CONFIG";
 pub(crate) const ENV_SCHWAB_MARKET_DATA_BASE_URL: &str = "SCHWAB_MARKETDATA_BASE_URL";
 pub(crate) const ENV_SCHWAB_REDIRECT_URI: &str = "SCHWAB_REDIRECT_URI";
 pub(crate) const ENV_SCHWAB_REFRESH_TOKEN: &str = "SCHWAB_REFRESH_TOKEN";
+pub(crate) const ENV_SCHWAB_RRBUS_PILOT_ROLLOUT: &str = "SCHWAB_RRBUS_PILOT_ROLLOUT";
+pub(crate) const ENV_SCHWAB_RESOURCE_VERSION: &str = "SCHWAB_RESOURCE_VERSION";
+pub(crate) const ENV_SCHWAB_THIRD_PARTY_ID: &str = "SCHWAB_THIRD_PARTY_ID";
 pub(crate) const ENV_SCHWAB_TOKEN_URL: &str = "SCHWAB_TOKEN_URL";
+pub(crate) const ENV_SCHWAB_TRADER_CLIENT_APP_ID: &str = "SCHWAB_TRADER_CLIENT_APP_ID";
+pub(crate) const ENV_SCHWAB_TRADER_CLIENT_CHANNEL: &str = "SCHWAB_TRADER_CLIENT_CHANNEL";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct AccountNumberHashEntry {
@@ -50,6 +55,16 @@ pub(crate) struct SchwabState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) client_secret: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) third_party_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) client_channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) client_app_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) resource_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) rrbus_pilot_rollout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) redirect_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) access_token: Option<String>,
@@ -61,6 +76,8 @@ pub(crate) struct SchwabState {
     pub(crate) scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) expires_at_epoch_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_oauth_state: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) account_numbers: Vec<AccountNumberHashEntry>,
 }
@@ -124,12 +141,18 @@ pub(crate) struct ResolvedContext {
     pub(crate) token_url: String,
     pub(crate) client_id: Option<String>,
     pub(crate) client_secret: Option<String>,
+    pub(crate) third_party_id: Option<String>,
+    pub(crate) client_channel: Option<String>,
+    pub(crate) client_app_id: Option<String>,
+    pub(crate) resource_version: Option<String>,
+    pub(crate) rrbus_pilot_rollout: Option<String>,
     pub(crate) redirect_uri: Option<String>,
     pub(crate) access_token: Option<String>,
     pub(crate) refresh_token: Option<String>,
     pub(crate) token_type: Option<String>,
     pub(crate) scope: Option<String>,
     pub(crate) expires_at_epoch_seconds: Option<u64>,
+    pub(crate) pending_oauth_state: Option<String>,
     store: StateStore,
     state: SchwabState,
 }
@@ -151,12 +174,18 @@ impl ResolvedContext {
                 .unwrap_or_else(|| DEFAULT_TOKEN_URL.to_owned()),
             client_id: pick(global.client_id.clone(), state.client_id.clone()),
             client_secret: pick(global.client_secret.clone(), state.client_secret.clone()),
+            third_party_id: pick(global.third_party_id.clone(), state.third_party_id.clone()),
+            client_channel: pick(global.client_channel.clone(), state.client_channel.clone()),
+            client_app_id: pick(global.client_app_id.clone(), state.client_app_id.clone()),
+            resource_version: pick(global.resource_version.clone(), state.resource_version.clone()),
+            rrbus_pilot_rollout: pick(global.rrbus_pilot_rollout.clone(), state.rrbus_pilot_rollout.clone()),
             redirect_uri: pick(global.redirect_uri.clone(), state.redirect_uri.clone()),
             access_token: pick(global.access_token.clone(), state.access_token.clone()),
             refresh_token: pick(global.refresh_token.clone(), state.refresh_token.clone()),
             token_type: state.token_type.clone(),
             scope: state.scope.clone(),
             expires_at_epoch_seconds: state.expires_at_epoch_seconds,
+            pending_oauth_state: state.pending_oauth_state.clone(),
             store,
             state,
         })
@@ -210,12 +239,33 @@ impl ResolvedContext {
             .get("expires_in")
             .and_then(Value::as_u64)
             .map(|expires_in| current_epoch_seconds().saturating_add(expires_in));
+        self.state.pending_oauth_state = None;
 
         self.access_token = Some(access_token);
         self.refresh_token = refresh_token;
         self.token_type = self.state.token_type.clone();
         self.scope = self.state.scope.clone();
         self.expires_at_epoch_seconds = self.state.expires_at_epoch_seconds;
+        self.pending_oauth_state = None;
+        self.store.save(&self.state)
+    }
+
+    pub(crate) fn remember_authorization_request(&mut self, redirect_uri: String, oauth_state: String) -> Result<()> {
+        self.state.base_url = Some(self.base_url.clone());
+        self.state.market_data_base_url = Some(self.market_data_base_url.clone());
+        self.state.authorize_url = Some(self.authorize_url.clone());
+        self.state.token_url = Some(self.token_url.clone());
+        self.state.client_id = self.client_id.clone();
+        self.state.client_secret = self.client_secret.clone();
+        self.state.third_party_id = self.third_party_id.clone();
+        self.state.client_channel = self.client_channel.clone();
+        self.state.client_app_id = self.client_app_id.clone();
+        self.state.resource_version = self.resource_version.clone();
+        self.state.rrbus_pilot_rollout = self.rrbus_pilot_rollout.clone();
+        self.redirect_uri = Some(redirect_uri.clone());
+        self.state.redirect_uri = Some(redirect_uri);
+        self.pending_oauth_state = Some(oauth_state.clone());
+        self.state.pending_oauth_state = Some(oauth_state);
         self.store.save(&self.state)
     }
 
@@ -271,12 +321,32 @@ impl ResolvedContext {
         self.state.token_type = None;
         self.state.scope = None;
         self.state.expires_at_epoch_seconds = None;
+        self.state.pending_oauth_state = None;
         self.access_token = None;
         self.refresh_token = None;
         self.token_type = None;
         self.scope = None;
         self.expires_at_epoch_seconds = None;
+        self.pending_oauth_state = None;
         self.store.save(&self.state)
+    }
+
+    pub(crate) fn trader_headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![
+            ("Accept".into(), "application/json".into()),
+            ("Content-Type".into(), "application/json".into()),
+            ("Schwab-Client-CorrelId".into(), correlation_id()),
+        ];
+        push_optional_header(&mut headers, "ThirdPartyId", self.third_party_id.clone());
+        push_optional_header(&mut headers, "Schwab-Client-Channel", self.client_channel.clone());
+        push_optional_header(&mut headers, "Schwab-Client-AppId", self.client_app_id.clone());
+        push_optional_header(&mut headers, "Schwab-Resource-Version", self.resource_version.clone());
+        push_optional_header(
+            &mut headers,
+            "Schwab-RRBus-PilotRollout",
+            self.rrbus_pilot_rollout.clone(),
+        );
+        headers
     }
 }
 
@@ -284,6 +354,13 @@ fn current_epoch_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn current_epoch_nanoseconds() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
         .unwrap_or(0)
 }
 
@@ -321,6 +398,25 @@ fn required_string_field(value: &Value, keys: &[&str]) -> Result<String> {
                 keys.join(", ")
             ))
         })
+}
+
+fn push_optional_header(headers: &mut Vec<(String, String)>, key: &str, value: Option<String>) {
+    if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+        headers.push((key.to_owned(), value));
+    }
+}
+
+fn correlation_id() -> String {
+    let mixed = current_epoch_nanoseconds() ^ (u128::from(std::process::id()) << 32);
+    let hex = format!("{mixed:032x}");
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
 }
 
 fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {

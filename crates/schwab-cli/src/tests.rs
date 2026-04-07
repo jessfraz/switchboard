@@ -92,6 +92,75 @@ fn auth_exchange_code_stores_tokens() {
 }
 
 #[test]
+fn auth_authorize_url_generates_and_persists_state() {
+    let temp_dir = temp_dir("schwab-auth-authorize");
+    let config_path = temp_dir.join("config.json");
+
+    let output: Value = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--client-id",
+        "client-id",
+        "--client-secret",
+        "client-secret",
+        "--redirect-uri",
+        "https://example.com/callback",
+        "--compact",
+        "auth",
+        "authorize-url",
+    ]);
+
+    let state = output
+        .get("state")
+        .and_then(Value::as_str)
+        .expect("authorize output should include state");
+    assert_eq!(state.len(), 32);
+    assert!(output
+        .get("authorize_url")
+        .and_then(Value::as_str)
+        .expect("authorize url should exist")
+        .contains(&format!("state={state}")));
+
+    let stored = StateStore::new(config_path).load().expect("stored state should load");
+    assert_eq!(stored.redirect_uri.as_deref(), Some("https://example.com/callback"));
+    assert_eq!(stored.pending_oauth_state.as_deref(), Some(state));
+}
+
+#[test]
+fn auth_exchange_url_rejects_state_mismatch() {
+    let temp_dir = temp_dir("schwab-auth-state-mismatch");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            client_id: Some("client-id".into()),
+            client_secret: Some("client-secret".into()),
+            redirect_uri: Some("https://example.com/callback".into()),
+            pending_oauth_state: Some("expected-state".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let error = run_command_error(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "auth",
+        "exchange-url",
+        "https://example.com/callback?code=auth-code&state=wrong-state",
+    ]);
+
+    assert_eq!(error.get("kind").and_then(Value::as_str), Some("arguments"));
+    assert!(error
+        .get("message")
+        .and_then(Value::as_str)
+        .expect("error message should exist")
+        .contains("did not match stored OAuth state"));
+}
+
+#[test]
 fn accounts_get_resolves_plain_account_number_to_hash() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
@@ -204,6 +273,56 @@ fn orders_place_returns_location_metadata() {
 }
 
 #[test]
+fn orders_preview_posts_expected_body() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "orderId": 77,
+                "orderValidationResult": {
+                    "alerts": []
+                }
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-orders-preview");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: Value = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "orders",
+        "preview",
+        "--account",
+        "hash-123",
+        "--body",
+        "{\"orderType\":\"LIMIT\",\"price\":12.34}",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].method, "POST");
+    assert_eq!(request[0].path, "/accounts/hash-123/previewOrder");
+    assert_eq!(
+        request[0].json_body::<Value>(),
+        json!({ "orderType": "LIMIT", "price": 12.34 })
+    );
+    assert_eq!(output.get("orderId").and_then(Value::as_i64), Some(77));
+}
+
+#[test]
 fn transactions_list_builds_expected_query() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
@@ -261,6 +380,62 @@ fn transactions_list_builds_expected_query() {
     assert_eq!(request[0].query_value("types"), Some("TRADE"));
     assert_eq!(request[0].query_value("symbol"), Some("AAPL"));
     assert_eq!(output.len(), 1);
+}
+
+#[test]
+fn preferences_get_includes_trader_headers() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "accounts": []
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-preferences-headers");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            third_party_id: Some("third-party-id".into()),
+            client_channel: Some("GW".into()),
+            client_app_id: Some("AD00007919".into()),
+            resource_version: Some("1.0".into()),
+            rrbus_pilot_rollout: Some("Region=TUP".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let _: Value = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "preferences",
+        "get",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].path, "/userPreference");
+    assert_eq!(request[0].header("accept"), Some("application/json"));
+    assert_eq!(request[0].header("content-type"), Some("application/json"));
+    assert_eq!(request[0].header("thirdpartyid"), Some("third-party-id"));
+    assert_eq!(request[0].header("schwab-client-channel"), Some("GW"));
+    assert_eq!(request[0].header("schwab-client-appid"), Some("AD00007919"));
+    assert_eq!(request[0].header("schwab-resource-version"), Some("1.0"));
+    assert_eq!(request[0].header("schwab-rrbus-pilotrollout"), Some("Region=TUP"));
+    assert!(
+        request[0]
+            .header("schwab-client-correlid")
+            .expect("correlation id header should exist")
+            .len()
+            >= 36
+    );
 }
 
 #[test]
@@ -333,6 +508,13 @@ fn run_command<T: DeserializeOwned>(args: &[&str]) -> T {
     let compact = cli.global.compact;
     let (value, _) = run(cli).unwrap_or_else(|error| panic!("{}", render_cli_error(&error, compact)));
     serde_json::from_value(value).expect("command output should match expected type")
+}
+
+fn run_command_error(args: &[&str]) -> Value {
+    let cli = Cli::try_parse_from(args.iter().map(OsString::from)).expect("CLI should parse");
+    let compact = cli.global.compact;
+    let error = run(cli).expect_err("command should fail");
+    serde_json::from_str(&render_cli_error(&error, compact)).expect("error output should be valid json")
 }
 
 fn write_state(path: &Path, state: SchwabState) {

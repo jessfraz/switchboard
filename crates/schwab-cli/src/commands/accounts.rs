@@ -43,6 +43,7 @@ pub(crate) fn run_accounts(command: AccountSubcommand, context: &mut ResolvedCon
                 method: reqwest::Method::GET,
                 path: "/accounts/accountNumbers".into(),
                 query: Vec::new(),
+                headers: context.trader_headers(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })?;
@@ -53,6 +54,7 @@ pub(crate) fn run_accounts(command: AccountSubcommand, context: &mut ResolvedCon
             method: reqwest::Method::GET,
             path: "/accounts".into(),
             query: account_fields_query(args.positions),
+            headers: context.trader_headers(),
             body: RequestBody::None,
             auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
         }),
@@ -62,6 +64,7 @@ pub(crate) fn run_accounts(command: AccountSubcommand, context: &mut ResolvedCon
                 method: reqwest::Method::GET,
                 path: format!("/accounts/{account_id}"),
                 query: account_fields_query(args.positions),
+                headers: context.trader_headers(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
