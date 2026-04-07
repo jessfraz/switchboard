@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 738,
+    "tool_count": 746,
     "curated_count": 15,
-    "raw_count": 723,
+    "raw_count": 731,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -40,9 +40,9 @@
     },
     {
       "provider": "schwab",
-      "tool_count": 22,
+      "tool_count": 30,
       "curated_count": 0,
-      "raw_count": 22,
+      "raw_count": 30,
       "stable_count": 0,
       "planning_only_count": 0,
       "undoable_count": 0,
@@ -25065,6 +25065,244 @@
       "doc_path": "reference/#tool=schwab.cli.auth.status"
     },
     {
+      "name": "schwab.cli.market.chain",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market chain",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.chain --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.chain --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market chain"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.chain"
+    },
+    {
+      "name": "schwab.cli.market.expiration-chain",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market expiration-chain",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.expiration-chain --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.expiration-chain --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market expiration-chain"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.expiration-chain"
+    },
+    {
+      "name": "schwab.cli.market.instrument",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market instrument",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.instrument --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.instrument --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market instrument"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.instrument"
+    },
+    {
+      "name": "schwab.cli.market.instruments",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market instruments",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.instruments --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.instruments --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market instruments"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.instruments"
+    },
+    {
+      "name": "schwab.cli.market.market",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market market",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.market --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.market --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market market"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.market"
+    },
+    {
+      "name": "schwab.cli.market.markets",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market markets",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.markets --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.markets --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market markets"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.markets"
+    },
+    {
+      "name": "schwab.cli.market.movers",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab market movers",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.market.movers --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.market.movers --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: market movers"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.market.movers"
+    },
+    {
       "name": "schwab.cli.market.price-history",
       "provider": "schwab",
       "kind": "write",
@@ -25301,6 +25539,40 @@
         "# fixed CLI path: orders place"
       ],
       "doc_path": "reference/#tool=schwab.cli.orders.place"
+    },
+    {
+      "name": "schwab.cli.orders.preview",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab orders preview",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.orders.preview --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.orders.preview --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: orders preview"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.orders.preview"
     },
     {
       "name": "schwab.cli.orders.replace",
