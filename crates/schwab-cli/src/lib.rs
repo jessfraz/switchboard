@@ -16,9 +16,9 @@ use crate::{
         MarketCommand, OrderCommand, PreferenceCommand, TransactionCommand,
     },
     state::{
-        ENV_SCHWAB_ACCESS_TOKEN, ENV_SCHWAB_AUTHORIZE_URL, ENV_SCHWAB_BASE_URL, ENV_SCHWAB_CLIENT_ID,
-        ENV_SCHWAB_CLIENT_SECRET, ENV_SCHWAB_CONFIG, ENV_SCHWAB_MARKET_DATA_BASE_URL, ENV_SCHWAB_REDIRECT_URI,
-        ENV_SCHWAB_REFRESH_TOKEN, ENV_SCHWAB_RESOURCE_VERSION, ENV_SCHWAB_RRBUS_PILOT_ROLLOUT,
+        ENV_SCHWAB_ACCESS_TOKEN, ENV_SCHWAB_AUTHORIZE_URL, ENV_SCHWAB_BASE_URL, ENV_SCHWAB_CLIENT_FUNCTION_ID,
+        ENV_SCHWAB_CLIENT_ID, ENV_SCHWAB_CLIENT_SECRET, ENV_SCHWAB_CONFIG, ENV_SCHWAB_MARKET_DATA_BASE_URL,
+        ENV_SCHWAB_REDIRECT_URI, ENV_SCHWAB_REFRESH_TOKEN, ENV_SCHWAB_RESOURCE_VERSION, ENV_SCHWAB_RRBUS_PILOT_ROLLOUT,
         ENV_SCHWAB_THIRD_PARTY_ID, ENV_SCHWAB_TOKEN_URL, ENV_SCHWAB_TRADER_CLIENT_APP_ID,
         ENV_SCHWAB_TRADER_CLIENT_CHANNEL,
     },
@@ -137,6 +137,9 @@ pub(crate) struct GlobalArgs {
 
     #[arg(long = "client-app-id", global = true, env = ENV_SCHWAB_TRADER_CLIENT_APP_ID, value_name = "VALUE")]
     client_app_id: Option<String>,
+
+    #[arg(long = "client-function-id", global = true, env = ENV_SCHWAB_CLIENT_FUNCTION_ID, value_name = "VALUE")]
+    client_function_id: Option<String>,
 
     #[arg(long = "resource-version", global = true, env = ENV_SCHWAB_RESOURCE_VERSION, value_name = "VALUE")]
     resource_version: Option<String>,

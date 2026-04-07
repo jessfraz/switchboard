@@ -190,6 +190,8 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
         "com.example.switchboard",
         "--routing-number",
         "021000021",
+        "--redirect-uri",
+        "https://jessfraz.github.io/switchboard/plaid-callback/",
         "--depository-subtype",
         "checking",
         "--investment-subtype",
@@ -208,6 +210,10 @@ fn link_token_create_supports_optional_required_additional_products_and_account_
     assert_eq!(body["access_token"], "stored-access-token");
     assert_eq!(body["link_customization_name"], "default");
     assert_eq!(body["android_package_name"], "com.example.switchboard");
+    assert_eq!(
+        body["redirect_uri"],
+        "https://jessfraz.github.io/switchboard/plaid-callback/"
+    );
     assert_eq!(body["institution_data"]["routing_number"], "021000021");
     assert_eq!(
         body["account_filters"]["depository"]["account_subtypes"],

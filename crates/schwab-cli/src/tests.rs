@@ -459,6 +459,10 @@ fn market_quotes_use_market_data_base_url() {
         SchwabState {
             market_data_base_url: Some(server.base_url()),
             access_token: Some("access-token".into()),
+            client_channel: Some("GW".into()),
+            client_app_id: Some("AD00007919".into()),
+            client_function_id: Some("TR123".into()),
+            resource_version: Some("2".into()),
             ..SchwabState::default()
         },
     );
@@ -483,7 +487,124 @@ fn market_quotes_use_market_data_base_url() {
     assert_eq!(request[0].query_value("symbols"), Some("AAPL,MSFT"));
     assert_eq!(request[0].query_value("fields"), Some("quote,reference"));
     assert_eq!(request[0].query_value("indicative"), Some("true"));
+    assert_eq!(request[0].header("accept"), Some("application/json"));
+    assert_eq!(request[0].header("content-type"), Some("application/json"));
+    assert_eq!(request[0].header("schwab-client-channel"), Some("GW"));
+    assert_eq!(request[0].header("schwab-client-appid"), Some("AD00007919"));
+    assert_eq!(request[0].header("schwab-client-functionid"), Some("TR123"));
+    assert_eq!(request[0].header("schwab-resource-version"), Some("2"));
+    assert!(
+        request[0]
+            .header("schwab-client-correlid")
+            .expect("correlation id header should exist")
+            .len()
+            >= 36
+    );
     assert!(output.contains_key("AAPL"));
+}
+
+#[test]
+fn market_chain_builds_expected_query() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "symbol": "AAPL",
+                "status": "SUCCESS"
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-market-chain");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            market_data_base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: Value = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "market",
+        "chain",
+        "AAPL",
+        "--contract-type",
+        "CALL",
+        "--strike-count",
+        "4",
+        "--include-underlying-quote",
+        "--strategy",
+        "SINGLE",
+        "--from-date",
+        "2026-04-01",
+        "--to-date",
+        "2026-04-30",
+        "--exp-month",
+        "APR",
+        "--entitlement",
+        "NP",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].path, "/chains");
+    assert_eq!(request[0].query_value("symbol"), Some("AAPL"));
+    assert_eq!(request[0].query_value("contractType"), Some("CALL"));
+    assert_eq!(request[0].query_value("strikeCount"), Some("4"));
+    assert_eq!(request[0].query_value("includeUnderlyingQuote"), Some("true"));
+    assert_eq!(request[0].query_value("strategy"), Some("SINGLE"));
+    assert_eq!(request[0].query_value("fromDate"), Some("2026-04-01"));
+    assert_eq!(request[0].query_value("toDate"), Some("2026-04-30"));
+    assert_eq!(request[0].query_value("expMonth"), Some("APR"));
+    assert_eq!(request[0].query_value("entitlement"), Some("NP"));
+    assert_eq!(output.get("symbol").and_then(Value::as_str), Some("AAPL"));
+}
+
+#[test]
+fn market_instrument_fetches_by_cusip() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "cusip": "037833100",
+                "symbol": "AAPL"
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-market-instrument");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            market_data_base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: Value = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "market",
+        "instrument",
+        "037833100",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].path, "/instruments/037833100");
+    assert_eq!(output.get("symbol").and_then(Value::as_str), Some("AAPL"));
 }
 
 #[derive(Debug, Deserialize)]

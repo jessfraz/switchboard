@@ -186,8 +186,8 @@ fn build_namespace_store(
 
                     auth_ref
                 }
-                None if provider == ProviderKind::MyChart => {
-                    let auth_ref = default_mychart_auth_ref(&alias)?;
+                None if provider_uses_implicit_cli_auth(&provider) => {
+                    let auth_ref = default_cli_auth_ref(&provider, &alias)?;
                     match auth.get(&auth_ref) {
                         Some(auth_entry) if auth_entry.provider != provider => {
                             return Err(Error::Config(format!(
@@ -197,22 +197,7 @@ fn build_namespace_store(
                         }
                         Some(_) => {}
                         None => {
-                            implicit_auth.push(ResolvedAuth::new(
-                                auth_ref.as_str(),
-                                ProviderKind::MyChart,
-                                AuthKind::MyChartCli,
-                                alias.clone(),
-                                AuthSecretRefs::MyChartCli {
-                                    base_url: None,
-                                    portal_base_url: None,
-                                    client_id: None,
-                                    client_secret: None,
-                                    redirect_uri: None,
-                                    access_token: None,
-                                    refresh_token: None,
-                                    username: None,
-                                },
-                            )?);
+                            implicit_auth.push(default_cli_auth(provider.clone(), &auth_ref, &alias)?);
                         }
                     }
 
@@ -245,8 +230,57 @@ fn build_namespace_store(
     Ok((StaticNamespaceStore::new(namespaces), implicit_auth))
 }
 
-fn default_mychart_auth_ref(alias: &str) -> Result<AuthRef> {
-    AuthRef::new(format!("mychart_{alias}"))
+fn provider_uses_implicit_cli_auth(provider: &ProviderKind) -> bool {
+    matches!(provider, ProviderKind::MyChart | ProviderKind::Schwab)
+}
+
+fn default_cli_auth_ref(provider: &ProviderKind, alias: &str) -> Result<AuthRef> {
+    AuthRef::new(format!("{provider}_{alias}"))
+}
+
+fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, alias: &str) -> Result<ResolvedAuth> {
+    let (kind, secrets) = match provider {
+        ProviderKind::MyChart => (
+            AuthKind::MyChartCli,
+            AuthSecretRefs::MyChartCli {
+                base_url: None,
+                portal_base_url: None,
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                access_token: None,
+                refresh_token: None,
+                username: None,
+            },
+        ),
+        ProviderKind::Schwab => (
+            AuthKind::SchwabCli,
+            AuthSecretRefs::SchwabCli {
+                base_url: None,
+                market_data_base_url: None,
+                authorize_url: None,
+                token_url: None,
+                client_id: None,
+                client_secret: None,
+                third_party_id: None,
+                client_channel: None,
+                client_app_id: None,
+                client_function_id: None,
+                resource_version: None,
+                rrbus_pilot_rollout: None,
+                redirect_uri: None,
+                access_token: None,
+                refresh_token: None,
+            },
+        ),
+        _ => {
+            return Err(Error::Config(format!(
+                "provider {provider} does not support implicit CLI auth"
+            )))
+        }
+    };
+
+    ResolvedAuth::new(auth_ref.as_str(), provider, kind, alias.to_owned(), secrets)
 }
 
 #[derive(Debug, Deserialize)]
@@ -345,6 +379,41 @@ enum RawAuth {
         #[serde(default)]
         username: Option<String>,
     },
+    #[serde(rename = "schwab_cli")]
+    SchwabCli {
+        provider: String,
+        account: String,
+        #[serde(default)]
+        base_url: Option<String>,
+        #[serde(default)]
+        market_data_base_url: Option<String>,
+        #[serde(default)]
+        authorize_url: Option<String>,
+        #[serde(default)]
+        token_url: Option<String>,
+        #[serde(default)]
+        client_id: Option<String>,
+        #[serde(default)]
+        client_secret: Option<String>,
+        #[serde(default)]
+        third_party_id: Option<String>,
+        #[serde(default)]
+        client_channel: Option<String>,
+        #[serde(default)]
+        client_app_id: Option<String>,
+        #[serde(default)]
+        client_function_id: Option<String>,
+        #[serde(default)]
+        resource_version: Option<String>,
+        #[serde(default)]
+        rrbus_pilot_rollout: Option<String>,
+        #[serde(default)]
+        redirect_uri: Option<String>,
+        #[serde(default)]
+        access_token: Option<String>,
+        #[serde(default)]
+        refresh_token: Option<String>,
+    },
 }
 
 impl RawAuth {
@@ -354,7 +423,8 @@ impl RawAuth {
             | Self::GitHubToken { provider, .. }
             | Self::GoogleOAuth { provider, .. }
             | Self::GoogleOAuthFile { provider, .. }
-            | Self::MyChartCli { provider, .. } => provider,
+            | Self::MyChartCli { provider, .. }
+            | Self::SchwabCli { provider, .. } => provider,
         }
     }
 
@@ -364,7 +434,8 @@ impl RawAuth {
             | Self::GitHubToken { account, .. }
             | Self::GoogleOAuth { account, .. }
             | Self::GoogleOAuthFile { account, .. }
-            | Self::MyChartCli { account, .. } => account,
+            | Self::MyChartCli { account, .. }
+            | Self::SchwabCli { account, .. } => account,
         }
     }
 
@@ -375,6 +446,7 @@ impl RawAuth {
             Self::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
             Self::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
             Self::MyChartCli { .. } => AuthKind::MyChartCli,
+            Self::SchwabCli { .. } => AuthKind::SchwabCli,
         }
     }
 
@@ -419,6 +491,40 @@ impl RawAuth {
                 access_token: option_secret_ref(access_token.as_deref())?,
                 refresh_token: option_secret_ref(refresh_token.as_deref())?,
                 username: option_secret_ref(username.as_deref())?,
+            }),
+            Self::SchwabCli {
+                base_url,
+                market_data_base_url,
+                authorize_url,
+                token_url,
+                client_id,
+                client_secret,
+                third_party_id,
+                client_channel,
+                client_app_id,
+                client_function_id,
+                resource_version,
+                rrbus_pilot_rollout,
+                redirect_uri,
+                access_token,
+                refresh_token,
+                ..
+            } => Ok(AuthSecretRefs::SchwabCli {
+                base_url: option_secret_ref(base_url.as_deref())?,
+                market_data_base_url: option_secret_ref(market_data_base_url.as_deref())?,
+                authorize_url: option_secret_ref(authorize_url.as_deref())?,
+                token_url: option_secret_ref(token_url.as_deref())?,
+                client_id: option_secret_ref(client_id.as_deref())?,
+                client_secret: option_secret_ref(client_secret.as_deref())?,
+                third_party_id: option_secret_ref(third_party_id.as_deref())?,
+                client_channel: option_secret_ref(client_channel.as_deref())?,
+                client_app_id: option_secret_ref(client_app_id.as_deref())?,
+                client_function_id: option_secret_ref(client_function_id.as_deref())?,
+                resource_version: option_secret_ref(resource_version.as_deref())?,
+                rrbus_pilot_rollout: option_secret_ref(rrbus_pilot_rollout.as_deref())?,
+                redirect_uri: option_secret_ref(redirect_uri.as_deref())?,
+                access_token: option_secret_ref(access_token.as_deref())?,
+                refresh_token: option_secret_ref(refresh_token.as_deref())?,
             }),
         }
     }
@@ -548,6 +654,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/mychart-explicit-default-auth.toml"
     ));
+    const SCHWAB_EXPLICIT_DEFAULT_AUTH_CONFIG: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/config/schwab-explicit-default-auth.toml"
+    ));
 
     #[test]
     fn parses_readme_shape_config_into_namespace_auth_and_secret_stores() {
@@ -567,7 +677,8 @@ mod tests {
                 "github.personal_token",
                 "google.personal",
                 "google.work",
-                "mychart.ucla"
+                "mychart.ucla",
+                "schwab.personal"
             ]
         );
 
@@ -605,7 +716,13 @@ mod tests {
         assert_eq!(mychart_auth.kind, AuthKind::MyChartCli);
         assert!(mychart_auth.secret_refs().is_empty());
 
-        assert_eq!(secrets.list().len(), 4);
+        let schwab_auth = auth
+            .get(&AuthRef::new("schwab_personal").expect("auth ref should parse"))
+            .expect("schwab auth should exist");
+        assert_eq!(schwab_auth.kind, AuthKind::SchwabCli);
+        assert_eq!(schwab_auth.secret_refs().len(), 2);
+
+        assert_eq!(secrets.list().len(), 6);
     }
 
     #[test]
@@ -699,6 +816,24 @@ mod tests {
     }
 
     #[test]
+    fn schwab_namespace_without_auth_uses_matching_explicit_default_auth_when_present() {
+        let config =
+            SwitchboardConfig::from_toml_str(SCHWAB_EXPLICIT_DEFAULT_AUTH_CONFIG).expect("config should parse");
+        let (namespaces, auth, _secrets) = config.into_stores();
+        let namespace = namespaces
+            .get(&NamespaceId::new("schwab.personal").expect("namespace should parse"))
+            .expect("schwab.personal should exist");
+        let auth_entry = auth
+            .get(&AuthRef::new("schwab_personal").expect("auth ref should parse"))
+            .expect("schwab_personal auth should exist");
+
+        assert_eq!(namespace.auth_ref.as_str(), "schwab_personal");
+        assert_eq!(auth_entry.kind, AuthKind::SchwabCli);
+        assert_eq!(auth_entry.account_label, "jessfraz-overrides");
+        assert_eq!(auth_entry.secret_refs().len(), 1);
+    }
+
+    #[test]
     fn rejects_empty_config() {
         let error = SwitchboardConfig::from_toml_str(EMPTY_CONFIG).expect_err("empty config should fail");
 
@@ -718,7 +853,8 @@ mod tests {
             .replace("__GOOGLE_PERSONAL_OAUTH_PATH__", "secrets/google-personal-oauth.json")
             .replace("/tmp/switchboard-google-work", "state/google-work")
             .replace("/tmp/switchboard-google-personal", "state/google-personal")
-            .replace("/tmp/switchboard-mychart-ucla", "state/mychart-ucla");
+            .replace("/tmp/switchboard-mychart-ucla", "state/mychart-ucla")
+            .replace("/tmp/switchboard-schwab-personal", "state/schwab-personal");
         fs::write(&config_path, config_contents).expect("config should write");
 
         let config = SwitchboardConfig::from_file(&config_path).expect("config should parse from file");
@@ -748,6 +884,14 @@ mod tests {
         assert_eq!(
             mychart_ucla.state_dir,
             Some(config_dir.join("state").join("mychart-ucla"))
+        );
+
+        let schwab_personal = namespaces
+            .get(&NamespaceId::new("schwab.personal").expect("namespace should parse"))
+            .expect("schwab.personal should exist");
+        assert_eq!(
+            schwab_personal.state_dir,
+            Some(config_dir.join("state").join("schwab-personal"))
         );
 
         let _ = fs::remove_dir_all(&temp_dir);

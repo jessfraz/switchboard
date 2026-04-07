@@ -1,12 +1,12 @@
-mod accounts;
-mod auth;
-mod cache;
-mod institutions;
-mod item;
-mod link;
-mod sandbox;
-mod shared;
-mod transactions;
+pub(crate) mod accounts;
+pub(crate) mod auth;
+pub(crate) mod cache;
+pub(crate) mod institutions;
+pub(crate) mod item;
+pub(crate) mod link;
+pub(crate) mod sandbox;
+pub(crate) mod shared;
+pub(crate) mod transactions;
 
 pub(crate) use accounts::{run_accounts, AccountsCommand};
 pub(crate) use auth::{run_auth, AuthCommand};

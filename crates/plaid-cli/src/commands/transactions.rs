@@ -1,8 +1,9 @@
 use clap::{Args, Subcommand};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
-    commands::shared::{credentials, ensure_item_id, maybe_insert_options},
+    commands::shared::{credentials, ensure_item_id, serialize_payload, AccessTokenRequest},
     Error, PlaidClient, ResolvedContext, Result,
 };
 
@@ -38,6 +39,42 @@ pub(crate) struct TransactionsSyncArgs {
     days_requested: Option<u32>,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct TransactionsSyncRequest {
+    pub(crate) access_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) options: Option<TransactionsSyncOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct TransactionsSyncOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) include_original_description: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) days_requested: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct TransactionsSyncOutput {
+    pub(crate) item_id: String,
+    pub(crate) added: Vec<Value>,
+    pub(crate) modified: Vec<Value>,
+    pub(crate) removed: Vec<Value>,
+    pub(crate) next_cursor: String,
+    pub(crate) has_more: bool,
+    pub(crate) pages_fetched: u64,
+    pub(crate) restart_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) request_id: Option<String>,
+    pub(crate) request_ids: Vec<String>,
+}
+
 pub(crate) fn run_transactions(
     command: TransactionsSubcommand,
     client: &PlaidClient,
@@ -55,11 +92,7 @@ fn run_transactions_refresh(client: &PlaidClient, context: &mut ResolvedContext)
     let mut response = client.post(
         credentials(context)?,
         "/transactions/refresh",
-        Value::Object(
-            [("access_token".into(), Value::String(access_token))]
-                .into_iter()
-                .collect(),
-        ),
+        serialize_payload(AccessTokenRequest { access_token })?,
     )?;
 
     if let Some(object) = response.as_object_mut() {
@@ -103,7 +136,7 @@ fn run_transactions_sync(
                     args.include_original_description,
                     account_scope.clone(),
                     args.days_requested,
-                ),
+                )?,
             ) {
                 Ok(response) => response,
                 Err(Error::Api { status_code, body })
@@ -122,7 +155,7 @@ fn run_transactions_sync(
             pages_fetched += 1;
 
             if let Some(request_id) = response.get("request_id").and_then(Value::as_str) {
-                request_ids.push(Value::String(request_id.to_owned()));
+                request_ids.push(request_id.to_owned());
             }
             added.extend(value_array(&response, "added"));
             modified.extend(value_array(&response, "modified"));
@@ -151,21 +184,18 @@ fn run_transactions_sync(
             &removed,
         )?;
 
-        let mut output = Map::new();
-        output.insert("item_id".into(), Value::String(item_id.clone()));
-        output.insert("added".into(), Value::Array(added));
-        output.insert("modified".into(), Value::Array(modified));
-        output.insert("removed".into(), Value::Array(removed));
-        output.insert("next_cursor".into(), Value::String(final_cursor));
-        output.insert("has_more".into(), Value::Bool(false));
-        output.insert("pages_fetched".into(), Value::Number(pages_fetched.into()));
-        output.insert("restart_count".into(), Value::Number(restart_count.into()));
-        if let Some(last_request_id) = request_ids.last().cloned() {
-            output.insert("request_id".into(), last_request_id);
-        }
-        output.insert("request_ids".into(), Value::Array(request_ids));
-
-        return Ok(Value::Object(output));
+        return serialize_payload(TransactionsSyncOutput {
+            item_id,
+            added,
+            modified,
+            removed,
+            next_cursor: final_cursor,
+            has_more: false,
+            pages_fetched,
+            restart_count,
+            request_id: request_ids.last().cloned(),
+            request_ids,
+        });
     }
 }
 
@@ -176,29 +206,23 @@ fn transactions_sync_body(
     include_original_description: bool,
     account_id: Option<String>,
     days_requested: Option<u32>,
-) -> Value {
-    let mut body = Map::new();
-    body.insert("access_token".into(), Value::String(access_token.to_owned()));
-    if let Some(cursor) = cursor {
-        body.insert("cursor".into(), Value::String(cursor));
-    }
-    if let Some(count) = count {
-        body.insert("count".into(), Value::Number(count.into()));
-    }
+) -> Result<Value> {
+    let options = if include_original_description || account_id.is_some() || days_requested.is_some() {
+        Some(TransactionsSyncOptions {
+            include_original_description: include_original_description.then_some(true),
+            account_id,
+            days_requested,
+        })
+    } else {
+        None
+    };
 
-    let mut options = Map::new();
-    if include_original_description {
-        options.insert("include_original_description".into(), Value::Bool(true));
-    }
-    if let Some(account_id) = account_id {
-        options.insert("account_id".into(), Value::String(account_id));
-    }
-    if let Some(days_requested) = days_requested {
-        options.insert("days_requested".into(), Value::Number(days_requested.into()));
-    }
-    maybe_insert_options(&mut body, options);
-
-    Value::Object(body)
+    serialize_payload(TransactionsSyncRequest {
+        access_token: access_token.to_owned(),
+        cursor,
+        count,
+        options,
+    })
 }
 
 fn value_array(response: &Value, key: &str) -> Vec<Value> {

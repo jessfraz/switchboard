@@ -1,8 +1,9 @@
 use clap::{Args, Subcommand};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
-    commands::shared::{credentials, product_values, Product},
+    commands::shared::{credentials, product_names, serialize_payload, Product},
     Error, PlaidClient, ResolvedContext, Result,
 };
 
@@ -45,6 +46,36 @@ pub(crate) struct SandboxPublicTokenCreateArgs {
     days_requested: Option<u32>,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct SandboxPublicTokenCreateRequest {
+    pub(crate) institution_id: String,
+    pub(crate) initial_products: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) options: Option<SandboxPublicTokenCreateOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct SandboxPublicTokenCreateOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "override_username")]
+    pub(crate) username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "override_password")]
+    pub(crate) password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) transactions: Option<SandboxTransactionsOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct SandboxTransactionsOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) start_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) end_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) days_requested: Option<u32>,
+}
+
 pub(crate) fn run_sandbox(
     command: SandboxSubcommand,
     client: &PlaidClient,
@@ -60,38 +91,34 @@ pub(crate) fn run_sandbox(
             }
 
             let credentials = credentials(context)?;
-            let mut body = Map::new();
-            body.insert("institution_id".into(), Value::String(args.institution_id.clone()));
-            body.insert("initial_products".into(), product_values(&args.initial_products));
+            let options = if args.webhook.is_some()
+                || args.username.is_some()
+                || args.password.is_some()
+                || uses_transactions_options
+            {
+                Some(SandboxPublicTokenCreateOptions {
+                    webhook: args.webhook,
+                    username: args.username,
+                    password: args.password,
+                    transactions: uses_transactions_options.then_some(SandboxTransactionsOptions {
+                        start_date: args.start_date,
+                        end_date: args.end_date,
+                        days_requested: args.days_requested,
+                    }),
+                })
+            } else {
+                None
+            };
 
-            let mut options = Map::new();
-            if let Some(webhook) = args.webhook {
-                options.insert("webhook".into(), Value::String(webhook));
-            }
-            if let Some(username) = args.username {
-                options.insert("override_username".into(), Value::String(username));
-            }
-            if let Some(password) = args.password {
-                options.insert("override_password".into(), Value::String(password));
-            }
-            if uses_transactions_options {
-                let mut transactions = Map::new();
-                if let Some(start_date) = args.start_date {
-                    transactions.insert("start_date".into(), Value::String(start_date));
-                }
-                if let Some(end_date) = args.end_date {
-                    transactions.insert("end_date".into(), Value::String(end_date));
-                }
-                if let Some(days_requested) = args.days_requested {
-                    transactions.insert("days_requested".into(), Value::Number(days_requested.into()));
-                }
-                options.insert("transactions".into(), Value::Object(transactions));
-            }
-            if !options.is_empty() {
-                body.insert("options".into(), Value::Object(options));
-            }
-
-            client.post(credentials, "/sandbox/public_token/create", Value::Object(body))
+            client.post(
+                credentials,
+                "/sandbox/public_token/create",
+                serialize_payload(SandboxPublicTokenCreateRequest {
+                    institution_id: args.institution_id,
+                    initial_products: product_names(&args.initial_products),
+                    options,
+                })?,
+            )
         }
     }
 }

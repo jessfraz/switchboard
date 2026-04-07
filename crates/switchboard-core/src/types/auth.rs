@@ -72,6 +72,8 @@ pub enum AuthKind {
     GoogleOAuthFile,
     #[serde(rename = "mychart_cli")]
     MyChartCli,
+    #[serde(rename = "schwab_cli")]
+    SchwabCli,
 }
 
 impl AuthKind {
@@ -82,6 +84,7 @@ impl AuthKind {
             "google_oauth" => Some(Self::GoogleOAuth),
             "google_oauth_file" => Some(Self::GoogleOAuthFile),
             "mychart_cli" => Some(Self::MyChartCli),
+            "schwab_cli" => Some(Self::SchwabCli),
             _ => None,
         }
     }
@@ -91,6 +94,7 @@ impl AuthKind {
             Self::GitHubCli | Self::GitHubToken => ProviderKind::GitHub,
             Self::GoogleOAuth | Self::GoogleOAuthFile => ProviderKind::GoogleWorkspace,
             Self::MyChartCli => ProviderKind::MyChart,
+            Self::SchwabCli => ProviderKind::Schwab,
         }
     }
 }
@@ -103,6 +107,7 @@ impl Display for AuthKind {
             Self::GoogleOAuth => "google_oauth",
             Self::GoogleOAuthFile => "google_oauth_file",
             Self::MyChartCli => "mychart_cli",
+            Self::SchwabCli => "schwab_cli",
         };
 
         write!(f, "{value}")
@@ -208,6 +213,39 @@ pub enum AuthSecretRefs {
         #[serde(skip_serializing_if = "Option::is_none")]
         username: Option<SecretRef>,
     },
+    #[serde(rename = "schwab_cli")]
+    SchwabCli {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        base_url: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        market_data_base_url: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        authorize_url: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_url: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_id: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_secret: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        third_party_id: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_channel: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_app_id: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_function_id: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resource_version: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rrbus_pilot_rollout: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        redirect_uri: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        access_token: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refresh_token: Option<SecretRef>,
+    },
 }
 
 impl AuthSecretRefs {
@@ -219,6 +257,7 @@ impl AuthSecretRefs {
                 | (AuthKind::GoogleOAuth, Self::GoogleOAuth { .. })
                 | (AuthKind::GoogleOAuthFile, Self::GoogleOAuthFile { .. })
                 | (AuthKind::MyChartCli, Self::MyChartCli { .. })
+                | (AuthKind::SchwabCli, Self::SchwabCli { .. })
         )
     }
 
@@ -257,6 +296,42 @@ impl AuthSecretRefs {
                 access_token.as_ref(),
                 refresh_token.as_ref(),
                 username.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            Self::SchwabCli {
+                base_url,
+                market_data_base_url,
+                authorize_url,
+                token_url,
+                client_id,
+                client_secret,
+                third_party_id,
+                client_channel,
+                client_app_id,
+                client_function_id,
+                resource_version,
+                rrbus_pilot_rollout,
+                redirect_uri,
+                access_token,
+                refresh_token,
+            } => [
+                base_url.as_ref(),
+                market_data_base_url.as_ref(),
+                authorize_url.as_ref(),
+                token_url.as_ref(),
+                client_id.as_ref(),
+                client_secret.as_ref(),
+                third_party_id.as_ref(),
+                client_channel.as_ref(),
+                client_app_id.as_ref(),
+                client_function_id.as_ref(),
+                resource_version.as_ref(),
+                rrbus_pilot_rollout.as_ref(),
+                redirect_uri.as_ref(),
+                access_token.as_ref(),
+                refresh_token.as_ref(),
             ]
             .into_iter()
             .flatten()
@@ -351,5 +426,22 @@ pub enum ResolvedCredentials {
         access_token: Option<SecretString>,
         refresh_token: Option<SecretString>,
         username: Option<SecretString>,
+    },
+    SchwabCli {
+        base_url: Option<SecretString>,
+        market_data_base_url: Option<SecretString>,
+        authorize_url: Option<SecretString>,
+        token_url: Option<SecretString>,
+        client_id: Option<SecretString>,
+        client_secret: Option<SecretString>,
+        third_party_id: Option<SecretString>,
+        client_channel: Option<SecretString>,
+        client_app_id: Option<SecretString>,
+        client_function_id: Option<SecretString>,
+        resource_version: Option<SecretString>,
+        rrbus_pilot_rollout: Option<SecretString>,
+        redirect_uri: Option<SecretString>,
+        access_token: Option<SecretString>,
+        refresh_token: Option<SecretString>,
     },
 }

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Finish Plaid OAuth</title>
+    <link rel="stylesheet" href="../_shared/callback-page.css">
+  </head>
+  <body>
+    <main id="app"></main>
+    <script id="page-config" type="application/json">
+      {
+        "title": "Finish Plaid OAuth",
+        "storageKey": "plaid_callback_url",
+        "fieldLabel": "Callback URL",
+        "leadInitialHtml": "Copy the full callback URL below and feed it back into your Plaid Link relaunch as <code>receivedRedirectUri</code>. Plaid wants the whole redirect URL, because one query param would apparently be too easy.",
+        "leadNoCallbackHtml": "Open this page through the Plaid OAuth redirect. There is nothing to copy yet.",
+        "leadReadyHtml": "Copy the full callback URL and pass it to your next <code>Plaid.create</code> call as <code>receivedRedirectUri</code>.",
+        "leadErrorHtml": "Plaid returned an OAuth error. Copy the full callback URL so your app can inspect the failure and relaunch Link cleanly.",
+        "leadIncompleteHtml": "The redirect landed here but is missing Plaid's <code>oauth_state_id</code>.",
+        "copyButtonLabel": "Copy callback URL",
+        "primaryValueMode": "callback_url",
+        "payloadKeys": [],
+        "readyParams": ["oauth_state_id"],
+        "showCommandSection": false,
+        "metaFields": [
+          { "kind": "redirect_uri", "label": "Redirect URI" },
+          { "kind": "param_presence", "label": "OAuth state ID", "param": "oauth_state_id" },
+          { "kind": "error", "label": "OAuth error", "param": "error", "descriptionParam": "error_description" }
+        ],
+        "placeholder": "Waiting for Plaid OAuth redirect...",
+        "theme": {
+          "blue": "#0f7b6c",
+          "blueLight": "#e3f4ef",
+          "blueDark": "#0b6256",
+          "pageWidth": "560px",
+          "fieldMinHeight": "6rem"
+        }
+      }
+    </script>
+    <script src="../_shared/callback-page.js"></script>
+  </body>
+</html>

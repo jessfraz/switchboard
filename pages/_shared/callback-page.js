@@ -7,6 +7,18 @@
 
   const config = JSON.parse(configScript.textContent || "{}");
   const theme = config.theme || {};
+  const showCommandSection = config.showCommandSection !== false && !!config.commandPrefix;
+  const metaFields = Array.isArray(config.metaFields) && config.metaFields.length > 0 ? config.metaFields : [
+    { kind: "redirect_uri", label: "Redirect URI" },
+    { kind: "param_presence", label: "Authorization code", param: "code" },
+    { kind: "param_presence", label: "State", param: "state" },
+    {
+      kind: "error",
+      label: "OAuth error",
+      param: "error",
+      descriptionParam: "error_description"
+    }
+  ];
 
   document.title = config.title;
   document.documentElement.style.setProperty("--blue", theme.blue || "#4a5ced");
@@ -14,6 +26,15 @@
   document.documentElement.style.setProperty("--blue-dark", theme.blueDark || "#3d4fd4");
   document.documentElement.style.setProperty("--page-width", theme.pageWidth || "520px");
   document.documentElement.style.setProperty("--field-min-height", theme.fieldMinHeight || "4rem");
+
+  const metaRowsHtml = metaFields
+    .map((field, index) => `
+        <div class="meta-row">
+          <span class="meta-key">${field.label}</span>
+          <span data-meta-index="${index}" class="meta-value">--</span>
+        </div>
+      `)
+    .join("");
 
   app.innerHTML = `
     <header>
@@ -27,42 +48,29 @@
       <textarea id="callback-value" readonly></textarea>
       <div class="actions">
         <button id="copy-primary" class="primary" type="button">${config.copyButtonLabel}</button>
-        <button id="copy-command" type="button">${config.commandButtonLabel}</button>
+        ${showCommandSection ? `<button id="copy-command" type="button">${config.commandButtonLabel}</button>` : ""}
       </div>
     </section>
 
-    <details>
-      <summary>If the terminal is gone</summary>
-      <div class="details-body">
-        <textarea id="exchange-command" readonly></textarea>
-      </div>
-    </details>
+    ${showCommandSection ? `
+      <details>
+        <summary>If the terminal is gone</summary>
+        <div class="details-body">
+          <textarea id="exchange-command" readonly></textarea>
+        </div>
+      </details>
+    ` : ""}
 
     <details>
       <summary>Debug details</summary>
       <div class="meta">
-        <div class="meta-row">
-          <span class="meta-key">Redirect URI</span>
-          <span id="redirect-uri" class="meta-value">--</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-key">Authorization code</span>
-          <span id="code-status" class="meta-value">Missing</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-key">State</span>
-          <span id="state-status" class="meta-value">Missing</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-key">OAuth error</span>
-          <span id="error-status" class="meta-value">None</span>
-        </div>
+        ${metaRowsHtml}
       </div>
     </details>
 
     <p class="footnote">
       The callback query is scrubbed from the address bar after load.
-      Authorization codes don't belong in browser history.
+      OAuth callbacks don't belong in browser history.
     </p>
   `;
 
@@ -70,12 +78,9 @@
   const lead = document.getElementById("lead");
   const callbackValueField = document.getElementById("callback-value");
   const exchangeCommand = document.getElementById("exchange-command");
-  const redirectUri = document.getElementById("redirect-uri");
-  const codeStatus = document.getElementById("code-status");
-  const stateStatus = document.getElementById("state-status");
-  const errorStatus = document.getElementById("error-status");
   const copyPrimary = document.getElementById("copy-primary");
   const copyCommand = document.getElementById("copy-command");
+  const metaValues = Array.from(document.querySelectorAll("[data-meta-index]"));
 
   const currentUrl = new URL(window.location.href);
   const hasQuery = currentUrl.search.length > 1;
@@ -137,6 +142,42 @@
     return config.copyButtonLabel;
   }
 
+  function metaFieldText(field, parsed) {
+    if (field.kind === "redirect_uri") {
+      const url = parsed || currentUrl;
+      return url.origin + url.pathname;
+    }
+
+    if (field.kind === "error") {
+      if (!parsed) {
+        return "None";
+      }
+      const error = parsed.searchParams.get(field.param || "error");
+      const description = parsed.searchParams.get(field.descriptionParam || "error_description");
+      return error ? error + (description ? ": " + description : "") : "None";
+    }
+
+    const value = parsed ? parsed.searchParams.get(field.param || "") : null;
+    if (!value) {
+      return field.missingLabel || "Missing";
+    }
+
+    if (field.kind === "param_value") {
+      return value;
+    }
+
+    return "Present (" + value.length + " chars)";
+  }
+
+  function renderMeta(parsed) {
+    metaFields.forEach((field, index) => {
+      const metaValue = metaValues[index];
+      if (metaValue) {
+        metaValue.textContent = metaFieldText(field, parsed);
+      }
+    });
+  }
+
   function render() {
     if (!callbackUrl) {
       statusPill.textContent = "No callback data";
@@ -144,30 +185,25 @@
       lead.innerHTML = config.leadNoCallbackHtml;
       callbackValueField.value = "";
       callbackValueField.placeholder = config.placeholder;
-      exchangeCommand.value = "";
-      exchangeCommand.placeholder = config.placeholder;
-      redirectUri.textContent = window.location.origin + window.location.pathname;
-      codeStatus.textContent = "Missing";
-      stateStatus.textContent = "Missing";
-      errorStatus.textContent = "None";
+      if (exchangeCommand) {
+        exchangeCommand.value = "";
+        exchangeCommand.placeholder = config.placeholder;
+      }
+      renderMeta(null);
       copyPrimary.textContent = config.copyButtonLabel;
       return;
     }
 
     const parsed = new URL(callbackUrl);
-    const code = parsed.searchParams.get("code");
-    const state = parsed.searchParams.get("state");
     const error = parsed.searchParams.get("error");
-    const errorDescription = parsed.searchParams.get("error_description");
     const primaryValue = collectPayload(parsed);
     const status = error ? "error" : (hasRequiredParams(parsed) ? "ready" : "incomplete");
 
-    redirectUri.textContent = parsed.origin + parsed.pathname;
-    codeStatus.textContent = code ? "Present (" + code.length + " chars)" : "Missing";
-    stateStatus.textContent = state ? "Present (" + state.length + " chars)" : "Missing";
-    errorStatus.textContent = error ? error + (errorDescription ? ": " + errorDescription : "") : "None";
+    renderMeta(parsed);
     callbackValueField.value = primaryValue;
-    exchangeCommand.value = config.commandPrefix + " " + shellQuote(commandValue(primaryValue, callbackUrl));
+    if (exchangeCommand) {
+      exchangeCommand.value = config.commandPrefix + " " + shellQuote(commandValue(primaryValue, callbackUrl));
+    }
     copyPrimary.textContent = primaryButtonLabel(status);
 
     if (status === "error") {
@@ -205,9 +241,11 @@
   copyPrimary.addEventListener("click", () => {
     copyText(callbackValueField.value, copyPrimary, config.copySuccessLabel || "Copied!");
   });
-  copyCommand.addEventListener("click", () => {
-    copyText(exchangeCommand.value, copyCommand, config.commandCopySuccessLabel || "Copied!");
-  });
+  if (copyCommand && exchangeCommand) {
+    copyCommand.addEventListener("click", () => {
+      copyText(exchangeCommand.value, copyCommand, config.commandCopySuccessLabel || "Copied!");
+    });
+  }
 
   render();
 })();

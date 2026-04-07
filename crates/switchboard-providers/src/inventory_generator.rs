@@ -43,6 +43,14 @@ impl CliInventoryTarget {
                     fallback_subcommand: None,
                 },
             },
+            Self {
+                provider: ProviderKind::Schwab,
+                program: "schwab".to_owned(),
+                output_path: PathBuf::from("crates/switchboard-providers/inventories/schwab.json"),
+                help_strategy: CliHelpStrategy::AppendFlag {
+                    fallback_subcommand: None,
+                },
+            },
         ]
     }
 }

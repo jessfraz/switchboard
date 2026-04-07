@@ -16,6 +16,18 @@ name = "GOOGLE_WORKSPACE_CLI_CLIENT_SECRET"
 kind = "file"
 path = "__GOOGLE_PERSONAL_OAUTH_PATH__"
 
+[secret.schwab_personal_client_id]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "schwab cli"
+field = "username"
+
+[secret.schwab_personal_client_secret]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "schwab cli"
+field = "credential"
+
 [auth.github_personal]
 provider = "github"
 kind = "gh_cli"
@@ -39,6 +51,13 @@ provider = "google"
 kind = "google_oauth_file"
 account = "jess@example.com"
 credentials = "google_personal_oauth"
+
+[auth.schwab_personal]
+provider = "schwab"
+kind = "schwab_cli"
+account = "jessfraz"
+client_id = "schwab_personal_client_id"
+client_secret = "schwab_personal_client_secret"
 
 [namespace.github.personal]
 provider = "github"
@@ -71,3 +90,10 @@ provider = "mychart"
 account = "UCLA Health"
 default_read = false
 state_dir = "/tmp/switchboard-mychart-ucla"
+
+[namespace.schwab.personal]
+provider = "schwab"
+account = "jessfraz"
+auth = "schwab_personal"
+default_read = false
+state_dir = "/tmp/switchboard-schwab-personal"

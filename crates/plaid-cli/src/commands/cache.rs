@@ -1,8 +1,10 @@
 use clap::{Args, Subcommand};
-use serde_json::{json, Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     cache::{CachedTransactionQuery, PlaidCacheStore},
+    commands::shared::serialize_payload,
     ResolvedContext, Result,
 };
 
@@ -52,6 +54,75 @@ pub(crate) struct CacheTransactionsArgs {
     limit: Option<u32>,
 }
 
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct CacheItemsOutput {
+    pub(crate) source: String,
+    pub(crate) count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) item_id: Option<String>,
+    pub(crate) items: Vec<CacheItemRow>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct CacheItemRow {
+    pub(crate) item_id: String,
+    pub(crate) institution_id: Option<String>,
+    pub(crate) updated_at: String,
+    pub(crate) item: Value,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct CacheAccountsOutput {
+    pub(crate) source: String,
+    pub(crate) count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account_ids: Option<Vec<String>>,
+    pub(crate) accounts: Vec<CacheAccountRow>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct CacheAccountRow {
+    pub(crate) account_id: String,
+    pub(crate) item_id: String,
+    pub(crate) source_endpoint: String,
+    pub(crate) balance_freshness: String,
+    pub(crate) updated_at: String,
+    pub(crate) account: Value,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct CacheTransactionsOutput {
+    pub(crate) source: String,
+    pub(crate) count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) item_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) transaction_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) include_removed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cursor: Option<String>,
+    pub(crate) transactions: Vec<CacheTransactionRow>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub(crate) struct CacheTransactionRow {
+    pub(crate) transaction_id: String,
+    pub(crate) item_id: String,
+    pub(crate) account_id: Option<String>,
+    pub(crate) removed: bool,
+    pub(crate) updated_at: String,
+    pub(crate) removed_at: Option<String>,
+    pub(crate) transaction: Value,
+    pub(crate) removal: Option<Value>,
+}
+
 pub(crate) fn run_cache(command: CacheSubcommand, context: &ResolvedContext) -> Result<Value> {
     match command {
         CacheSubcommand::Items(args) => cache_items(args, context),
@@ -63,63 +134,42 @@ pub(crate) fn run_cache(command: CacheSubcommand, context: &ResolvedContext) -> 
 fn cache_items(args: CacheItemsArgs, context: &ResolvedContext) -> Result<Value> {
     let item_scope = item_scope(context, args.all);
     let rows = context.cache.cached_items(item_scope)?;
-
-    let mut response = Map::new();
-    response.insert("source".into(), Value::String("cache".into()));
-    response.insert("count".into(), Value::Number((rows.len() as u64).into()));
-    response.insert(
-        "items".into(),
-        Value::Array(
-            rows.into_iter()
-                .map(|row| {
-                    json!({
-                        "item_id": row.item_id,
-                        "institution_id": row.institution_id,
-                        "updated_at": row.updated_at,
-                        "item": row.item,
-                    })
-                })
-                .collect(),
-        ),
-    );
-    maybe_insert_item_scope(&mut response, item_scope);
-
-    Ok(Value::Object(response))
+    serialize_payload(CacheItemsOutput {
+        source: "cache".into(),
+        count: rows.len() as u64,
+        item_id: item_scope.map(ToOwned::to_owned),
+        items: rows
+            .into_iter()
+            .map(|row| CacheItemRow {
+                item_id: row.item_id,
+                institution_id: row.institution_id,
+                updated_at: row.updated_at,
+                item: row.item,
+            })
+            .collect(),
+    })
 }
 
 fn cache_accounts(args: CacheAccountsArgs, context: &ResolvedContext) -> Result<Value> {
     let item_scope = item_scope(context, args.all);
     let rows = context.cache.cached_accounts(item_scope, &args.account_ids)?;
-
-    let mut response = Map::new();
-    response.insert("source".into(), Value::String("cache".into()));
-    response.insert("count".into(), Value::Number((rows.len() as u64).into()));
-    response.insert(
-        "accounts".into(),
-        Value::Array(
-            rows.into_iter()
-                .map(|row| {
-                    json!({
-                        "account_id": row.account_id,
-                        "item_id": row.item_id,
-                        "source_endpoint": row.source.endpoint(),
-                        "balance_freshness": row.source.balance_freshness(),
-                        "updated_at": row.updated_at,
-                        "account": row.account,
-                    })
-                })
-                .collect(),
-        ),
-    );
-    maybe_insert_item_scope(&mut response, item_scope);
-    if !args.account_ids.is_empty() {
-        response.insert(
-            "account_ids".into(),
-            Value::Array(args.account_ids.into_iter().map(Value::String).collect()),
-        );
-    }
-
-    Ok(Value::Object(response))
+    serialize_payload(CacheAccountsOutput {
+        source: "cache".into(),
+        count: rows.len() as u64,
+        item_id: item_scope.map(ToOwned::to_owned),
+        account_ids: (!args.account_ids.is_empty()).then_some(args.account_ids),
+        accounts: rows
+            .into_iter()
+            .map(|row| CacheAccountRow {
+                account_id: row.account_id,
+                item_id: row.item_id,
+                source_endpoint: row.source.endpoint().to_owned(),
+                balance_freshness: row.source.balance_freshness().to_owned(),
+                updated_at: row.updated_at,
+                account: row.account,
+            })
+            .collect(),
+    })
 }
 
 fn cache_transactions(args: CacheTransactionsArgs, context: &ResolvedContext) -> Result<Value> {
@@ -131,52 +181,35 @@ fn cache_transactions(args: CacheTransactionsArgs, context: &ResolvedContext) ->
         include_removed: args.include_removed,
         limit: args.limit,
     })?;
+    let cursor = if let Some(item_id) = item_scope {
+        transaction_cursor(&context.cache, item_id, args.account_id.as_deref())?
+    } else {
+        None
+    };
 
-    let mut response = Map::new();
-    response.insert("source".into(), Value::String("cache".into()));
-    response.insert("count".into(), Value::Number((rows.len() as u64).into()));
-    response.insert(
-        "transactions".into(),
-        Value::Array(
-            rows.into_iter()
-                .map(|row| {
-                    json!({
-                        "transaction_id": row.transaction_id,
-                        "item_id": row.item_id,
-                        "account_id": row.account_id,
-                        "removed": row.removed,
-                        "updated_at": row.updated_at,
-                        "removed_at": row.removed_at,
-                        "transaction": row.transaction,
-                        "removal": row.removal,
-                    })
-                })
-                .collect(),
-        ),
-    );
-    maybe_insert_item_scope(&mut response, item_scope);
-    if let Some(account_id) = args.account_id.as_deref() {
-        response.insert("account_id".into(), Value::String(account_id.to_owned()));
-    }
-    if !args.transaction_ids.is_empty() {
-        response.insert(
-            "transaction_ids".into(),
-            Value::Array(args.transaction_ids.into_iter().map(Value::String).collect()),
-        );
-    }
-    if args.include_removed {
-        response.insert("include_removed".into(), Value::Bool(true));
-    }
-    if let Some(limit) = args.limit {
-        response.insert("limit".into(), Value::Number(limit.into()));
-    }
-    if let Some(item_id) = item_scope {
-        if let Some(cursor) = transaction_cursor(&context.cache, item_id, args.account_id.as_deref())? {
-            response.insert("cursor".into(), Value::String(cursor));
-        }
-    }
-
-    Ok(Value::Object(response))
+    serialize_payload(CacheTransactionsOutput {
+        source: "cache".into(),
+        count: rows.len() as u64,
+        item_id: item_scope.map(ToOwned::to_owned),
+        account_id: args.account_id,
+        transaction_ids: (!args.transaction_ids.is_empty()).then_some(args.transaction_ids),
+        include_removed: args.include_removed.then_some(true),
+        limit: args.limit,
+        cursor,
+        transactions: rows
+            .into_iter()
+            .map(|row| CacheTransactionRow {
+                transaction_id: row.transaction_id,
+                item_id: row.item_id,
+                account_id: row.account_id,
+                removed: row.removed,
+                updated_at: row.updated_at,
+                removed_at: row.removed_at,
+                transaction: row.transaction,
+                removal: row.removal,
+            })
+            .collect(),
+    })
 }
 
 fn item_scope(context: &ResolvedContext, all: bool) -> Option<&str> {
@@ -184,12 +217,6 @@ fn item_scope(context: &ResolvedContext, all: bool) -> Option<&str> {
         None
     } else {
         context.item_id.as_deref()
-    }
-}
-
-fn maybe_insert_item_scope(response: &mut Map<String, Value>, item_scope: Option<&str>) {
-    if let Some(item_id) = item_scope {
-        response.insert("item_id".into(), Value::String(item_id.to_owned()));
     }
 }
 
