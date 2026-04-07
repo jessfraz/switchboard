@@ -261,8 +261,148 @@
       "subcommands": [
         "quote",
         "quotes",
-        "price-history"
+        "chain",
+        "expiration-chain",
+        "price-history",
+        "movers",
+        "markets",
+        "market",
+        "instruments",
+        "instrument"
       ]
+    },
+    {
+      "path": [
+        "market",
+        "chain"
+      ],
+      "command": "schwab market chain",
+      "summary": "Usage: schwab market chain [OPTIONS] <SYMBOL>",
+      "usage": "schwab market chain [OPTIONS] <SYMBOL>",
+      "help_args": [
+        "market",
+        "chain",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "expiration-chain"
+      ],
+      "command": "schwab market expiration-chain",
+      "summary": "Usage: schwab market expiration-chain [OPTIONS] <SYMBOL>",
+      "usage": "schwab market expiration-chain [OPTIONS] <SYMBOL>",
+      "help_args": [
+        "market",
+        "expiration-chain",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "instrument"
+      ],
+      "command": "schwab market instrument",
+      "summary": "Usage: schwab market instrument [OPTIONS] <CUSIP>",
+      "usage": "schwab market instrument [OPTIONS] <CUSIP>",
+      "help_args": [
+        "market",
+        "instrument",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "instruments"
+      ],
+      "command": "schwab market instruments",
+      "summary": "Usage: schwab market instruments [OPTIONS] --projection <PROJECTION> <SYMBOL>",
+      "usage": "schwab market instruments [OPTIONS] --projection <PROJECTION> <SYMBOL>",
+      "help_args": [
+        "market",
+        "instruments",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "market"
+      ],
+      "command": "schwab market market",
+      "summary": "Usage: schwab market market [OPTIONS] <MARKET>",
+      "usage": "schwab market market [OPTIONS] <MARKET>",
+      "help_args": [
+        "market",
+        "market",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "markets"
+      ],
+      "command": "schwab market markets",
+      "summary": "Usage: schwab market markets [OPTIONS] --market <MARKET>",
+      "usage": "schwab market markets [OPTIONS] --market <MARKET>",
+      "help_args": [
+        "market",
+        "markets",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "movers"
+      ],
+      "command": "schwab market movers",
+      "summary": "Usage: schwab market movers [OPTIONS] <SYMBOL>",
+      "usage": "schwab market movers [OPTIONS] <SYMBOL>",
+      "help_args": [
+        "market",
+        "movers",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
     },
     {
       "path": [
@@ -340,6 +480,7 @@
       "subcommands": [
         "list",
         "get",
+        "preview",
         "place",
         "replace",
         "cancel"
@@ -413,6 +554,25 @@
       "help_args": [
         "orders",
         "place",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "orders",
+        "preview"
+      ],
+      "command": "schwab orders preview",
+      "summary": "Usage: schwab orders preview [OPTIONS] --account <ACCOUNT>",
+      "usage": "schwab orders preview [OPTIONS] --account <ACCOUNT>",
+      "help_args": [
+        "orders",
+        "preview",
         "--help"
       ],
       "node_kind": "operation",
