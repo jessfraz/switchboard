@@ -17,6 +17,7 @@ pub(crate) struct OrderCommand {
 pub(crate) enum OrderSubcommand {
     List(OrderListArgs),
     Get(OrderGetArgs),
+    Preview(OrderPreviewArgs),
     Place(OrderPlaceArgs),
     Replace(OrderReplaceArgs),
     Cancel(OrderCancelArgs),
@@ -50,6 +51,15 @@ pub(crate) struct OrderGetArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct OrderPlaceArgs {
+    #[arg(long)]
+    account: String,
+
+    #[command(flatten)]
+    body: JsonBodyArgs,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct OrderPreviewArgs {
     #[arg(long)]
     account: String,
 
@@ -103,6 +113,7 @@ pub(crate) fn run_orders(command: OrderSubcommand, context: &mut ResolvedContext
                 method: reqwest::Method::GET,
                 path,
                 query,
+                headers: context.trader_headers(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
@@ -113,7 +124,19 @@ pub(crate) fn run_orders(command: OrderSubcommand, context: &mut ResolvedContext
                 method: reqwest::Method::GET,
                 path: format!("/accounts/{account_id}/orders/{}", args.order_id),
                 query: Vec::new(),
+                headers: context.trader_headers(),
                 body: RequestBody::None,
+                auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
+            })
+        }
+        OrderSubcommand::Preview(args) => {
+            let account_id = resolve_account_id(&client, context, &args.account)?;
+            client.execute(RequestSpec {
+                method: reqwest::Method::POST,
+                path: format!("/accounts/{account_id}/previewOrder"),
+                query: Vec::new(),
+                headers: context.trader_headers(),
+                body: RequestBody::Json(load_json_body(&args.body)?),
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
         }
@@ -124,6 +147,7 @@ pub(crate) fn run_orders(command: OrderSubcommand, context: &mut ResolvedContext
                     method: reqwest::Method::POST,
                     path: format!("/accounts/{account_id}/orders"),
                     query: Vec::new(),
+                    headers: context.trader_headers(),
                     body: RequestBody::Json(load_json_body(&args.body)?),
                     auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
                 })
@@ -136,6 +160,7 @@ pub(crate) fn run_orders(command: OrderSubcommand, context: &mut ResolvedContext
                     method: reqwest::Method::PUT,
                     path: format!("/accounts/{account_id}/orders/{}", args.order_id),
                     query: Vec::new(),
+                    headers: context.trader_headers(),
                     body: RequestBody::Json(load_json_body(&args.body)?),
                     auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
                 })
@@ -147,6 +172,7 @@ pub(crate) fn run_orders(command: OrderSubcommand, context: &mut ResolvedContext
                 method: reqwest::Method::DELETE,
                 path: format!("/accounts/{account_id}/orders/{}", args.order_id),
                 query: Vec::new(),
+                headers: context.trader_headers(),
                 body: RequestBody::None,
                 auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
             })
