@@ -206,6 +206,120 @@ fn auth_login_accepts_callback_url_and_stores_tokens() {
 }
 
 #[test]
+fn auth_login_accepts_copied_code_and_stores_tokens() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "token_type": "Bearer",
+                "scope": "readonly",
+                "expires_in": 1800
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-auth-login-code-only");
+    let config_path = temp_dir.join("config.json");
+
+    let output: AuthExchangeResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--token-url",
+        &format!("{}/oauth/token", server.base_url()),
+        "--client-id",
+        "client-id",
+        "--client-secret",
+        "client-secret",
+        "--compact",
+        "auth",
+        "login",
+        "--state",
+        "expected-state",
+        "--callback-url",
+        "auth-code",
+        "--no-open",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].method, "POST");
+    assert_eq!(request[0].path, "/oauth/token");
+    assert_eq!(request[0].form_value("code").as_deref(), Some("auth-code"));
+    assert_eq!(
+        request[0].form_value("redirect_uri").as_deref(),
+        Some(crate::state::PAGES_REDIRECT_URI)
+    );
+
+    let state = StateStore::new(config_path).load().expect("stored state should load");
+    assert_eq!(state.access_token.as_deref(), Some("access-token"));
+    assert_eq!(state.refresh_token.as_deref(), Some("refresh-token"));
+    assert_eq!(state.redirect_uri.as_deref(), Some(crate::state::PAGES_REDIRECT_URI));
+    assert_eq!(state.pending_oauth_state, None);
+    assert_eq!(output.access_token, "access-token");
+}
+
+#[test]
+fn auth_exchange_url_accepts_copied_code() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "token_type": "Bearer",
+                "scope": "readonly",
+                "expires_in": 1800
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-auth-exchange-code-only");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            token_url: Some(format!("{}/oauth/token", server.base_url())),
+            client_id: Some("client-id".into()),
+            client_secret: Some("client-secret".into()),
+            redirect_uri: Some(crate::state::PAGES_REDIRECT_URI.into()),
+            pending_oauth_state: Some("expected-state".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: AuthExchangeResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "auth",
+        "exchange-url",
+        "auth-code",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].method, "POST");
+    assert_eq!(request[0].path, "/oauth/token");
+    assert_eq!(request[0].form_value("code").as_deref(), Some("auth-code"));
+    assert_eq!(
+        request[0].form_value("redirect_uri").as_deref(),
+        Some(crate::state::PAGES_REDIRECT_URI)
+    );
+
+    let state = StateStore::new(config_path).load().expect("stored state should load");
+    assert_eq!(state.access_token.as_deref(), Some("access-token"));
+    assert_eq!(state.refresh_token.as_deref(), Some("refresh-token"));
+    assert_eq!(state.pending_oauth_state, None);
+    assert_eq!(output.access_token, "access-token");
+}
+
+#[test]
 fn auth_exchange_url_rejects_state_mismatch() {
     let temp_dir = temp_dir("schwab-auth-state-mismatch");
     let config_path = temp_dir.join("config.json");
@@ -509,7 +623,7 @@ fn preferences_get_includes_trader_headers() {
     assert_eq!(request.len(), 1);
     assert_eq!(request[0].path, "/userPreference");
     assert_eq!(request[0].header("accept"), Some("application/json"));
-    assert_eq!(request[0].header("content-type"), Some("application/json"));
+    assert_eq!(request[0].header("content-type"), None);
     assert_eq!(request[0].header("thirdpartyid"), Some("third-party-id"));
     assert_eq!(request[0].header("schwab-client-channel"), Some("GW"));
     assert_eq!(request[0].header("schwab-client-appid"), Some("AD00007919"));
@@ -574,7 +688,7 @@ fn market_quotes_use_market_data_base_url() {
     assert_eq!(request[0].query_value("fields"), Some("quote,reference"));
     assert_eq!(request[0].query_value("indicative"), Some("true"));
     assert_eq!(request[0].header("accept"), Some("application/json"));
-    assert_eq!(request[0].header("content-type"), Some("application/json"));
+    assert_eq!(request[0].header("content-type"), None);
     assert_eq!(request[0].header("schwab-client-channel"), Some("GW"));
     assert_eq!(request[0].header("schwab-client-appid"), Some("AD00007919"));
     assert_eq!(request[0].header("schwab-client-functionid"), Some("TR123"));

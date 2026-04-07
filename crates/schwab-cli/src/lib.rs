@@ -28,7 +28,7 @@ const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  schwab auth login\n",
     "  schwab auth authorize-url\n",
-    "  schwab auth exchange-url 'https://jessfraz.github.io/switchboard/schwab-callback/?code=...'\n",
+    "  schwab auth exchange-url '<auth-code>'\n",
     "  schwab accounts numbers\n",
     "  schwab accounts get 123456789 --positions\n",
     "  schwab transactions list --account 123456789 \\\n",

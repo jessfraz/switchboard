@@ -116,7 +116,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
 
             match callback_input {
                 Some(callback_input) => {
-                    let callback = parse_login_callback_input(&callback_input)?;
+                    let callback = parse_callback_input(&callback_input, context)?;
                     validate_callback(context, &callback)?;
                     exchange_code(&client, context, callback.code, callback.redirect_uri, false)
                 }
@@ -126,7 +126,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
                     "redirect_uri": prepared.redirect_uri,
                     "scope": prepared.scopes,
                     "state": prepared.oauth_state,
-                    "next_step": "Finish the browser login, then paste the full callback URL here or run `schwab auth exchange-url '<callback-url>'` later.",
+                    "next_step": "Finish the browser login, then paste the copied login code here or run `schwab auth exchange-url '<auth-code>'` later.",
                 })),
             }
         }
@@ -147,7 +147,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             args.no_store,
         ),
         AuthSubcommand::ExchangeUrl(args) => {
-            let callback = parse_callback_input(&args.callback_input)?;
+            let callback = parse_callback_input(&args.callback_input, context)?;
             validate_callback(context, &callback)?;
             exchange_code(&client, context, callback.code, callback.redirect_uri, args.no_store)
         }
@@ -356,16 +356,35 @@ fn prepare_authorization(
     })
 }
 
-fn parse_callback_input(input: &str) -> Result<CallbackInput> {
-    let url =
-        Url::parse(input).map_err(|error| Error::Arguments(format!("callback input must be a valid URL: {error}")))?;
-    let code = url
-        .query_pairs()
-        .find_map(|(key, value)| (key == "code").then(|| value.into_owned()))
-        .ok_or_else(|| Error::Arguments("callback URL is missing the code query parameter".into()))?;
-    let state = url
-        .query_pairs()
-        .find_map(|(key, value)| (key == "state").then(|| value.into_owned()));
+fn parse_callback_input(input: &str, context: &ResolvedContext) -> Result<CallbackInput> {
+    let redirect_uri = context.require_redirect_uri(None)?;
+    let url = parse_callback_url(input, &redirect_uri, context.pending_oauth_state.as_deref())?;
+    let query_pairs = url.query_pairs().collect::<Vec<_>>();
+    if let Some(error) = query_pairs
+        .iter()
+        .find_map(|(key, value)| (key == "error").then(|| value.to_string()))
+    {
+        let description = query_pairs
+            .iter()
+            .find_map(|(key, value)| (key == "error_description").then(|| value.to_string()));
+        let message = match description {
+            Some(description) => format!("OAuth authorization failed: {error}: {description}"),
+            None => format!("OAuth authorization failed: {error}"),
+        };
+        return Err(Error::Arguments(message));
+    }
+
+    let code = query_pairs
+        .iter()
+        .find_map(|(key, value)| (key == "code").then(|| value.to_string()))
+        .ok_or_else(|| {
+            Error::Arguments(
+                "callback input must include either the redirected URL, the copied login code, or the callback payload copied from the page".into(),
+            )
+        })?;
+    let state = query_pairs
+        .iter()
+        .find_map(|(key, value)| (key == "state").then(|| value.to_string()));
 
     let mut redirect_uri = url.clone();
     redirect_uri.set_query(None);
@@ -378,24 +397,113 @@ fn parse_callback_input(input: &str) -> Result<CallbackInput> {
     })
 }
 
-fn parse_login_callback_input(input: &str) -> Result<CallbackInput> {
-    let trimmed = input.trim().trim_end_matches(';').trim();
-    let candidate = if let Some(command_start) = trimmed.find(" exchange-url ") {
-        trimmed[command_start + " exchange-url ".len()..].trim()
-    } else {
-        trimmed
-    };
-    let candidate = unquote(candidate);
-    parse_callback_input(candidate)
+fn parse_callback_url(input: &str, expected_redirect_uri: &str, expected_state: Option<&str>) -> Result<Url> {
+    let candidate = extract_callback_input(input).ok_or_else(|| {
+        Error::Arguments(
+            "callback input must include either the redirected URL, the copied login code, or the callback payload copied from the page".into(),
+        )
+    })?;
+
+    if candidate.starts_with("https://") || candidate.starts_with("http://") {
+        return Url::parse(&candidate).map_err(|error| {
+            Error::Arguments(format!(
+                "callback URL must be an absolute URL copied from the browser redirect: {error}"
+            ))
+        });
+    }
+
+    let mut callback_url = Url::parse(expected_redirect_uri).map_err(|error| {
+        Error::Config(format!(
+            "invalid stored redirect URI {expected_redirect_uri:?}: {error}"
+        ))
+    })?;
+    callback_url.set_query(None);
+    callback_url.set_fragment(None);
+    {
+        let mut pairs = callback_url.query_pairs_mut();
+        let trimmed = candidate.trim().trim_start_matches('?');
+        if trimmed.is_empty() {
+            return Err(Error::Arguments(
+                "callback payload was empty, copy it again from the callback page".into(),
+            ));
+        }
+
+        if trimmed.contains('=') {
+            let parsed_pairs = Url::parse(&format!("https://callback.invalid/?{trimmed}"))
+                .map_err(|error| Error::Arguments(format!("callback payload was malformed: {error}")))?;
+            let mut has_code = false;
+            let mut has_state = false;
+            for (key, value) in parsed_pairs.query_pairs() {
+                has_code |= key == "code";
+                has_state |= key == "state";
+                pairs.append_pair(&key, &value);
+            }
+            if has_code && !has_state {
+                let expected_state = expected_state.ok_or_else(|| {
+                    Error::Config(
+                        "missing pending OAuth state, run `schwab auth login` or `schwab auth authorize-url` first"
+                            .into(),
+                    )
+                })?;
+                pairs.append_pair("state", expected_state);
+            }
+        } else {
+            let expected_state = expected_state.ok_or_else(|| {
+                Error::Config(
+                    "missing pending OAuth state, run `schwab auth login` or `schwab auth authorize-url` first".into(),
+                )
+            })?;
+            pairs.append_pair("code", trimmed);
+            pairs.append_pair("state", expected_state);
+        }
+    }
+
+    Ok(callback_url)
 }
 
-fn unquote(value: &str) -> &str {
-    let quoted = (value.starts_with('\'') && value.ends_with('\'')) || (value.starts_with('"') && value.ends_with('"'));
-    if quoted && value.len() >= 2 {
-        &value[1..value.len() - 1]
-    } else {
-        value
+fn extract_callback_input(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
     }
+
+    if let Some(command_start) = trimmed.find(" exchange-url ") {
+        let command_tail = trimmed[command_start + " exchange-url ".len()..].trim();
+        if !command_tail.is_empty() {
+            return extract_callback_input(command_tail);
+        }
+    }
+
+    if let Some(start) = trimmed.find("https://").or_else(|| trimmed.find("http://")) {
+        let candidate = trimmed[start..]
+            .trim()
+            .trim_matches(|character| matches!(character, '\'' | '"' | '`' | ')' | ']' | '}'))
+            .trim_end_matches(';')
+            .to_owned();
+        return (!candidate.is_empty()).then_some(candidate);
+    }
+
+    if let Some(query_start) = trimmed
+        .find("code=")
+        .or_else(|| trimmed.find("error="))
+        .or_else(|| trimmed.find("state="))
+        .or_else(|| trimmed.starts_with('?').then_some(0))
+    {
+        let candidate = trimmed[query_start..]
+            .trim()
+            .trim_matches(|character| matches!(character, '\'' | '"' | '`'))
+            .trim_end_matches(';')
+            .to_owned();
+        if !candidate.is_empty() {
+            return Some(candidate);
+        }
+    }
+
+    let bare_candidate = trimmed
+        .trim_matches(|character| matches!(character, '\'' | '"' | '`'))
+        .trim_end_matches(';')
+        .to_owned();
+    (!bare_candidate.is_empty()).then_some(bare_candidate)
 }
 
 fn stdin_is_interactive() -> bool {
@@ -414,10 +522,11 @@ fn read_callback_input() -> Result<String> {
     let mut stderr = io::stderr().lock();
     writeln!(
         stderr,
-        "Paste the full callback URL from the hosted callback page, then press Enter."
+        "Finish the browser login. When the callback page loads, paste the copied login code here. If you paste the callback URL, callback payload, or full `schwab auth exchange-url ...` command, that works too."
     )
     .map_err(|error| Error::Io(format!("failed to write Schwab login prompt: {error}")))?;
-    write!(stderr, "> ").map_err(|error| Error::Io(format!("failed to write Schwab login prompt: {error}")))?;
+    write!(stderr, "Login code> ")
+        .map_err(|error| Error::Io(format!("failed to write Schwab login prompt: {error}")))?;
     stderr
         .flush()
         .map_err(|error| Error::Io(format!("failed to flush Schwab login prompt: {error}")))?;
@@ -437,7 +546,7 @@ fn read_callback_input() -> Result<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(Error::Arguments(
-            "callback input was empty, rerun `schwab auth login` and paste the full callback URL".into(),
+            "callback input was empty, rerun `schwab auth login` and paste the copied login code".into(),
         ));
     }
 

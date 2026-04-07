@@ -348,7 +348,6 @@ impl ResolvedContext {
     pub(crate) fn trader_headers(&self) -> Vec<(String, String)> {
         let mut headers = vec![
             ("Accept".into(), "application/json".into()),
-            ("Content-Type".into(), "application/json".into()),
             ("Schwab-Client-CorrelId".into(), correlation_id()),
         ];
         push_optional_header(&mut headers, "ThirdPartyId", self.third_party_id.clone());
@@ -366,7 +365,6 @@ impl ResolvedContext {
     pub(crate) fn market_headers(&self) -> Vec<(String, String)> {
         let mut headers = vec![
             ("Accept".into(), "application/json".into()),
-            ("Content-Type".into(), "application/json".into()),
             ("Schwab-Client-CorrelId".into(), correlation_id()),
         ];
         push_optional_header(&mut headers, "Schwab-Client-Channel", self.client_channel.clone());

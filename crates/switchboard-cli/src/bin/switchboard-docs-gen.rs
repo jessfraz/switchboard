@@ -1179,7 +1179,7 @@ switchboard tools list</pre>
           </div>
           <div class="card">
             <h3>OAuth helpers</h3>
-            <p><a href="./mychart-callback/">MyChart</a>, <a href="./schwab-callback/">Schwab</a>, and <a href="./plaid-callback/">Plaid</a> callback pages live here because some APIs still insist on HTTPS redirect URIs. Petty, but useful.</p>
+            <p><a href="./mychart-callback/">MyChart</a>, <a href="./schwab-callback/">Schwab</a>, and <a href="./plaid-callback/">Plaid</a> callback pages live here because some APIs still insist on HTTPS redirect URIs. Plaid also uses <a href="./plaid-complete/">a tiny completion page</a> for Hosted Link logins. Petty, but useful.</p>
           </div>
         </div>
       </section>

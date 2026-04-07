@@ -128,6 +128,8 @@ pub(crate) struct LinkTokenCreateRequest {
     pub(crate) transactions: Option<LinkTokenTransactions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) account_filters: Option<LinkTokenAccountFilters>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) hosted_link: Option<LinkTokenHostedLink>,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -164,6 +166,22 @@ pub(crate) struct LinkTokenAccountSubtypeFilter {
     pub(crate) account_subtypes: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenHostedLink {
+    pub(crate) completion_redirect_uri: String,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenCreateResponse {
+    pub(crate) link_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) expiration: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) hosted_link_url: Option<String>,
+}
+
 pub(crate) fn run_link(command: LinkSubcommand, client: &PlaidClient, context: &ResolvedContext) -> Result<Value> {
     match command {
         LinkSubcommand::TokenCreate(args) => run_link_token_create(args, client, context),
@@ -171,6 +189,78 @@ pub(crate) fn run_link(command: LinkSubcommand, client: &PlaidClient, context: &
 }
 
 fn run_link_token_create(args: LinkTokenCreateArgs, client: &PlaidClient, context: &ResolvedContext) -> Result<Value> {
+    let request = build_link_token_create_request(args, context, None)?;
+    client.post(credentials(context)?, "/link/token/create", serialize_payload(request)?)
+}
+
+pub(crate) fn build_link_token_create_request(
+    args: LinkTokenCreateArgs,
+    context: &ResolvedContext,
+    hosted_link: Option<LinkTokenHostedLink>,
+) -> Result<LinkTokenCreateRequest> {
+    validate_link_token_create_args(&args)?;
+
+    let LinkTokenCreateArgs {
+        client_user_id,
+        user_id,
+        products,
+        optional_products,
+        required_if_supported_products,
+        additional_consented_products,
+        country_codes,
+        language,
+        client_name,
+        link_customization_name,
+        redirect_uri,
+        webhook,
+        android_package_name,
+        institution_id,
+        routing_number,
+        update_mode,
+        days_requested,
+        depository_subtypes,
+        credit_subtypes,
+        loan_subtypes,
+        investment_subtypes,
+        other_subtypes,
+    } = args;
+
+    Ok(LinkTokenCreateRequest {
+        client_name: client_name.unwrap_or_else(|| context.client_name.clone()),
+        language,
+        country_codes: non_empty_country_codes(country_codes),
+        link_customization_name,
+        redirect_uri: Some(redirect_uri.unwrap_or_else(|| PLAID_GITHUB_PAGES_REDIRECT_URI.to_owned())),
+        webhook,
+        android_package_name,
+        institution_id,
+        access_token: if update_mode {
+            Some(context.require_access_token()?.to_owned())
+        } else {
+            None
+        },
+        user: client_user_id.map(|client_user_id| LinkTokenUser { client_user_id }),
+        user_id,
+        products: (!products.is_empty()).then(|| product_names(&products)),
+        optional_products: (!optional_products.is_empty()).then(|| product_names(&optional_products)),
+        required_if_supported_products: (!required_if_supported_products.is_empty())
+            .then(|| product_names(&required_if_supported_products)),
+        additional_consented_products: (!additional_consented_products.is_empty())
+            .then(|| product_names(&additional_consented_products)),
+        institution_data: routing_number.map(|routing_number| LinkTokenInstitutionData { routing_number }),
+        transactions: days_requested.map(|days_requested| LinkTokenTransactions { days_requested }),
+        account_filters: account_filters(
+            depository_subtypes,
+            credit_subtypes,
+            loan_subtypes,
+            investment_subtypes,
+            other_subtypes,
+        ),
+        hosted_link,
+    })
+}
+
+fn validate_link_token_create_args(args: &LinkTokenCreateArgs) -> Result<()> {
     if args.products.is_empty() && !args.update_mode {
         return Err(Error::Arguments(
             "link token create requires at least one --product unless --update-mode is set".into(),
@@ -239,68 +329,7 @@ fn run_link_token_create(args: LinkTokenCreateArgs, client: &PlaidClient, contex
         ));
     }
 
-    let credentials = credentials(context)?;
-    let LinkTokenCreateArgs {
-        client_user_id,
-        user_id,
-        products,
-        optional_products,
-        required_if_supported_products,
-        additional_consented_products,
-        country_codes,
-        language,
-        client_name,
-        link_customization_name,
-        redirect_uri,
-        webhook,
-        android_package_name,
-        institution_id,
-        routing_number,
-        update_mode,
-        days_requested,
-        depository_subtypes,
-        credit_subtypes,
-        loan_subtypes,
-        investment_subtypes,
-        other_subtypes,
-    } = args;
-
-    client.post(
-        credentials,
-        "/link/token/create",
-        serialize_payload(LinkTokenCreateRequest {
-            client_name: client_name.unwrap_or_else(|| context.client_name.clone()),
-            language,
-            country_codes: non_empty_country_codes(country_codes),
-            link_customization_name,
-            redirect_uri: Some(redirect_uri.unwrap_or_else(|| PLAID_GITHUB_PAGES_REDIRECT_URI.to_owned())),
-            webhook,
-            android_package_name,
-            institution_id,
-            access_token: if update_mode {
-                Some(context.require_access_token()?.to_owned())
-            } else {
-                None
-            },
-            user: client_user_id.map(|client_user_id| LinkTokenUser { client_user_id }),
-            user_id,
-            products: (!products.is_empty()).then(|| product_names(&products)),
-            optional_products: (!optional_products.is_empty()).then(|| product_names(&optional_products)),
-            required_if_supported_products: (!required_if_supported_products.is_empty())
-                .then(|| product_names(&required_if_supported_products)),
-            additional_consented_products: (!additional_consented_products.is_empty())
-                .then(|| product_names(&additional_consented_products)),
-            institution_data: routing_number.map(|routing_number| LinkTokenInstitutionData { routing_number }),
-            transactions: days_requested.map(|days_requested| LinkTokenTransactions { days_requested }),
-            account_filters: account_filters(
-                depository_subtypes,
-                credit_subtypes,
-                loan_subtypes,
-                investment_subtypes,
-                other_subtypes,
-            ),
-        })?,
-    )
+    Ok(())
 }
 
 fn validate_primary_products(products: &[Product]) -> Result<()> {
