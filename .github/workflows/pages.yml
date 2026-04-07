@@ -9,7 +9,7 @@ on:
       - Cargo.lock
       - README.md
       - docs/**
-      - pages/mychart-callback/**
+      - pages/**
       - crates/switchboard-cli/**
       - .github/workflows/pages.yml
   workflow_dispatch:
