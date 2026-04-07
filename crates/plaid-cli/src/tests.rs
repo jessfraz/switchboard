@@ -25,15 +25,15 @@ use super::{
         institutions::{InstitutionRequestOptions, InstitutionsGetByIdRequest},
         item::ItemRemoveOutput,
         link::{
-            LinkTokenAccountFilters, LinkTokenAccountSubtypeFilter, LinkTokenCreateRequest, LinkTokenInstitutionData,
-            LinkTokenTransactions, LinkTokenUser,
+            LinkTokenAccountFilters, LinkTokenAccountSubtypeFilter, LinkTokenCreateRequest, LinkTokenHostedLink,
+            LinkTokenInstitutionData, LinkTokenTransactions, LinkTokenUser,
         },
         shared::AccessTokenRequest,
         transactions::{TransactionsSyncOptions, TransactionsSyncOutput, TransactionsSyncRequest},
     },
     main_entry, render_cli_error, run,
-    state::{PlaidEnvironment, PlaidState, StateStore, DEFAULT_PLAID_VERSION},
-    Cli, PLAID_GITHUB_PAGES_REDIRECT_URI,
+    state::{PendingLinkSessionState, PlaidEnvironment, PlaidState, StateStore, DEFAULT_PLAID_VERSION},
+    Cli, PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI, PLAID_GITHUB_PAGES_REDIRECT_URI,
 };
 
 #[test]
@@ -90,6 +90,182 @@ fn exchange_public_token_stores_access_token_and_item_id() {
     assert_eq!(state.access_token.as_deref(), Some("access-sandbox-1234"));
     assert_eq!(state.item_id.as_deref(), Some("item-1234"));
     assert_eq!(output.access_token, "access-sandbox-1234");
+}
+
+#[test]
+fn auth_login_creates_hosted_link_session_and_stores_pending_state() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "link_token": "link-hosted-123",
+            "hosted_link_url": "https://cdn.plaid.com/link/v2/stable/hosted-link.html?token=link-hosted-123",
+            "expiration": "2026-04-08T00:00:00Z",
+            "request_id": "request-hosted-login"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-auth-login");
+    let config_path = temp_dir.join("config.json");
+
+    let output: HostedLinkPendingOutput = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--base-url",
+        &server.base_url(),
+        "--client-id",
+        "client-id",
+        "--secret",
+        "secret-value",
+        "--client-name",
+        "switchboard",
+        "--compact",
+        "auth",
+        "login",
+        "--no-open",
+        "--client-user-id",
+        "user-123",
+        "--product",
+        "transactions",
+        "--product",
+        "auth",
+    ]);
+
+    let request = captured_request(&capture);
+    let body: LinkTokenCreateRequest = request.json_body();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/link/token/create");
+    assert_eq!(
+        body.hosted_link,
+        Some(LinkTokenHostedLink {
+            completion_redirect_uri: PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI.into(),
+        })
+    );
+    assert_eq!(body.redirect_uri.as_deref(), Some(PLAID_GITHUB_PAGES_REDIRECT_URI));
+    assert_eq!(output.status, "pending");
+    assert_eq!(output.link_token, "link-hosted-123");
+    assert_eq!(
+        output.hosted_link_url.as_deref(),
+        Some("https://cdn.plaid.com/link/v2/stable/hosted-link.html?token=link-hosted-123")
+    );
+    assert_eq!(
+        output.completion_redirect_uri.as_deref(),
+        Some(PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI)
+    );
+
+    let state = StateStore::new(config_path).load().expect("state should load");
+    let pending = state
+        .pending_link_session
+        .expect("pending hosted link session should be stored");
+    assert_eq!(pending.link_token, "link-hosted-123");
+    assert_eq!(
+        pending.hosted_link_url.as_deref(),
+        Some("https://cdn.plaid.com/link/v2/stable/hosted-link.html?token=link-hosted-123")
+    );
+    assert_eq!(
+        pending.completion_redirect_uri.as_deref(),
+        Some(PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI)
+    );
+}
+
+#[test]
+fn auth_finish_polls_hosted_link_and_stores_access_token() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn_sequence(
+        vec![
+            ResponseSpec::json(
+                json!({
+                    "link_token": "link-hosted-123",
+                    "request_id": "request-link-get-1",
+                    "link_sessions": []
+                }),
+                200,
+            ),
+            ResponseSpec::json(
+                json!({
+                    "link_token": "link-hosted-123",
+                    "request_id": "request-link-get-2",
+                    "link_sessions": [{
+                        "link_session_id": "session-123",
+                        "finished_at": "2026-04-08T00:00:30Z",
+                        "results": {
+                            "item_add_results": [{
+                                "public_token": "public-hosted-abc"
+                            }]
+                        }
+                    }]
+                }),
+                200,
+            ),
+            ResponseSpec::json(
+                json!({
+                    "access_token": "access-hosted-123",
+                    "item_id": "item-hosted-123",
+                    "request_id": "request-exchange-1"
+                }),
+                200,
+            ),
+        ],
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-auth-finish");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            base_url: Some(server.base_url()),
+            client_id: Some("client-id".into()),
+            secret: Some("secret-value".into()),
+            pending_link_session: Some(PendingLinkSessionState {
+                link_token: "link-hosted-123".into(),
+                hosted_link_url: Some(
+                    "https://cdn.plaid.com/link/v2/stable/hosted-link.html?token=link-hosted-123".into(),
+                ),
+                redirect_uri: Some(PLAID_GITHUB_PAGES_REDIRECT_URI.into()),
+                completion_redirect_uri: Some(PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI.into()),
+                expiration: Some("2026-04-08T00:00:00Z".into()),
+                created_at_epoch_seconds: 1,
+            }),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let output: HostedLinkCompletedOutput = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "auth",
+        "finish",
+        "--timeout-seconds",
+        "1",
+        "--poll-interval-ms",
+        "1",
+    ]);
+
+    let requests = captured_requests(&capture);
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].path, "/link/token/get");
+    assert_eq!(requests[1].path, "/link/token/get");
+    assert_eq!(requests[2].path, "/item/public_token/exchange");
+    let first_body: LinkTokenGetRequestBody = requests[0].json_body();
+    let second_body: LinkTokenGetRequestBody = requests[1].json_body();
+    let exchange_body: ExchangePublicTokenRequest = requests[2].json_body();
+    assert_eq!(first_body.link_token, "link-hosted-123");
+    assert_eq!(second_body.link_token, "link-hosted-123");
+    assert_eq!(exchange_body.public_token, "public-hosted-abc");
+    assert_eq!(output.status, "ok");
+    assert!(output.authenticated);
+    assert_eq!(output.link_token, "link-hosted-123");
+    assert_eq!(output.link_session_id.as_deref(), Some("session-123"));
+    assert_eq!(output.access_token, "access-hosted-123");
+    assert_eq!(output.item_id, "item-hosted-123");
+
+    let state = StateStore::new(config_path).load().expect("state should load");
+    assert_eq!(state.access_token.as_deref(), Some("access-hosted-123"));
+    assert_eq!(state.item_id.as_deref(), Some("item-hosted-123"));
+    assert!(state.pending_link_session.is_none());
 }
 
 #[test]
@@ -1340,7 +1516,30 @@ struct ExchangePublicTokenResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct HostedLinkPendingOutput {
+    status: String,
+    link_token: String,
+    hosted_link_url: Option<String>,
+    completion_redirect_uri: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostedLinkCompletedOutput {
+    status: String,
+    authenticated: bool,
+    link_token: String,
+    link_session_id: Option<String>,
+    access_token: String,
+    item_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct LinkTokenCreateResponse {
+    link_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkTokenGetRequestBody {
     link_token: String,
 }
 

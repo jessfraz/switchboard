@@ -28,10 +28,14 @@ use crate::{
 };
 
 pub(crate) const PLAID_GITHUB_PAGES_REDIRECT_URI: &str = "https://jessfraz.github.io/switchboard/plaid-callback/";
+pub(crate) const PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI: &str =
+    "https://jessfraz.github.io/switchboard/plaid-complete/";
 
 const AFTER_HELP: &str = concat!(
     "Examples:\n",
     "  plaid auth status\n",
+    "  plaid auth login --client-user-id user-123 --product transactions --product auth\n",
+    "  plaid auth finish\n",
     "  plaid sandbox public-token-create --institution-id ins_109508 --product transactions --product auth\n",
     "  plaid auth exchange-public-token --public-token public-sandbox-...\n",
     "  plaid item remove\n",

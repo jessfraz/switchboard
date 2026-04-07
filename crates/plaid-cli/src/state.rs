@@ -2,6 +2,7 @@ use std::{
     env, fs,
     io::Write,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use clap::ValueEnum;
@@ -61,6 +62,22 @@ pub(crate) struct PlaidState {
     pub(crate) plaid_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) client_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_link_session: Option<PendingLinkSessionState>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct PendingLinkSessionState {
+    pub(crate) link_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) hosted_link_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) redirect_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) completion_redirect_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) expiration: Option<String>,
+    pub(crate) created_at_epoch_seconds: u64,
 }
 
 pub(crate) struct StateStore {
@@ -125,6 +142,7 @@ pub(crate) struct ResolvedContext {
     pub(crate) item_id: Option<String>,
     pub(crate) plaid_version: String,
     pub(crate) client_name: String,
+    pub(crate) pending_link_session: Option<PendingLinkSessionState>,
     pub(crate) cache: PlaidCacheStore,
     store: StateStore,
     state: PlaidState,
@@ -159,6 +177,7 @@ impl ResolvedContext {
                 .unwrap_or_else(|| DEFAULT_PLAID_VERSION.to_owned()),
             client_name: pick(global.client_name.clone(), state.client_name.clone())
                 .unwrap_or_else(|| format!("plaid-cli/{}", env!("CARGO_PKG_VERSION"))),
+            pending_link_session: state.pending_link_session.clone(),
             cache: PlaidCacheStore::open(cache_db_path)?,
             store,
             state,
@@ -193,9 +212,50 @@ impl ResolvedContext {
         self.state.item_id = item_id.clone().or_else(|| self.state.item_id.clone());
         self.state.plaid_version = Some(self.plaid_version.clone());
         self.state.client_name = Some(self.client_name.clone());
+        self.state.pending_link_session = None;
 
         self.access_token = Some(access_token);
         self.item_id = item_id.or_else(|| self.item_id.clone());
+        self.pending_link_session = None;
+        self.store.save(&self.state)
+    }
+
+    pub(crate) fn store_pending_link_session(
+        &mut self,
+        link_token: String,
+        hosted_link_url: Option<String>,
+        redirect_uri: Option<String>,
+        completion_redirect_uri: Option<String>,
+        expiration: Option<String>,
+    ) -> Result<()> {
+        let created_at_epoch_seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| Error::Io(format!("system clock is before the Unix epoch: {error}")))?
+            .as_secs();
+        let pending_link_session = PendingLinkSessionState {
+            link_token,
+            hosted_link_url,
+            redirect_uri,
+            completion_redirect_uri,
+            expiration,
+            created_at_epoch_seconds,
+        };
+
+        self.state.environment = Some(self.environment);
+        self.state.base_url = self.base_url_override.clone();
+        self.state.client_id = self.client_id.clone();
+        self.state.secret = self.secret.clone();
+        self.state.plaid_version = Some(self.plaid_version.clone());
+        self.state.client_name = Some(self.client_name.clone());
+        self.state.pending_link_session = Some(pending_link_session.clone());
+
+        self.pending_link_session = Some(pending_link_session);
+        self.store.save(&self.state)
+    }
+
+    pub(crate) fn clear_pending_link_session(&mut self) -> Result<()> {
+        self.state.pending_link_session = None;
+        self.pending_link_session = None;
         self.store.save(&self.state)
     }
 
@@ -249,8 +309,10 @@ impl ResolvedContext {
     pub(crate) fn clear_auth_state(&mut self) -> Result<()> {
         self.state.access_token = None;
         self.state.item_id = None;
+        self.state.pending_link_session = None;
         self.access_token = None;
         self.item_id = None;
+        self.pending_link_session = None;
         self.store.save(&self.state)
     }
 }
