@@ -4,8 +4,10 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
+    time::Duration,
 };
 
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
 
@@ -592,6 +594,24 @@ fn read_session_cache(path: &Path) -> Option<SessionCacheFile> {
     serde_json::from_str(&contents).ok()
 }
 
+fn session_cache_lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = path.as_os_str().to_os_string();
+    lock_path.push(".lock.sqlite3");
+    PathBuf::from(lock_path)
+}
+
+fn open_session_cache_lock(path: &Path) -> std::io::Result<Connection> {
+    let lock_path = session_cache_lock_path(path);
+    let connection = Connection::open(lock_path).map_err(std::io::Error::other)?;
+    connection
+        .busy_timeout(Duration::from_secs(5))
+        .map_err(std::io::Error::other)?;
+    connection
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(std::io::Error::other)?;
+    Ok(connection)
+}
+
 fn write_session_cache(
     session_cache_path: Option<&Path>,
     account: &str,
@@ -600,6 +620,12 @@ fn write_session_cache(
     let Some(path) = session_cache_path else {
         return Ok(());
     };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let lock_connection = open_session_cache_lock(path)?;
 
     let mut cache = read_session_cache(path).unwrap_or_default();
     match session.and_then(PersistedSession::from_cached) {
@@ -611,16 +637,13 @@ fn write_session_cache(
         }
     }
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
     let serialized = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
     let temp_path = path.with_extension("tmp");
     fs::write(&temp_path, serialized)?;
     set_owner_only_permissions(&temp_path)?;
     fs::rename(&temp_path, path)?;
-    set_owner_only_permissions(path)
+    set_owner_only_permissions(path)?;
+    lock_connection.execute_batch("COMMIT").map_err(std::io::Error::other)
 }
 
 #[cfg(unix)]
@@ -703,14 +726,18 @@ mod tests {
         process,
         sync::{
             atomic::{AtomicU64, Ordering},
-            Mutex,
+            mpsc, Mutex,
         },
-        time::{SystemTime, UNIX_EPOCH},
+        thread,
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     use switchboard_core::{ResolvedSecret, SecretSource};
 
-    use super::{item_args, OnePasswordSecretBackend, SecretBackend};
+    use super::{
+        cached_session_on_disk, item_args, open_session_cache_lock, write_session_cache, CachedSession,
+        OnePasswordSecretBackend, SecretBackend,
+    };
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
     static TEMP_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1201,6 +1228,54 @@ esac
                 .filter(|line| line.contains("--account my.1password.com item get item-one --format json"))
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn concurrent_session_cache_writes_do_not_drop_other_accounts() {
+        let _guard = match ENV_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let fixture = TempFixtureDir::new();
+        let cache_path = fixture.path.join("onepassword-sessions.json");
+        let first_account = "my.1password.com";
+        let second_account = "kittycadinc.1password.com";
+        let first_session = CachedSession::Token("persisted-session".into());
+        let second_session = CachedSession::AppIntegration;
+
+        write_session_cache(Some(&cache_path), first_account, Some(&first_session))
+            .expect("first cache write should succeed");
+
+        let lock_connection = open_session_cache_lock(&cache_path).expect("lock file should open");
+
+        let (started_tx, started_rx) = mpsc::channel();
+        let worker_cache_path = cache_path.clone();
+        let worker = thread::spawn(move || {
+            started_tx.send(()).expect("worker should signal start");
+            write_session_cache(Some(&worker_cache_path), second_account, Some(&second_session))
+                .expect("second cache write should succeed");
+        });
+
+        started_rx.recv().expect("worker start should be observed");
+        thread::sleep(Duration::from_millis(100));
+        assert!(
+            !worker.is_finished(),
+            "writer should block while the cache lock is held"
+        );
+
+        lock_connection
+            .execute_batch("COMMIT")
+            .expect("lock should be released");
+        worker.join().expect("worker should finish");
+
+        assert_eq!(
+            cached_session_on_disk(Some(&cache_path), first_account),
+            Some(CachedSession::Token("persisted-session".into()))
+        );
+        assert_eq!(
+            cached_session_on_disk(Some(&cache_path), second_account),
+            Some(CachedSession::AppIntegration)
         );
     }
 
