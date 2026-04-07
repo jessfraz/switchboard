@@ -128,6 +128,91 @@ fn auth_authorize_url_generates_and_persists_state() {
 }
 
 #[test]
+fn auth_authorize_url_defaults_to_pages_redirect_uri() {
+    let temp_dir = temp_dir("schwab-auth-authorize-default-redirect");
+    let config_path = temp_dir.join("config.json");
+
+    let output: Value = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--client-id",
+        "client-id",
+        "--client-secret",
+        "client-secret",
+        "--compact",
+        "auth",
+        "authorize-url",
+    ]);
+
+    assert_eq!(
+        output.get("redirect_uri").and_then(Value::as_str),
+        Some(crate::state::PAGES_REDIRECT_URI)
+    );
+
+    let stored = StateStore::new(config_path).load().expect("stored state should load");
+    assert_eq!(stored.redirect_uri.as_deref(), Some(crate::state::PAGES_REDIRECT_URI));
+    assert!(stored.pending_oauth_state.is_some());
+}
+
+#[test]
+fn auth_login_accepts_callback_url_and_stores_tokens() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!({
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "token_type": "Bearer",
+                "scope": "readonly",
+                "expires_in": 1800
+            }),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-auth-login");
+    let config_path = temp_dir.join("config.json");
+
+    let output: AuthExchangeResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--token-url",
+        &format!("{}/oauth/token", server.base_url()),
+        "--client-id",
+        "client-id",
+        "--client-secret",
+        "client-secret",
+        "--compact",
+        "auth",
+        "login",
+        "--state",
+        "expected-state",
+        "--callback-url",
+        "https://jessfraz.github.io/switchboard/schwab-callback/?code=auth-code&state=expected-state",
+        "--no-open",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].method, "POST");
+    assert_eq!(request[0].path, "/oauth/token");
+    assert_eq!(request[0].form_value("code").as_deref(), Some("auth-code"));
+    assert_eq!(
+        request[0].form_value("redirect_uri").as_deref(),
+        Some(crate::state::PAGES_REDIRECT_URI)
+    );
+
+    let state = StateStore::new(config_path).load().expect("stored state should load");
+    assert_eq!(state.access_token.as_deref(), Some("access-token"));
+    assert_eq!(state.refresh_token.as_deref(), Some("refresh-token"));
+    assert_eq!(state.redirect_uri.as_deref(), Some(crate::state::PAGES_REDIRECT_URI));
+    assert_eq!(state.pending_oauth_state, None);
+    assert_eq!(output.access_token, "access-token");
+}
+
+#[test]
 fn auth_exchange_url_rejects_state_mismatch() {
     let temp_dir = temp_dir("schwab-auth-state-mismatch");
     let config_path = temp_dir.join("config.json");

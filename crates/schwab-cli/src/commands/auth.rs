@@ -1,4 +1,8 @@
-use std::{fs::File, io::Read};
+use std::{
+    fs::File,
+    io::{self, IsTerminal, Read, Write},
+    process::Command,
+};
 
 use clap::{Args, Subcommand};
 use reqwest::Url;
@@ -17,6 +21,7 @@ pub(crate) struct AuthCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum AuthSubcommand {
+    Login(AuthLoginArgs),
     #[command(name = "authorize-url")]
     AuthorizeUrl(AuthAuthorizeUrlArgs),
     #[command(name = "exchange-code")]
@@ -28,8 +33,8 @@ pub(crate) enum AuthSubcommand {
     Logout,
 }
 
-#[derive(Debug, Args)]
-pub(crate) struct AuthAuthorizeUrlArgs {
+#[derive(Debug, Args, Clone)]
+pub(crate) struct AuthAuthorizeOptions {
     #[arg(long, value_name = "URL")]
     redirect_uri: Option<String>,
 
@@ -38,6 +43,24 @@ pub(crate) struct AuthAuthorizeUrlArgs {
 
     #[arg(long)]
     state: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AuthLoginArgs {
+    #[command(flatten)]
+    options: AuthAuthorizeOptions,
+
+    #[arg(long = "callback-url", value_name = "URL")]
+    callback_url: Option<String>,
+
+    #[arg(long)]
+    no_open: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AuthAuthorizeUrlArgs {
+    #[command(flatten)]
+    options: AuthAuthorizeOptions,
 }
 
 #[derive(Debug, Args)]
@@ -73,33 +96,47 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
     let client = trader_client(context)?;
 
     match command {
-        AuthSubcommand::AuthorizeUrl(args) => {
-            let client_id = context.require_client_id()?;
-            let redirect_uri = context.require_redirect_uri(args.redirect_uri)?;
-            let scopes = resolve_scopes(args.scopes);
-            let oauth_state = args.state.unwrap_or(generate_oauth_state()?);
-            let mut url = Url::parse(&context.authorize_url).map_err(|error| {
-                Error::Config(format!(
-                    "invalid Schwab authorize URL {:?}: {error}",
-                    context.authorize_url
-                ))
-            })?;
-            {
-                let mut pairs = url.query_pairs_mut();
-                pairs.append_pair("response_type", "code");
-                pairs.append_pair("client_id", client_id);
-                pairs.append_pair("redirect_uri", &redirect_uri);
-                pairs.append_pair("scope", &scopes.join(" "));
-                pairs.append_pair("state", &oauth_state);
+        AuthSubcommand::Login(args) => {
+            let prepared = prepare_authorization(context, args.options)?;
+            let interactive = stdin_is_interactive();
+
+            if args.callback_url.is_none() {
+                if interactive && !args.no_open {
+                    eprintln!("Opening browser for Schwab OAuth login...");
+                    open_browser(&prepared.authorize_url)?;
+                } else {
+                    eprintln!("Open this URL in a browser:\n{}", prepared.authorize_url);
+                }
             }
 
-            context.remember_authorization_request(redirect_uri.clone(), oauth_state.clone())?;
+            let callback_input = match args.callback_url {
+                Some(callback_url) => Some(callback_url),
+                None => prompt_for_callback_input(interactive)?,
+            };
 
+            match callback_input {
+                Some(callback_input) => {
+                    let callback = parse_login_callback_input(&callback_input)?;
+                    validate_callback(context, &callback)?;
+                    exchange_code(&client, context, callback.code, callback.redirect_uri, false)
+                }
+                None => Ok(json!({
+                    "status": "pending",
+                    "authorize_url": prepared.authorize_url,
+                    "redirect_uri": prepared.redirect_uri,
+                    "scope": prepared.scopes,
+                    "state": prepared.oauth_state,
+                    "next_step": "Finish the browser login, then paste the full callback URL here or run `schwab auth exchange-url '<callback-url>'` later.",
+                })),
+            }
+        }
+        AuthSubcommand::AuthorizeUrl(args) => {
+            let prepared = prepare_authorization(context, args.options)?;
             Ok(json!({
-                "authorize_url": url.as_str(),
-                "redirect_uri": redirect_uri,
-                "scope": scopes,
-                "state": oauth_state,
+                "authorize_url": prepared.authorize_url,
+                "redirect_uri": prepared.redirect_uri,
+                "scope": prepared.scopes,
+                "state": prepared.oauth_state,
             }))
         }
         AuthSubcommand::ExchangeCode(args) => exchange_code(
@@ -152,6 +189,13 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             }))
         }
     }
+}
+
+struct PreparedAuthorization {
+    authorize_url: String,
+    redirect_uri: String,
+    scopes: Vec<String>,
+    oauth_state: String,
 }
 
 fn exchange_code(
@@ -279,6 +323,39 @@ struct CallbackInput {
     state: Option<String>,
 }
 
+fn prepare_authorization(
+    context: &mut ResolvedContext,
+    options: AuthAuthorizeOptions,
+) -> Result<PreparedAuthorization> {
+    let client_id = context.require_client_id()?;
+    let redirect_uri = context.require_redirect_uri(options.redirect_uri)?;
+    let scopes = resolve_scopes(options.scopes);
+    let oauth_state = options.state.unwrap_or(generate_oauth_state()?);
+    let mut url = Url::parse(&context.authorize_url).map_err(|error| {
+        Error::Config(format!(
+            "invalid Schwab authorize URL {:?}: {error}",
+            context.authorize_url
+        ))
+    })?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("response_type", "code");
+        pairs.append_pair("client_id", client_id);
+        pairs.append_pair("redirect_uri", &redirect_uri);
+        pairs.append_pair("scope", &scopes.join(" "));
+        pairs.append_pair("state", &oauth_state);
+    }
+
+    context.remember_authorization_request(redirect_uri.clone(), oauth_state.clone())?;
+
+    Ok(PreparedAuthorization {
+        authorize_url: url.into(),
+        redirect_uri,
+        scopes,
+        oauth_state,
+    })
+}
+
 fn parse_callback_input(input: &str) -> Result<CallbackInput> {
     let url =
         Url::parse(input).map_err(|error| Error::Arguments(format!("callback input must be a valid URL: {error}")))?;
@@ -299,6 +376,89 @@ fn parse_callback_input(input: &str) -> Result<CallbackInput> {
         redirect_uri: redirect_uri.to_string(),
         state,
     })
+}
+
+fn parse_login_callback_input(input: &str) -> Result<CallbackInput> {
+    let trimmed = input.trim().trim_end_matches(';').trim();
+    let candidate = if let Some(command_start) = trimmed.find(" exchange-url ") {
+        trimmed[command_start + " exchange-url ".len()..].trim()
+    } else {
+        trimmed
+    };
+    let candidate = unquote(candidate);
+    parse_callback_input(candidate)
+}
+
+fn unquote(value: &str) -> &str {
+    let quoted = (value.starts_with('\'') && value.ends_with('\'')) || (value.starts_with('"') && value.ends_with('"'));
+    if quoted && value.len() >= 2 {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
+}
+
+fn stdin_is_interactive() -> bool {
+    io::stdin().is_terminal() && io::stderr().is_terminal()
+}
+
+fn prompt_for_callback_input(interactive: bool) -> Result<Option<String>> {
+    if !interactive {
+        return Ok(None);
+    }
+
+    read_callback_input().map(Some)
+}
+
+fn read_callback_input() -> Result<String> {
+    let mut stderr = io::stderr().lock();
+    writeln!(
+        stderr,
+        "Paste the full callback URL from the hosted callback page, then press Enter."
+    )
+    .map_err(|error| Error::Io(format!("failed to write Schwab login prompt: {error}")))?;
+    write!(stderr, "> ").map_err(|error| Error::Io(format!("failed to write Schwab login prompt: {error}")))?;
+    stderr
+        .flush()
+        .map_err(|error| Error::Io(format!("failed to flush Schwab login prompt: {error}")))?;
+    drop(stderr);
+
+    let stdin = io::stdin();
+    let mut input = String::new();
+    let bytes_read = stdin
+        .read_line(&mut input)
+        .map_err(|error| Error::Io(format!("failed to read Schwab callback input: {error}")))?;
+    if bytes_read == 0 {
+        return Err(Error::Io(
+            "stdin closed before Schwab callback input was provided".into(),
+        ));
+    }
+
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(Error::Arguments(
+            "callback input was empty, rerun `schwab auth login` and paste the full callback URL".into(),
+        ));
+    }
+
+    Ok(trimmed.to_owned())
+}
+
+fn open_browser(url: &str) -> Result<()> {
+    let (command, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("open", &[url])
+    } else if cfg!(target_os = "windows") {
+        ("cmd", &["/C", "start", "", url])
+    } else {
+        ("xdg-open", &[url])
+    };
+
+    Command::new(command)
+        .args(args)
+        .spawn()
+        .map_err(|error| Error::Io(format!("failed to launch browser with {command}: {error}")))?;
+
+    Ok(())
 }
 
 fn validate_callback(context: &ResolvedContext, callback: &CallbackInput) -> Result<()> {

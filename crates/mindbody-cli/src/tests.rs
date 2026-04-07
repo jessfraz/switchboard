@@ -202,6 +202,112 @@ fn pricing_option_booking_requires_purchase_fields() {
 }
 
 #[test]
+fn pricing_option_booking_posts_purchase_fields_and_payment_details() {
+    let capture = Arc::new(Mutex::new(None));
+    let server = TestServer::spawn(
+        json!({
+            "booking": {
+                "id": "booking-2"
+            }
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("mindbody-booking-pricing-option");
+    let config_path = temp_dir.join("config.json");
+    let payment_path = temp_dir.join("payment.json");
+    write_config(
+        &config_path,
+        json!({
+            "base_url": server.base_url(),
+            "api_key": "api-key",
+            "client_key": "client-key",
+            "client_secret": "client-secret",
+            "user_id": "pilates.user"
+        }),
+    );
+    fs::write(
+        &payment_path,
+        json!({
+            "creditCardNumber": "4111111111111111",
+            "creditCardExpirationYear": 2030,
+            "creditCardExpirationMonth": 12,
+            "creditCardCvv": "123",
+            "billingName": "Ada Lovelace",
+            "billingAddressLine1": "123 Main St",
+            "billingAddressLine2": "Unit 4",
+            "billingCity": "Los Angeles",
+            "billingState": "CA",
+            "billingPostalCode": "90001"
+        })
+        .to_string(),
+    )
+    .expect("payment json should write");
+
+    let output: BookingCreateResponse = run_command(&[
+        "mindbody",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "bookings",
+        "create",
+        "--location-id",
+        "86784",
+        "--class-id",
+        "5134512",
+        "--reconciliation-type",
+        "pricing-option",
+        "--reconciliation-id",
+        "153458",
+        "--pricing-option-total",
+        "42.5",
+        "--suppress-purchase-receipt-email",
+        "--subscriber-marketing-opt-in",
+        "--user-first",
+        "Ada",
+        "--user-last",
+        "Lovelace",
+        "--user-email",
+        "ada@example.com",
+        "--user-phone",
+        "555-0100",
+        "--payment-file",
+        payment_path.to_str().expect("payment path should be utf-8"),
+    ]);
+
+    let request = captured_request(&capture);
+    let body: BookingCreateRequestBody = request.json_body();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/bookings");
+    assert_eq!(body.unique_user_id, "pilates.user");
+    assert_eq!(body.booking_reconciliation.r#type, "PricingOption");
+    assert_eq!(body.booking_reconciliation.pricing_option_total, Some(42.5));
+    assert_eq!(body.suppress_purchase_receipt_email, Some(true));
+    assert_eq!(body.subscriber_marketing_opt_in, Some(true));
+    assert_eq!(body.user_first.as_deref(), Some("Ada"));
+    assert_eq!(body.user_last.as_deref(), Some("Lovelace"));
+    assert_eq!(body.user_email.as_deref(), Some("ada@example.com"));
+    assert_eq!(body.user_phone.as_deref(), Some("555-0100"));
+    assert_eq!(
+        body.payment_details,
+        Some(BookingPaymentDetails {
+            credit_card_number: "4111111111111111".into(),
+            credit_card_expiration_year: 2030,
+            credit_card_expiration_month: 12,
+            credit_card_cvv: Some("123".into()),
+            billing_name: "Ada Lovelace".into(),
+            billing_address_line_1: "123 Main St".into(),
+            billing_address_line_2: Some("Unit 4".into()),
+            billing_city: "Los Angeles".into(),
+            billing_state: "CA".into(),
+            billing_postal_code: "90001".into(),
+        })
+    );
+    assert_eq!(output.booking.id, "booking-2");
+}
+
+#[test]
 fn bookings_cancel_uses_user_id_and_query_flag() {
     let capture = Arc::new(Mutex::new(None));
     let server = TestServer::spawn(
@@ -416,13 +522,35 @@ struct StringIdItem {
 struct BookingCreateRequestBody {
     unique_user_id: String,
     booking_reconciliation: BookingReconciliation,
-    payment_details: Option<Value>,
+    payment_details: Option<BookingPaymentDetails>,
+    suppress_purchase_receipt_email: Option<bool>,
+    subscriber_marketing_opt_in: Option<bool>,
+    user_first: Option<String>,
+    user_last: Option<String>,
+    user_email: Option<String>,
+    user_phone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BookingReconciliation {
     r#type: String,
+    pricing_option_total: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct BookingPaymentDetails {
+    credit_card_number: String,
+    credit_card_expiration_year: u16,
+    credit_card_expiration_month: u8,
+    credit_card_cvv: Option<String>,
+    billing_name: String,
+    billing_address_line_1: String,
+    billing_address_line_2: Option<String>,
+    billing_city: String,
+    billing_state: String,
+    billing_postal_code: String,
 }
 
 #[derive(Debug, Deserialize)]

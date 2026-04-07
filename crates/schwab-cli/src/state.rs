@@ -14,6 +14,7 @@ pub(crate) const DEFAULT_AUTHORIZE_URL: &str = "https://api.schwabapi.com/v1/oau
 pub(crate) const DEFAULT_TOKEN_URL: &str = "https://api.schwabapi.com/v1/oauth/token";
 pub(crate) const DEFAULT_TRADER_BASE_URL: &str = "https://api.schwabapi.com/trader/v1";
 pub(crate) const DEFAULT_MARKET_DATA_BASE_URL: &str = "https://api.schwabapi.com/marketdata/v1";
+pub(crate) const PAGES_REDIRECT_URI: &str = "https://jessfraz.github.io/switchboard/schwab-callback/";
 pub(crate) const ENV_SCHWAB_ACCESS_TOKEN: &str = "SCHWAB_ACCESS_TOKEN";
 pub(crate) const ENV_SCHWAB_AUTHORIZE_URL: &str = "SCHWAB_AUTHORIZE_URL";
 pub(crate) const ENV_SCHWAB_BASE_URL: &str = "SCHWAB_BASE_URL";
@@ -184,7 +185,8 @@ impl ResolvedContext {
             client_function_id: pick(global.client_function_id.clone(), state.client_function_id.clone()),
             resource_version: pick(global.resource_version.clone(), state.resource_version.clone()),
             rrbus_pilot_rollout: pick(global.rrbus_pilot_rollout.clone(), state.rrbus_pilot_rollout.clone()),
-            redirect_uri: pick(global.redirect_uri.clone(), state.redirect_uri.clone()),
+            redirect_uri: pick(global.redirect_uri.clone(), state.redirect_uri.clone())
+                .or_else(|| Some(PAGES_REDIRECT_URI.to_owned())),
             access_token: pick(global.access_token.clone(), state.access_token.clone()),
             refresh_token: pick(global.refresh_token.clone(), state.refresh_token.clone()),
             token_type: state.token_type.clone(),

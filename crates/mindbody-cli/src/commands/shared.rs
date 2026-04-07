@@ -1,4 +1,8 @@
 use clap::{Args, ValueEnum};
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::{Error, Result};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(crate) enum SortDirection {
@@ -84,4 +88,9 @@ pub(crate) fn push_query_csv_u64(query: &mut Vec<(String, String)>, key: &str, v
             .join(",");
         query.push((key.into(), joined));
     }
+}
+
+pub(crate) fn serialize_payload<T: Serialize>(payload: T) -> Result<Value> {
+    serde_json::to_value(payload)
+        .map_err(|error| Error::Config(format!("failed to serialize Mindbody payload: {error}")))
 }

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::{
     commands::shared::{credentials, non_empty_country_codes, product_names, serialize_payload, Product},
-    Error, PlaidClient, ResolvedContext, Result,
+    Error, PlaidClient, ResolvedContext, Result, PLAID_GITHUB_PAGES_REDIRECT_URI,
 };
 
 #[derive(Debug, Args)]
@@ -273,7 +273,7 @@ fn run_link_token_create(args: LinkTokenCreateArgs, client: &PlaidClient, contex
             language,
             country_codes: non_empty_country_codes(country_codes),
             link_customization_name,
-            redirect_uri,
+            redirect_uri: Some(redirect_uri.unwrap_or_else(|| PLAID_GITHUB_PAGES_REDIRECT_URI.to_owned())),
             webhook,
             android_package_name,
             institution_id,

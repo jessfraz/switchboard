@@ -120,6 +120,7 @@
         "kind": "unknown"
       },
       "subcommands": [
+        "login",
         "authorize-url",
         "exchange-code",
         "exchange-url",
@@ -177,6 +178,25 @@
       "help_args": [
         "auth",
         "exchange-url",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "login"
+      ],
+      "command": "schwab auth login",
+      "summary": "Usage: schwab auth login [OPTIONS]",
+      "usage": "schwab auth login [OPTIONS]",
+      "help_args": [
+        "auth",
+        "login",
         "--help"
       ],
       "node_kind": "operation",
