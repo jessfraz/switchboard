@@ -1,8 +1,9 @@
 use clap::{Args, Subcommand};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{
-    commands::shared::{credentials, redact_secret, require_response_string},
+    commands::shared::{credentials, redact_secret, require_response_string, serialize_payload},
     Error, PlaidClient, ResolvedContext, Result,
 };
 
@@ -33,6 +34,11 @@ pub(crate) struct AuthExchangePublicTokenArgs {
     no_store: bool,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct ExchangePublicTokenRequest {
+    pub(crate) public_token: String,
+}
+
 #[derive(Debug, Args)]
 pub(crate) struct AuthImportAccessTokenArgs {
     #[arg(long)]
@@ -56,9 +62,9 @@ pub(crate) fn run_auth(command: AuthSubcommand, client: &PlaidClient, context: &
             let response = client.post(
                 credentials,
                 "/item/public_token/exchange",
-                json!({
-                    "public_token": args.public_token,
-                }),
+                serialize_payload(ExchangePublicTokenRequest {
+                    public_token: args.public_token,
+                })?,
             )?;
 
             if !args.no_store {

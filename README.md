@@ -176,6 +176,36 @@ default_read = false
 state_dir = "/Users/jessfraz/.config/mychart-ucla"
 ```
 
+Schwab follows the same CLI-managed pattern as MyChart. `switchboard` scopes the Schwab CLI state file under the namespace `state_dir` by materializing `SCHWAB_CONFIG`, and you can optionally attach an explicit `schwab_cli` auth block when you want client id or secret overrides injected from env, files, or 1Password. If you omit `auth`, `switchboard` will automatically look for `auth.schwab_<namespace>`.
+
+```toml
+[secret.schwab_personal_client_id]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "schwab cli"
+field = "username"
+
+[secret.schwab_personal_client_secret]
+kind = "onepassword_item"
+account = "my.1password.com"
+item = "schwab cli"
+field = "credential"
+
+[auth.schwab_personal]
+provider = "schwab"
+kind = "schwab_cli"
+account = "jessfraz"
+client_id = "schwab_personal_client_id"
+client_secret = "schwab_personal_client_secret"
+
+[namespace.schwab.personal]
+provider = "schwab"
+account = "jessfraz"
+auth = "schwab_personal"
+default_read = true
+state_dir = "/Users/jessfraz/.config/schwab-personal"
+```
+
 ## How It Works
 
 Every action follows the same rough shape:

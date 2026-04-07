@@ -1,8 +1,9 @@
 use clap::{Args, Subcommand};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
-    commands::shared::{credentials, non_empty_country_codes, product_values, string_values, Product},
+    commands::shared::{credentials, non_empty_country_codes, product_names, serialize_payload, Product},
     PlaidClient, ResolvedContext, Result,
 };
 
@@ -62,6 +63,38 @@ pub(crate) struct InstitutionsGetByIdArgs {
     include_payment_initiation_metadata: bool,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct InstitutionsSearchRequest {
+    pub(crate) query: String,
+    pub(crate) country_codes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) products: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) options: Option<InstitutionRequestOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct InstitutionsGetByIdRequest {
+    pub(crate) institution_id: String,
+    pub(crate) country_codes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) options: Option<InstitutionRequestOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct InstitutionRequestOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) oauth: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) include_optional_metadata: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) include_status: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) include_auth_metadata: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) include_payment_initiation_metadata: Option<bool>,
+}
+
 pub(crate) fn run_institutions(
     command: InstitutionsSubcommand,
     client: &PlaidClient,
@@ -80,28 +113,24 @@ fn run_institutions_search(
 ) -> Result<Value> {
     let credentials = credentials(context)?;
     let country_codes = non_empty_country_codes(args.country_codes);
-    let mut body = Map::new();
-    body.insert("query".into(), Value::String(args.query));
-    body.insert("country_codes".into(), string_values(&country_codes));
-
-    if !args.products.is_empty() {
-        body.insert("products".into(), product_values(&args.products));
-    }
-
-    let mut options = institution_options(
+    let options = institution_options(
         args.include_optional_metadata,
         false,
         args.include_auth_metadata,
         args.include_payment_initiation_metadata,
+        args.oauth,
     );
-    if let Some(oauth) = args.oauth {
-        options.insert("oauth".into(), Value::Bool(oauth));
-    }
-    if !options.is_empty() {
-        body.insert("options".into(), Value::Object(options));
-    }
 
-    client.post(credentials, "/institutions/search", Value::Object(body))
+    client.post(
+        credentials,
+        "/institutions/search",
+        serialize_payload(InstitutionsSearchRequest {
+            query: args.query,
+            country_codes,
+            products: (!args.products.is_empty()).then(|| product_names(&args.products)),
+            options,
+        })?,
+    )
 }
 
 fn run_institutions_get_by_id(
@@ -111,21 +140,23 @@ fn run_institutions_get_by_id(
 ) -> Result<Value> {
     let credentials = credentials(context)?;
     let country_codes = non_empty_country_codes(args.country_codes);
-    let mut body = Map::new();
-    body.insert("institution_id".into(), Value::String(args.institution_id));
-    body.insert("country_codes".into(), string_values(&country_codes));
-
     let options = institution_options(
         args.include_optional_metadata,
         args.include_status,
         args.include_auth_metadata,
         args.include_payment_initiation_metadata,
+        None,
     );
-    if !options.is_empty() {
-        body.insert("options".into(), Value::Object(options));
-    }
 
-    client.post(credentials, "/institutions/get_by_id", Value::Object(body))
+    client.post(
+        credentials,
+        "/institutions/get_by_id",
+        serialize_payload(InstitutionsGetByIdRequest {
+            institution_id: args.institution_id,
+            country_codes,
+            options,
+        })?,
+    )
 }
 
 fn institution_options(
@@ -133,19 +164,27 @@ fn institution_options(
     include_status: bool,
     include_auth_metadata: bool,
     include_payment_initiation_metadata: bool,
-) -> Map<String, Value> {
-    let mut options = Map::new();
-    if include_optional_metadata {
-        options.insert("include_optional_metadata".into(), Value::Bool(true));
+    oauth: Option<bool>,
+) -> Option<InstitutionRequestOptions> {
+    let options = InstitutionRequestOptions {
+        oauth,
+        include_optional_metadata: include_optional_metadata.then_some(true),
+        include_status: include_status.then_some(true),
+        include_auth_metadata: include_auth_metadata.then_some(true),
+        include_payment_initiation_metadata: include_payment_initiation_metadata.then_some(true),
+    };
+
+    if options
+        == (InstitutionRequestOptions {
+            oauth: None,
+            include_optional_metadata: None,
+            include_status: None,
+            include_auth_metadata: None,
+            include_payment_initiation_metadata: None,
+        })
+    {
+        None
+    } else {
+        Some(options)
     }
-    if include_status {
-        options.insert("include_status".into(), Value::Bool(true));
-    }
-    if include_auth_metadata {
-        options.insert("include_auth_metadata".into(), Value::Bool(true));
-    }
-    if include_payment_initiation_metadata {
-        options.insert("include_payment_initiation_metadata".into(), Value::Bool(true));
-    }
-    options
 }

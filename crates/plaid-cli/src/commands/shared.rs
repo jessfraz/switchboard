@@ -1,5 +1,6 @@
 use clap::ValueEnum;
-use serde_json::{json, Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::{Error, PlaidClient, PlaidCredentials, ResolvedContext, Result};
 
@@ -125,18 +126,21 @@ impl Product {
     }
 }
 
-pub(crate) fn product_values(products: &[Product]) -> Value {
-    Value::Array(
-        products
-            .iter()
-            .copied()
-            .map(|product| Value::String(product.as_api_value().to_owned()))
-            .collect(),
-    )
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct AccessTokenRequest {
+    pub(crate) access_token: String,
 }
 
-pub(crate) fn string_values(values: &[String]) -> Value {
-    Value::Array(values.iter().cloned().map(Value::String).collect())
+pub(crate) fn product_names(products: &[Product]) -> Vec<String> {
+    products
+        .iter()
+        .copied()
+        .map(|product| product.as_api_value().to_owned())
+        .collect()
+}
+
+pub(crate) fn serialize_payload<T: Serialize>(payload: T) -> Result<Value> {
+    serde_json::to_value(payload).map_err(|error| Error::Config(format!("failed to serialize Plaid payload: {error}")))
 }
 
 pub(crate) fn non_empty_country_codes(country_codes: Vec<String>) -> Vec<String> {
@@ -144,12 +148,6 @@ pub(crate) fn non_empty_country_codes(country_codes: Vec<String>) -> Vec<String>
         vec!["US".into()]
     } else {
         country_codes
-    }
-}
-
-pub(crate) fn maybe_insert_options(body: &mut Map<String, Value>, options: Map<String, Value>) {
-    if !options.is_empty() {
-        body.insert("options".into(), Value::Object(options));
     }
 }
 
@@ -174,9 +172,9 @@ pub(crate) fn ensure_item_id(client: &PlaidClient, context: &mut ResolvedContext
     let response = client.post(
         credentials(context)?,
         "/item/get",
-        json!({
-            "access_token": context.require_access_token()?,
-        }),
+        serialize_payload(AccessTokenRequest {
+            access_token: context.require_access_token()?.to_owned(),
+        })?,
     )?;
     let item = response
         .get("item")

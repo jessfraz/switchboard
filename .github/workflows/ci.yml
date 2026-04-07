@@ -41,6 +41,9 @@ jobs:
       - name: Build MyChart CLI
         run: cargo build -p mychart-cli
 
+      - name: Build Schwab CLI
+        run: cargo build -p schwab-cli
+
       - name: Expose workspace binaries on PATH
         run: echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
 
@@ -49,6 +52,7 @@ jobs:
           gh --version
           gws --version
           mychart --version
+          schwab --version
 
       - name: Check Generated CLI Inventories
         run: cargo run -p switchboard-providers --bin switchboard-catalog-gen -- check

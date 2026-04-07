@@ -1,9 +1,10 @@
 use clap::{Args, Subcommand};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     cache::AccountSnapshotSource,
-    commands::shared::{credentials, maybe_insert_options},
+    commands::shared::{credentials, serialize_payload},
     PlaidClient, ResolvedContext, Result,
 };
 
@@ -34,6 +35,28 @@ pub(crate) struct AccountsBalanceArgs {
     min_last_updated_datetime: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct AccountsGetRequest {
+    pub(crate) access_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) options: Option<AccountsRequestOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct AccountsBalanceRequest {
+    pub(crate) access_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) options: Option<AccountsRequestOptions>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct AccountsRequestOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) min_last_updated_datetime: Option<String>,
+}
+
 pub(crate) fn run_accounts(
     command: AccountsSubcommand,
     client: &PlaidClient,
@@ -45,7 +68,7 @@ pub(crate) fn run_accounts(
             let response = client.post(
                 credentials,
                 "/accounts/get",
-                accounts_get_body(context.require_access_token()?, &args.account_ids),
+                accounts_get_body(context.require_access_token()?, &args.account_ids)?,
             )?;
             cache_accounts_response(context, &response, AccountSnapshotSource::AccountsGet)?;
             Ok(response)
@@ -58,7 +81,7 @@ pub(crate) fn run_accounts(
                     context.require_access_token()?,
                     &args.account_ids,
                     args.min_last_updated_datetime,
-                ),
+                )?,
             )?;
             cache_accounts_response(context, &response, AccountSnapshotSource::AccountsBalanceGet)?;
             Ok(response)
@@ -87,39 +110,34 @@ fn cache_accounts_response(
     context.cache.cache_accounts(&item_id, &accounts, source)
 }
 
-fn accounts_get_body(access_token: &str, account_ids: &[String]) -> Value {
-    let mut body = Map::new();
-    body.insert("access_token".into(), Value::String(access_token.to_owned()));
-
-    let mut options = Map::new();
-    if !account_ids.is_empty() {
-        options.insert(
-            "account_ids".into(),
-            Value::Array(account_ids.iter().cloned().map(Value::String).collect()),
-        );
-    }
-    maybe_insert_options(&mut body, options);
-    Value::Object(body)
+fn accounts_get_body(access_token: &str, account_ids: &[String]) -> Result<Value> {
+    serialize_payload(AccountsGetRequest {
+        access_token: access_token.to_owned(),
+        options: accounts_options(account_ids, None),
+    })
 }
 
 fn accounts_balance_body(
     access_token: &str,
     account_ids: &[String],
     min_last_updated_datetime: Option<String>,
-) -> Value {
-    let mut body = Map::new();
-    body.insert("access_token".into(), Value::String(access_token.to_owned()));
+) -> Result<Value> {
+    serialize_payload(AccountsBalanceRequest {
+        access_token: access_token.to_owned(),
+        options: accounts_options(account_ids, min_last_updated_datetime),
+    })
+}
 
-    let mut options = Map::new();
-    if !account_ids.is_empty() {
-        options.insert(
-            "account_ids".into(),
-            Value::Array(account_ids.iter().cloned().map(Value::String).collect()),
-        );
+fn accounts_options(
+    account_ids: &[String],
+    min_last_updated_datetime: Option<String>,
+) -> Option<AccountsRequestOptions> {
+    if account_ids.is_empty() && min_last_updated_datetime.is_none() {
+        return None;
     }
-    if let Some(value) = min_last_updated_datetime {
-        options.insert("min_last_updated_datetime".into(), Value::String(value));
-    }
-    maybe_insert_options(&mut body, options);
-    Value::Object(body)
+
+    Some(AccountsRequestOptions {
+        account_ids: (!account_ids.is_empty()).then(|| account_ids.to_vec()),
+        min_last_updated_datetime,
+    })
 }

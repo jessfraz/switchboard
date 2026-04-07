@@ -490,6 +490,84 @@ impl Switchboard {
                     None => None,
                 },
             },
+            AuthSecretRefs::SchwabCli {
+                base_url,
+                market_data_base_url,
+                authorize_url,
+                token_url,
+                client_id,
+                client_secret,
+                third_party_id,
+                client_channel,
+                client_app_id,
+                client_function_id,
+                resource_version,
+                rrbus_pilot_rollout,
+                redirect_uri,
+                access_token,
+                refresh_token,
+            } => ResolvedCredentials::SchwabCli {
+                base_url: match base_url {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                market_data_base_url: match market_data_base_url {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                authorize_url: match authorize_url {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                token_url: match token_url {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_id: match client_id {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_secret: match client_secret {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                third_party_id: match third_party_id {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_channel: match client_channel {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_app_id: match client_app_id {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                client_function_id: match client_function_id {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                resource_version: match resource_version {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                rrbus_pilot_rollout: match rrbus_pilot_rollout {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                redirect_uri: match redirect_uri {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                access_token: match access_token {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+                refresh_token: match refresh_token {
+                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    None => None,
+                },
+            },
         };
 
         Ok(ExecutionTarget {

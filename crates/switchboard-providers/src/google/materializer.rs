@@ -31,7 +31,8 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
             }),
             ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
-            | ResolvedCredentials::MyChartCli { .. } => Err(Error::UnsupportedOperation(format!(
+            | ResolvedCredentials::MyChartCli { .. }
+            | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "google workspace cli materializer does not support {} credentials",
                 target.auth.kind
             ))),
@@ -218,6 +219,26 @@ mod tests {
                     access_token: None,
                     refresh_token: None,
                     username: None,
+                },
+            ),
+            ResolvedCredentials::SchwabCli { .. } => (
+                AuthKind::SchwabCli,
+                AuthSecretRefs::SchwabCli {
+                    base_url: None,
+                    market_data_base_url: None,
+                    authorize_url: None,
+                    token_url: None,
+                    client_id: None,
+                    client_secret: None,
+                    third_party_id: None,
+                    client_channel: None,
+                    client_app_id: None,
+                    client_function_id: None,
+                    resource_version: None,
+                    rrbus_pilot_rollout: None,
+                    redirect_uri: None,
+                    access_token: None,
+                    refresh_token: None,
                 },
             ),
         };

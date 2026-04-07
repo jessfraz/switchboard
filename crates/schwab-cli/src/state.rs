@@ -23,6 +23,7 @@ pub(crate) const ENV_SCHWAB_CONFIG: &str = "SCHWAB_CONFIG";
 pub(crate) const ENV_SCHWAB_MARKET_DATA_BASE_URL: &str = "SCHWAB_MARKETDATA_BASE_URL";
 pub(crate) const ENV_SCHWAB_REDIRECT_URI: &str = "SCHWAB_REDIRECT_URI";
 pub(crate) const ENV_SCHWAB_REFRESH_TOKEN: &str = "SCHWAB_REFRESH_TOKEN";
+pub(crate) const ENV_SCHWAB_CLIENT_FUNCTION_ID: &str = "SCHWAB_CLIENT_FUNCTION_ID";
 pub(crate) const ENV_SCHWAB_RRBUS_PILOT_ROLLOUT: &str = "SCHWAB_RRBUS_PILOT_ROLLOUT";
 pub(crate) const ENV_SCHWAB_RESOURCE_VERSION: &str = "SCHWAB_RESOURCE_VERSION";
 pub(crate) const ENV_SCHWAB_THIRD_PARTY_ID: &str = "SCHWAB_THIRD_PARTY_ID";
@@ -60,6 +61,8 @@ pub(crate) struct SchwabState {
     pub(crate) client_channel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) client_app_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) client_function_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) resource_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -144,6 +147,7 @@ pub(crate) struct ResolvedContext {
     pub(crate) third_party_id: Option<String>,
     pub(crate) client_channel: Option<String>,
     pub(crate) client_app_id: Option<String>,
+    pub(crate) client_function_id: Option<String>,
     pub(crate) resource_version: Option<String>,
     pub(crate) rrbus_pilot_rollout: Option<String>,
     pub(crate) redirect_uri: Option<String>,
@@ -177,6 +181,7 @@ impl ResolvedContext {
             third_party_id: pick(global.third_party_id.clone(), state.third_party_id.clone()),
             client_channel: pick(global.client_channel.clone(), state.client_channel.clone()),
             client_app_id: pick(global.client_app_id.clone(), state.client_app_id.clone()),
+            client_function_id: pick(global.client_function_id.clone(), state.client_function_id.clone()),
             resource_version: pick(global.resource_version.clone(), state.resource_version.clone()),
             rrbus_pilot_rollout: pick(global.rrbus_pilot_rollout.clone(), state.rrbus_pilot_rollout.clone()),
             redirect_uri: pick(global.redirect_uri.clone(), state.redirect_uri.clone()),
@@ -231,6 +236,12 @@ impl ResolvedContext {
         self.state.client_id = self.client_id.clone();
         self.state.client_secret = self.client_secret.clone();
         self.state.redirect_uri = self.redirect_uri.clone();
+        self.state.third_party_id = self.third_party_id.clone();
+        self.state.client_channel = self.client_channel.clone();
+        self.state.client_app_id = self.client_app_id.clone();
+        self.state.client_function_id = self.client_function_id.clone();
+        self.state.resource_version = self.resource_version.clone();
+        self.state.rrbus_pilot_rollout = self.rrbus_pilot_rollout.clone();
         self.state.access_token = Some(access_token.clone());
         self.state.refresh_token = refresh_token.clone();
         self.state.token_type = value.get("token_type").and_then(Value::as_str).map(ToOwned::to_owned);
@@ -260,6 +271,7 @@ impl ResolvedContext {
         self.state.third_party_id = self.third_party_id.clone();
         self.state.client_channel = self.client_channel.clone();
         self.state.client_app_id = self.client_app_id.clone();
+        self.state.client_function_id = self.client_function_id.clone();
         self.state.resource_version = self.resource_version.clone();
         self.state.rrbus_pilot_rollout = self.rrbus_pilot_rollout.clone();
         self.redirect_uri = Some(redirect_uri.clone());
@@ -346,6 +358,23 @@ impl ResolvedContext {
             "Schwab-RRBus-PilotRollout",
             self.rrbus_pilot_rollout.clone(),
         );
+        headers
+    }
+
+    pub(crate) fn market_headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![
+            ("Accept".into(), "application/json".into()),
+            ("Content-Type".into(), "application/json".into()),
+            ("Schwab-Client-CorrelId".into(), correlation_id()),
+        ];
+        push_optional_header(&mut headers, "Schwab-Client-Channel", self.client_channel.clone());
+        push_optional_header(&mut headers, "Schwab-Client-AppId", self.client_app_id.clone());
+        push_optional_header(
+            &mut headers,
+            "Schwab-Client-FunctionId",
+            self.client_function_id.clone(),
+        );
+        push_optional_header(&mut headers, "Schwab-Resource-Version", self.resource_version.clone());
         headers
     }
 }

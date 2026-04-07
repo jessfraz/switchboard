@@ -1,0 +1,47 @@
+{
+  "provider": "schwab",
+  "binaries": [
+    {
+      "id": "schwab",
+      "program": "schwab",
+      "env_override": "SWITCHBOARD_SCHWAB_BIN",
+      "version_args": ["--version"]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "root_help",
+      "args": ["--help"]
+    }
+  ],
+  "commands": [
+    {
+      "name": "schwab.cli.read",
+      "kind": "read",
+      "summary": "Run a raw schwab read command",
+      "surface": "raw",
+      "strategy": {
+        "kind": "raw_passthrough"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "schwab",
+        "capability": "root_help"
+      }
+    },
+    {
+      "name": "schwab.cli.write",
+      "kind": "write",
+      "summary": "Run a raw schwab write command",
+      "surface": "raw",
+      "strategy": {
+        "kind": "raw_passthrough"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "schwab",
+        "capability": "root_help"
+      }
+    }
+  ]
+}

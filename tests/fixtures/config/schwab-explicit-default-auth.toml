@@ -1,0 +1,13 @@
+[secret.schwab_personal_client_id]
+kind = "env"
+name = "SCHWAB_PERSONAL_CLIENT_ID"
+
+[auth.schwab_personal]
+provider = "schwab"
+kind = "schwab_cli"
+account = "jessfraz-overrides"
+client_id = "schwab_personal_client_id"
+
+[namespace.schwab.personal]
+provider = "schwab"
+account = "jessfraz"

@@ -1,8 +1,9 @@
 use clap::{ArgGroup, Args, Subcommand};
-use serde_json::{json, Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
-    commands::shared::{credentials, non_empty_country_codes, product_values, string_values, Product},
+    commands::shared::{credentials, non_empty_country_codes, product_names, serialize_payload, Product},
     Error, PlaidClient, ResolvedContext, Result,
 };
 
@@ -92,6 +93,77 @@ pub(crate) struct LinkTokenCreateArgs {
     other_subtypes: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenCreateRequest {
+    pub(crate) client_name: String,
+    pub(crate) language: String,
+    pub(crate) country_codes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) link_customization_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) redirect_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) android_package_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) institution_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) user: Option<LinkTokenUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) products: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) optional_products: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) required_if_supported_products: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) additional_consented_products: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) institution_data: Option<LinkTokenInstitutionData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) transactions: Option<LinkTokenTransactions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) account_filters: Option<LinkTokenAccountFilters>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenUser {
+    pub(crate) client_user_id: String,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenInstitutionData {
+    pub(crate) routing_number: String,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenTransactions {
+    pub(crate) days_requested: u32,
+}
+
+#[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenAccountFilters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) depository: Option<LinkTokenAccountSubtypeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) credit: Option<LinkTokenAccountSubtypeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) loan: Option<LinkTokenAccountSubtypeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) investment: Option<LinkTokenAccountSubtypeFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) other: Option<LinkTokenAccountSubtypeFilter>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct LinkTokenAccountSubtypeFilter {
+    pub(crate) account_subtypes: Vec<String>,
+}
+
 pub(crate) fn run_link(command: LinkSubcommand, client: &PlaidClient, context: &ResolvedContext) -> Result<Value> {
     match command {
         LinkSubcommand::TokenCreate(args) => run_link_token_create(args, client, context),
@@ -168,83 +240,67 @@ fn run_link_token_create(args: LinkTokenCreateArgs, client: &PlaidClient, contex
     }
 
     let credentials = credentials(context)?;
-    let country_codes = non_empty_country_codes(args.country_codes);
-    let mut body = Map::new();
-    body.insert(
-        "client_name".into(),
-        Value::String(args.client_name.unwrap_or_else(|| context.client_name.clone())),
-    );
-    body.insert("language".into(), Value::String(args.language));
-    body.insert("country_codes".into(), string_values(&country_codes));
-    if let Some(link_customization_name) = args.link_customization_name {
-        body.insert("link_customization_name".into(), Value::String(link_customization_name));
-    }
-    if let Some(android_package_name) = args.android_package_name {
-        body.insert("android_package_name".into(), Value::String(android_package_name));
-    }
+    let LinkTokenCreateArgs {
+        client_user_id,
+        user_id,
+        products,
+        optional_products,
+        required_if_supported_products,
+        additional_consented_products,
+        country_codes,
+        language,
+        client_name,
+        link_customization_name,
+        redirect_uri,
+        webhook,
+        android_package_name,
+        institution_id,
+        routing_number,
+        update_mode,
+        days_requested,
+        depository_subtypes,
+        credit_subtypes,
+        loan_subtypes,
+        investment_subtypes,
+        other_subtypes,
+    } = args;
 
-    if let Some(user_id) = args.user_id {
-        body.insert("user_id".into(), Value::String(user_id));
-    } else if let Some(client_user_id) = args.client_user_id {
-        body.insert("user".into(), json!({ "client_user_id": client_user_id }));
-    }
-
-    if !args.products.is_empty() {
-        body.insert("products".into(), product_values(&args.products));
-    }
-    if !args.optional_products.is_empty() {
-        body.insert("optional_products".into(), product_values(&args.optional_products));
-    }
-    if !args.required_if_supported_products.is_empty() {
-        body.insert(
-            "required_if_supported_products".into(),
-            product_values(&args.required_if_supported_products),
-        );
-    }
-    if !args.additional_consented_products.is_empty() {
-        body.insert(
-            "additional_consented_products".into(),
-            product_values(&args.additional_consented_products),
-        );
-    }
-    if args.update_mode {
-        body.insert(
-            "access_token".into(),
-            Value::String(context.require_access_token()?.to_owned()),
-        );
-    }
-    if let Some(redirect_uri) = args.redirect_uri {
-        body.insert("redirect_uri".into(), Value::String(redirect_uri));
-    }
-    if let Some(webhook) = args.webhook {
-        body.insert("webhook".into(), Value::String(webhook));
-    }
-    if let Some(institution_id) = args.institution_id {
-        body.insert("institution_id".into(), Value::String(institution_id));
-    }
-    if let Some(routing_number) = args.routing_number {
-        body.insert(
-            "institution_data".into(),
-            json!({
-                "routing_number": routing_number,
-            }),
-        );
-    }
-    if let Some(days_requested) = args.days_requested {
-        body.insert("transactions".into(), json!({ "days_requested": days_requested }));
-    }
-    let account_filters = account_filters(
-        args.depository_subtypes,
-        args.credit_subtypes,
-        args.loan_subtypes,
-        args.investment_subtypes,
-        args.other_subtypes,
-    );
-    if !account_filters.is_empty() {
-        body.insert("account_filters".into(), Value::Object(account_filters));
-    }
-
-    client.post(credentials, "/link/token/create", Value::Object(body))
+    client.post(
+        credentials,
+        "/link/token/create",
+        serialize_payload(LinkTokenCreateRequest {
+            client_name: client_name.unwrap_or_else(|| context.client_name.clone()),
+            language,
+            country_codes: non_empty_country_codes(country_codes),
+            link_customization_name,
+            redirect_uri,
+            webhook,
+            android_package_name,
+            institution_id,
+            access_token: if update_mode {
+                Some(context.require_access_token()?.to_owned())
+            } else {
+                None
+            },
+            user: client_user_id.map(|client_user_id| LinkTokenUser { client_user_id }),
+            user_id,
+            products: (!products.is_empty()).then(|| product_names(&products)),
+            optional_products: (!optional_products.is_empty()).then(|| product_names(&optional_products)),
+            required_if_supported_products: (!required_if_supported_products.is_empty())
+                .then(|| product_names(&required_if_supported_products)),
+            additional_consented_products: (!additional_consented_products.is_empty())
+                .then(|| product_names(&additional_consented_products)),
+            institution_data: routing_number.map(|routing_number| LinkTokenInstitutionData { routing_number }),
+            transactions: days_requested.map(|days_requested| LinkTokenTransactions { days_requested }),
+            account_filters: account_filters(
+                depository_subtypes,
+                credit_subtypes,
+                loan_subtypes,
+                investment_subtypes,
+                other_subtypes,
+            ),
+        })?,
+    )
 }
 
 fn validate_primary_products(products: &[Product]) -> Result<()> {
@@ -299,25 +355,24 @@ fn account_filters(
     loan_subtypes: Vec<String>,
     investment_subtypes: Vec<String>,
     other_subtypes: Vec<String>,
-) -> Map<String, Value> {
-    let mut filters = Map::new();
-    maybe_insert_account_filter(&mut filters, "depository", depository_subtypes);
-    maybe_insert_account_filter(&mut filters, "credit", credit_subtypes);
-    maybe_insert_account_filter(&mut filters, "loan", loan_subtypes);
-    maybe_insert_account_filter(&mut filters, "investment", investment_subtypes);
-    maybe_insert_account_filter(&mut filters, "other", other_subtypes);
-    filters
+) -> Option<LinkTokenAccountFilters> {
+    let filters = LinkTokenAccountFilters {
+        depository: subtype_filter(depository_subtypes),
+        credit: subtype_filter(credit_subtypes),
+        loan: subtype_filter(loan_subtypes),
+        investment: subtype_filter(investment_subtypes),
+        other: subtype_filter(other_subtypes),
+    };
+
+    if filters == LinkTokenAccountFilters::default() {
+        None
+    } else {
+        Some(filters)
+    }
 }
 
-fn maybe_insert_account_filter(filters: &mut Map<String, Value>, account_type: &str, subtypes: Vec<String>) {
-    if subtypes.is_empty() {
-        return;
-    }
-
-    filters.insert(
-        account_type.into(),
-        json!({
-            "account_subtypes": subtypes,
-        }),
-    );
+fn subtype_filter(subtypes: Vec<String>) -> Option<LinkTokenAccountSubtypeFilter> {
+    (!subtypes.is_empty()).then_some(LinkTokenAccountSubtypeFilter {
+        account_subtypes: subtypes,
+    })
 }

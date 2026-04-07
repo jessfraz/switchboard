@@ -53,7 +53,8 @@ impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
             ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
-            | ResolvedCredentials::GoogleOAuthFile { .. } => Err(Error::UnsupportedOperation(format!(
+            | ResolvedCredentials::GoogleOAuthFile { .. }
+            | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "mychart cli materializer does not support {} credentials",
                 target.auth.kind
             ))),
@@ -202,7 +203,8 @@ mod tests {
             ResolvedCredentials::GitHubCli => AuthSecretRefs::None,
             ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
-            | ResolvedCredentials::GoogleOAuthFile { .. } => AuthSecretRefs::None,
+            | ResolvedCredentials::GoogleOAuthFile { .. }
+            | ResolvedCredentials::SchwabCli { .. } => AuthSecretRefs::None,
         };
 
         ExecutionTarget {
@@ -224,6 +226,7 @@ mod tests {
                     ResolvedCredentials::GitHubToken { .. } => AuthKind::GitHubToken,
                     ResolvedCredentials::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
                     ResolvedCredentials::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
+                    ResolvedCredentials::SchwabCli { .. } => AuthKind::SchwabCli,
                 },
                 "ucla",
                 secrets,

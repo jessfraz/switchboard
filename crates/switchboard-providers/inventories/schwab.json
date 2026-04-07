@@ -1,0 +1,542 @@
+{
+  "provider": "schwab",
+  "program": "schwab",
+  "commands": [
+    {
+      "path": [],
+      "command": "schwab",
+      "summary": "CLI for Charles Schwab consumer account, trading, and market-data workflows",
+      "usage": "schwab [OPTIONS] <COMMAND>",
+      "help_args": [
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "auth",
+        "accounts",
+        "orders",
+        "transactions",
+        "preferences",
+        "market"
+      ]
+    },
+    {
+      "path": [
+        "accounts"
+      ],
+      "command": "schwab accounts",
+      "summary": "Usage: schwab accounts [OPTIONS] <COMMAND>",
+      "usage": "schwab accounts [OPTIONS] <COMMAND>",
+      "help_args": [
+        "accounts",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "numbers",
+        "list",
+        "get"
+      ]
+    },
+    {
+      "path": [
+        "accounts",
+        "get"
+      ],
+      "command": "schwab accounts get",
+      "summary": "Usage: schwab accounts get [OPTIONS] <ACCOUNT>",
+      "usage": "schwab accounts get [OPTIONS] <ACCOUNT>",
+      "help_args": [
+        "accounts",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "accounts",
+        "list"
+      ],
+      "command": "schwab accounts list",
+      "summary": "Usage: schwab accounts list [OPTIONS]",
+      "usage": "schwab accounts list [OPTIONS]",
+      "help_args": [
+        "accounts",
+        "list",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "accounts",
+        "numbers"
+      ],
+      "command": "schwab accounts numbers",
+      "summary": "Usage: schwab accounts numbers [OPTIONS]",
+      "usage": "schwab accounts numbers [OPTIONS]",
+      "help_args": [
+        "accounts",
+        "numbers",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth"
+      ],
+      "command": "schwab auth",
+      "summary": "Usage: schwab auth [OPTIONS] <COMMAND>",
+      "usage": "schwab auth [OPTIONS] <COMMAND>",
+      "help_args": [
+        "auth",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "authorize-url",
+        "exchange-code",
+        "exchange-url",
+        "refresh",
+        "status",
+        "logout"
+      ]
+    },
+    {
+      "path": [
+        "auth",
+        "authorize-url"
+      ],
+      "command": "schwab auth authorize-url",
+      "summary": "Usage: schwab auth authorize-url [OPTIONS]",
+      "usage": "schwab auth authorize-url [OPTIONS]",
+      "help_args": [
+        "auth",
+        "authorize-url",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "exchange-code"
+      ],
+      "command": "schwab auth exchange-code",
+      "summary": "Usage: schwab auth exchange-code [OPTIONS] --code <CODE>",
+      "usage": "schwab auth exchange-code [OPTIONS] --code <CODE>",
+      "help_args": [
+        "auth",
+        "exchange-code",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "exchange-url"
+      ],
+      "command": "schwab auth exchange-url",
+      "summary": "Usage: schwab auth exchange-url [OPTIONS] <CALLBACK_INPUT>",
+      "usage": "schwab auth exchange-url [OPTIONS] <CALLBACK_INPUT>",
+      "help_args": [
+        "auth",
+        "exchange-url",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "logout"
+      ],
+      "command": "schwab auth logout",
+      "summary": "Usage: schwab auth logout [OPTIONS]",
+      "usage": "schwab auth logout [OPTIONS]",
+      "help_args": [
+        "auth",
+        "logout",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "refresh"
+      ],
+      "command": "schwab auth refresh",
+      "summary": "Usage: schwab auth refresh [OPTIONS]",
+      "usage": "schwab auth refresh [OPTIONS]",
+      "help_args": [
+        "auth",
+        "refresh",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "auth",
+        "status"
+      ],
+      "command": "schwab auth status",
+      "summary": "Usage: schwab auth status [OPTIONS]",
+      "usage": "schwab auth status [OPTIONS]",
+      "help_args": [
+        "auth",
+        "status",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market"
+      ],
+      "command": "schwab market",
+      "summary": "Usage: schwab market [OPTIONS] <COMMAND>",
+      "usage": "schwab market [OPTIONS] <COMMAND>",
+      "help_args": [
+        "market",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "quote",
+        "quotes",
+        "price-history"
+      ]
+    },
+    {
+      "path": [
+        "market",
+        "price-history"
+      ],
+      "command": "schwab market price-history",
+      "summary": "Usage: schwab market price-history [OPTIONS] <SYMBOL>",
+      "usage": "schwab market price-history [OPTIONS] <SYMBOL>",
+      "help_args": [
+        "market",
+        "price-history",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "quote"
+      ],
+      "command": "schwab market quote",
+      "summary": "Usage: schwab market quote [OPTIONS] <SYMBOL>",
+      "usage": "schwab market quote [OPTIONS] <SYMBOL>",
+      "help_args": [
+        "market",
+        "quote",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "market",
+        "quotes"
+      ],
+      "command": "schwab market quotes",
+      "summary": "Usage: schwab market quotes [OPTIONS] --symbol <SYMBOL>",
+      "usage": "schwab market quotes [OPTIONS] --symbol <SYMBOL>",
+      "help_args": [
+        "market",
+        "quotes",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "orders"
+      ],
+      "command": "schwab orders",
+      "summary": "Usage: schwab orders [OPTIONS] <COMMAND>",
+      "usage": "schwab orders [OPTIONS] <COMMAND>",
+      "help_args": [
+        "orders",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "list",
+        "get",
+        "place",
+        "replace",
+        "cancel"
+      ]
+    },
+    {
+      "path": [
+        "orders",
+        "cancel"
+      ],
+      "command": "schwab orders cancel",
+      "summary": "Usage: schwab orders cancel [OPTIONS] --account <ACCOUNT> <ORDER_ID>",
+      "usage": "schwab orders cancel [OPTIONS] --account <ACCOUNT> <ORDER_ID>",
+      "help_args": [
+        "orders",
+        "cancel",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "orders",
+        "get"
+      ],
+      "command": "schwab orders get",
+      "summary": "Usage: schwab orders get [OPTIONS] --account <ACCOUNT> <ORDER_ID>",
+      "usage": "schwab orders get [OPTIONS] --account <ACCOUNT> <ORDER_ID>",
+      "help_args": [
+        "orders",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "orders",
+        "list"
+      ],
+      "command": "schwab orders list",
+      "summary": "Usage: schwab orders list [OPTIONS] --from-entered-time <RFC3339> --to-entered-time <RFC3339>",
+      "usage": "schwab orders list [OPTIONS] --from-entered-time <RFC3339> --to-entered-time <RFC3339>",
+      "help_args": [
+        "orders",
+        "list",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "orders",
+        "place"
+      ],
+      "command": "schwab orders place",
+      "summary": "Usage: schwab orders place [OPTIONS] --account <ACCOUNT>",
+      "usage": "schwab orders place [OPTIONS] --account <ACCOUNT>",
+      "help_args": [
+        "orders",
+        "place",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "orders",
+        "replace"
+      ],
+      "command": "schwab orders replace",
+      "summary": "Usage: schwab orders replace [OPTIONS] --account <ACCOUNT> <ORDER_ID>",
+      "usage": "schwab orders replace [OPTIONS] --account <ACCOUNT> <ORDER_ID>",
+      "help_args": [
+        "orders",
+        "replace",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "preferences"
+      ],
+      "command": "schwab preferences",
+      "summary": "Usage: schwab preferences [OPTIONS] <COMMAND>",
+      "usage": "schwab preferences [OPTIONS] <COMMAND>",
+      "help_args": [
+        "preferences",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "get"
+      ]
+    },
+    {
+      "path": [
+        "preferences",
+        "get"
+      ],
+      "command": "schwab preferences get",
+      "summary": "Usage: schwab preferences get [OPTIONS]",
+      "usage": "schwab preferences get [OPTIONS]",
+      "help_args": [
+        "preferences",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "transactions"
+      ],
+      "command": "schwab transactions",
+      "summary": "Usage: schwab transactions [OPTIONS] <COMMAND>",
+      "usage": "schwab transactions [OPTIONS] <COMMAND>",
+      "help_args": [
+        "transactions",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "list",
+        "get"
+      ]
+    },
+    {
+      "path": [
+        "transactions",
+        "get"
+      ],
+      "command": "schwab transactions get",
+      "summary": "Usage: schwab transactions get [OPTIONS] --account <ACCOUNT> <TRANSACTION_ID>",
+      "usage": "schwab transactions get [OPTIONS] --account <ACCOUNT> <TRANSACTION_ID>",
+      "help_args": [
+        "transactions",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "transactions",
+        "list"
+      ],
+      "command": "schwab transactions list",
+      "summary": "Usage: schwab transactions list [OPTIONS] --account <ACCOUNT> --start-date <RFC3339> --end-date <RFC3339> --types <TYPES>",
+      "usage": "schwab transactions list [OPTIONS] --account <ACCOUNT> --start-date <RFC3339> --end-date <RFC3339> --types <TYPES>",
+      "help_args": [
+        "transactions",
+        "list",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    }
+  ]
+}
