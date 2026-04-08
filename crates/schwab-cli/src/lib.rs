@@ -13,8 +13,8 @@ pub(crate) use crate::state::ResolvedContext;
 use crate::{
     commands::{
         maybe_refresh_access_token, refresh_access_token_if_possible, run_accounts, run_auth, run_market, run_orders,
-        run_preferences, run_transactions, AccountCommand, AuthCommand, MarketCommand, OrderCommand, PreferenceCommand,
-        TransactionCommand,
+        run_preferences, run_sweep, run_transactions, AccountCommand, AuthCommand, MarketCommand, OrderCommand,
+        PreferenceCommand, SweepCommand, TransactionCommand,
     },
     state::{
         ENV_SCHWAB_ACCESS_TOKEN, ENV_SCHWAB_AUTHORIZE_URL, ENV_SCHWAB_BASE_URL, ENV_SCHWAB_CLIENT_FUNCTION_ID,
@@ -38,6 +38,8 @@ const AFTER_HELP: &str = concat!(
     "  schwab orders list\n",
     "  schwab orders list --from-entered-time 2026-03-01T00:00:00.000Z \\\n",
     "    --to-entered-time 2026-03-27T23:59:59.000Z\n",
+    "  schwab sweep\n",
+    "  schwab sweep --account 123456789 --fund SWVXX --plan-only\n",
     "  schwab market quotes --symbol AAPL,MSFT --field quote,reference\n",
     "\n",
     "This CLI is aimed at Charles Schwab consumer account, brokerage, and market-data workflows.\n",
@@ -92,6 +94,7 @@ fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
         Commands::Transactions(command) => run_with_auto_refresh(&mut context, |context| {
             run_transactions(command.command.clone(), context)
         }),
+        Commands::Sweep(command) => run_with_auto_refresh(&mut context, |context| run_sweep(command.clone(), context)),
         Commands::Preferences(command) => run_with_auto_refresh(&mut context, |context| {
             run_preferences(command.command.clone(), context)
         }),
@@ -199,6 +202,7 @@ enum Commands {
     Accounts(AccountCommand),
     Orders(OrderCommand),
     Transactions(TransactionCommand),
+    Sweep(SweepCommand),
     Preferences(PreferenceCommand),
     Market(MarketCommand),
 }

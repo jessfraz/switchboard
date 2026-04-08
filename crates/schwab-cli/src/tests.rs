@@ -822,6 +822,291 @@ fn orders_preview_posts_expected_body() {
 }
 
 #[test]
+fn sweep_without_yes_returns_approval_required_plan() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "securitiesAccount": {
+                            "accountNumber": "123456789",
+                            "type": "MARGIN",
+                            "currentBalances": {
+                                "cashBalance": 2937.72,
+                                "availableFundsNonMarginableTrade": 2937.72,
+                                "marginBalance": 0.0
+                            },
+                            "positions": []
+                        }
+                    }
+                ]),
+            ),
+            ResponseSpec::json(200, json!([])),
+        ],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-sweep-plan");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: SweepResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "sweep",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 2);
+    assert_eq!(request[0].path, "/accounts");
+    assert_eq!(request[0].query_value("fields"), Some("positions"));
+    assert_eq!(request[1].path, "/orders");
+    assert_eq!(output.status, "approval_required");
+    assert!(output.approval_required);
+    assert_eq!(output.action_count, 1);
+    assert_eq!(output.accounts[0].decision, "buy_fund");
+    assert_eq!(output.actions[0].instruction, "BUY");
+    assert_eq!(output.actions[0].symbol, "SWVXX");
+    assert_eq!(output.actions[0].quantity, 2937.72);
+}
+
+#[test]
+fn sweep_yes_places_direct_mutual_fund_order() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "securitiesAccount": {
+                            "accountNumber": "123456789",
+                            "type": "MARGIN",
+                            "currentBalances": {
+                                "cashBalance": 250.0,
+                                "availableFundsNonMarginableTrade": 250.0,
+                                "marginBalance": 0.0
+                            },
+                            "positions": []
+                        }
+                    }
+                ]),
+            ),
+            ResponseSpec::json(200, json!([])),
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "accountNumber": "123456789",
+                        "hashValue": "hash-123"
+                    }
+                ]),
+            ),
+            ResponseSpec::with_headers(
+                201,
+                String::new(),
+                vec![("Location".into(), "https://example.test/orders/999".into())],
+            ),
+        ],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-sweep-yes");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: SweepResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "sweep",
+        "--yes",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 4);
+    assert_eq!(request[0].path, "/accounts");
+    assert_eq!(request[1].path, "/orders");
+    assert_eq!(request[2].path, "/accounts/accountNumbers");
+    assert_eq!(request[3].method, "POST");
+    assert_eq!(request[3].path, "/accounts/hash-123/orders");
+    assert_eq!(
+        request[3].json_body::<SweepOrderRequestBody>(),
+        SweepOrderRequestBody {
+            order_type: "MARKET".into(),
+            session: "NORMAL".into(),
+            duration: "DAY".into(),
+            order_strategy_type: "SINGLE".into(),
+            order_leg_collection: vec![SweepOrderLegRequestBody {
+                instruction: "BUY".into(),
+                quantity: 250.0,
+                instrument: SweepOrderInstrumentRequestBody {
+                    symbol: "SWVXX".into(),
+                    asset_type: "MUTUAL_FUND".into(),
+                },
+            }],
+        }
+    );
+    assert_eq!(output.status, "executed");
+    assert!(!output.approval_required);
+    assert_eq!(
+        output.execution.expect("execution summary should exist").results[0].status,
+        "placed"
+    );
+}
+
+#[test]
+fn sweep_blocks_when_non_fund_order_is_pending() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "securitiesAccount": {
+                            "accountNumber": "123456789",
+                            "type": "MARGIN",
+                            "currentBalances": {
+                                "cashBalance": 1000.0,
+                                "availableFundsNonMarginableTrade": 1000.0,
+                                "marginBalance": 0.0
+                            },
+                            "positions": []
+                        }
+                    }
+                ]),
+            ),
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "accountNumber": "123456789",
+                        "orderId": 77,
+                        "status": "WORKING",
+                        "remainingQuantity": 10.0,
+                        "orderLegCollection": [
+                            {
+                                "instruction": "BUY",
+                                "quantity": 10.0,
+                                "instrument": {
+                                    "symbol": "TSM",
+                                    "assetType": "EQUITY"
+                                }
+                            }
+                        ]
+                    }
+                ]),
+            ),
+        ],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-sweep-blocked");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: SweepResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "sweep",
+    ]);
+
+    assert_eq!(output.status, "blocked");
+    assert_eq!(output.action_count, 0);
+    assert_eq!(output.accounts[0].decision, "blocked_by_other_orders");
+}
+
+#[test]
+fn sweep_for_specific_account_uses_account_specific_endpoints() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "accountNumber": "123456789",
+                        "hashValue": "hash-123"
+                    }
+                ]),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "securitiesAccount": {
+                        "accountNumber": "123456789",
+                        "type": "MARGIN",
+                        "currentBalances": {
+                            "cashBalance": 50.0,
+                            "availableFundsNonMarginableTrade": 50.0,
+                            "marginBalance": 0.0
+                        },
+                        "positions": []
+                    }
+                }),
+            ),
+            ResponseSpec::json(200, json!([])),
+        ],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-sweep-account-specific");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: SweepResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "sweep",
+        "--account",
+        "123456789",
+        "--plan-only",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 3);
+    assert_eq!(request[0].path, "/accounts/accountNumbers");
+    assert_eq!(request[1].path, "/accounts/hash-123");
+    assert_eq!(request[2].path, "/accounts/hash-123/orders");
+    assert_eq!(output.status, "approval_required");
+    assert_eq!(output.actions[0].quantity, 50.0);
+}
+
+#[test]
 fn transactions_list_builds_expected_query() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
@@ -1398,6 +1683,64 @@ struct OrderListEntry {
 struct OrderPreviewResponse {
     #[serde(rename = "orderId")]
     order_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SweepResponse {
+    status: String,
+    approval_required: bool,
+    action_count: usize,
+    accounts: Vec<SweepAccountResponse>,
+    actions: Vec<SweepActionResponse>,
+    execution: Option<SweepExecutionResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SweepAccountResponse {
+    decision: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SweepActionResponse {
+    instruction: String,
+    symbol: String,
+    quantity: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct SweepExecutionResponse {
+    results: Vec<SweepExecutionResultResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SweepExecutionResultResponse {
+    status: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct SweepOrderRequestBody {
+    #[serde(rename = "orderType")]
+    order_type: String,
+    session: String,
+    duration: String,
+    #[serde(rename = "orderStrategyType")]
+    order_strategy_type: String,
+    #[serde(rename = "orderLegCollection")]
+    order_leg_collection: Vec<SweepOrderLegRequestBody>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct SweepOrderLegRequestBody {
+    instruction: String,
+    quantity: f64,
+    instrument: SweepOrderInstrumentRequestBody,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct SweepOrderInstrumentRequestBody {
+    symbol: String,
+    #[serde(rename = "assetType")]
+    asset_type: String,
 }
 
 #[derive(Debug, Deserialize)]
