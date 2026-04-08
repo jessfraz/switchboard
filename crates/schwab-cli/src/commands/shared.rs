@@ -12,7 +12,7 @@ use crate::{
     Error, ResolvedContext, Result,
 };
 
-#[derive(Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub(crate) struct JsonBodyArgs {
     #[arg(long, value_name = "JSON", conflicts_with = "body_file")]
     pub(crate) body: Option<String>,

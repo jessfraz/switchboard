@@ -7,13 +7,13 @@ use crate::{
     ResolvedContext, Result,
 };
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketCommand {
     #[command(subcommand)]
     pub(crate) command: MarketSubcommand,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub(crate) enum MarketSubcommand {
     Quote(MarketQuoteArgs),
     Quotes(MarketQuotesArgs),
@@ -29,7 +29,7 @@ pub(crate) enum MarketSubcommand {
     Instrument(MarketInstrumentArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketQuoteArgs {
     symbol: String,
 
@@ -37,7 +37,7 @@ pub(crate) struct MarketQuoteArgs {
     fields: Vec<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketQuotesArgs {
     #[arg(long = "symbol", value_name = "SYMBOL", required = true, value_delimiter = ',')]
     symbols: Vec<String>,
@@ -49,7 +49,7 @@ pub(crate) struct MarketQuotesArgs {
     indicative: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketPriceHistoryArgs {
     symbol: String,
 
@@ -78,7 +78,7 @@ pub(crate) struct MarketPriceHistoryArgs {
     need_previous_close: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketChainArgs {
     symbol: String,
 
@@ -131,12 +131,12 @@ pub(crate) struct MarketChainArgs {
     entitlement: Option<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketExpirationChainArgs {
     symbol: String,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketMoversArgs {
     symbol: String,
 
@@ -147,7 +147,7 @@ pub(crate) struct MarketMoversArgs {
     frequency: Option<u32>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketMarketsArgs {
     #[arg(long = "market", value_name = "MARKET", required = true, value_delimiter = ',')]
     markets: Vec<String>,
@@ -156,7 +156,7 @@ pub(crate) struct MarketMarketsArgs {
     date: Option<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketMarketArgs {
     market: String,
 
@@ -164,7 +164,7 @@ pub(crate) struct MarketMarketArgs {
     date: Option<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketInstrumentsArgs {
     symbol: String,
 
@@ -172,7 +172,7 @@ pub(crate) struct MarketInstrumentsArgs {
     projection: String,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct MarketInstrumentArgs {
     cusip: String,
 }

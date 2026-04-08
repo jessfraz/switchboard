@@ -7,26 +7,26 @@ use crate::{
     ResolvedContext, Result,
 };
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct AccountCommand {
     #[command(subcommand)]
     pub(crate) command: AccountSubcommand,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub(crate) enum AccountSubcommand {
     Numbers,
     List(AccountListArgs),
     Get(AccountGetArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct AccountListArgs {
     #[arg(long)]
     positions: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct AccountGetArgs {
     account: String,
 

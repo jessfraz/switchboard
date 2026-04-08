@@ -84,19 +84,19 @@ fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
     let output = match cli.command {
         Commands::Auth(command) => run_auth(command.command, &mut context),
         Commands::Accounts(command) => {
-            run_with_auto_refresh(&mut context, |context| run_accounts(command.command, context))
+            run_with_auto_refresh(&mut context, |context| run_accounts(command.command.clone(), context))
         }
         Commands::Orders(command) => {
-            run_with_auto_refresh(&mut context, |context| run_orders(command.command, context))
+            run_with_auto_refresh(&mut context, |context| run_orders(command.command.clone(), context))
         }
-        Commands::Transactions(command) => {
-            run_with_auto_refresh(&mut context, |context| run_transactions(command.command, context))
-        }
-        Commands::Preferences(command) => {
-            run_with_auto_refresh(&mut context, |context| run_preferences(command.command, context))
-        }
+        Commands::Transactions(command) => run_with_auto_refresh(&mut context, |context| {
+            run_transactions(command.command.clone(), context)
+        }),
+        Commands::Preferences(command) => run_with_auto_refresh(&mut context, |context| {
+            run_preferences(command.command.clone(), context)
+        }),
         Commands::Market(command) => {
-            run_with_auto_refresh(&mut context, |context| run_market(command.command, context))
+            run_with_auto_refresh(&mut context, |context| run_market(command.command.clone(), context))
         }
     }
     .context("Schwab command failed")?;
