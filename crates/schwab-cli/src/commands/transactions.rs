@@ -30,8 +30,11 @@ pub(crate) struct TransactionListArgs {
     #[arg(long, value_name = "RFC3339")]
     end_date: String,
 
-    #[arg(long)]
-    types: String,
+    #[arg(
+        long,
+        help = "Comma-separated transaction types. Omit or pass ALL to return every type."
+    )]
+    types: Option<String>,
 
     #[arg(long)]
     symbol: Option<String>,
@@ -51,11 +54,8 @@ pub(crate) fn run_transactions(command: TransactionSubcommand, context: &mut Res
     match command {
         TransactionSubcommand::List(args) => {
             let account_id = resolve_account_id(&client, context, &args.account)?;
-            let mut query = vec![
-                ("startDate".into(), args.start_date),
-                ("endDate".into(), args.end_date),
-                ("types".into(), args.types),
-            ];
+            let mut query = vec![("startDate".into(), args.start_date), ("endDate".into(), args.end_date)];
+            optional_query(&mut query, "types", normalize_transaction_types(args.types));
             optional_query(&mut query, "symbol", args.symbol);
 
             client.execute(RequestSpec {
@@ -79,6 +79,17 @@ pub(crate) fn run_transactions(command: TransactionSubcommand, context: &mut Res
             })
         }
     }
+}
+
+fn normalize_transaction_types(types: Option<String>) -> Option<String> {
+    types.and_then(|types| {
+        let trimmed = types.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("ALL") {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
 }
 
 fn trader_client(context: &ResolvedContext) -> Result<SchwabClient> {

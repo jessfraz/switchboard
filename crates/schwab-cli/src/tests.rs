@@ -582,6 +582,120 @@ fn transactions_list_builds_expected_query() {
 }
 
 #[test]
+fn transactions_list_omits_types_when_not_provided() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!([
+                {
+                    "type": "JOURNAL",
+                    "transactionId": 100
+                }
+            ]),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-transactions-list-all-default");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            account_numbers: vec![super::state::AccountNumberHashEntry {
+                account_number: Some("123456789".into()),
+                hash_value: Some("hash-123".into()),
+                synced_at_epoch_seconds: None,
+            }],
+            ..SchwabState::default()
+        },
+    );
+
+    let output: Vec<TransactionListEntry> = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "transactions",
+        "list",
+        "--account",
+        "123456789",
+        "--start-date",
+        "2026-03-01T00:00:00.000Z",
+        "--end-date",
+        "2026-03-27T23:59:59.000Z",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].path, "/accounts/hash-123/transactions");
+    assert_eq!(request[0].query_value("startDate"), Some("2026-03-01T00:00:00.000Z"));
+    assert_eq!(request[0].query_value("endDate"), Some("2026-03-27T23:59:59.000Z"));
+    assert_eq!(request[0].query_value("types"), None);
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].transaction_id, 100);
+    assert_eq!(output[0].transaction_type, "JOURNAL");
+}
+
+#[test]
+fn transactions_list_treats_all_as_unfiltered() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![ResponseSpec::json(
+            200,
+            json!([
+                {
+                    "type": "JOURNAL",
+                    "transactionId": 101
+                }
+            ]),
+        )],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-transactions-list-all-alias");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            access_token: Some("access-token".into()),
+            account_numbers: vec![super::state::AccountNumberHashEntry {
+                account_number: Some("123456789".into()),
+                hash_value: Some("hash-123".into()),
+                synced_at_epoch_seconds: None,
+            }],
+            ..SchwabState::default()
+        },
+    );
+
+    let output: Vec<TransactionListEntry> = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "transactions",
+        "list",
+        "--account",
+        "123456789",
+        "--start-date",
+        "2026-03-01T00:00:00.000Z",
+        "--end-date",
+        "2026-03-27T23:59:59.000Z",
+        "--types",
+        "ALL",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 1);
+    assert_eq!(request[0].path, "/accounts/hash-123/transactions");
+    assert_eq!(request[0].query_value("types"), None);
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].transaction_id, 101);
+    assert_eq!(output[0].transaction_type, "JOURNAL");
+}
+
+#[test]
 fn preferences_get_includes_trader_headers() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
