@@ -260,6 +260,19 @@ pub(crate) fn build_link_token_create_request(
     })
 }
 
+pub(crate) fn apply_default_auth_login_products(mut args: LinkTokenCreateArgs) -> LinkTokenCreateArgs {
+    let has_product_selection = !args.products.is_empty()
+        || !args.optional_products.is_empty()
+        || !args.required_if_supported_products.is_empty()
+        || !args.additional_consented_products.is_empty();
+
+    if !args.update_mode && !has_product_selection {
+        args.products = vec![Product::Transactions, Product::Auth];
+    }
+
+    args
+}
+
 fn validate_link_token_create_args(args: &LinkTokenCreateArgs) -> Result<()> {
     if args.products.is_empty() && !args.update_mode {
         return Err(Error::Arguments(
