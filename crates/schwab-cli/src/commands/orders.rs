@@ -3,7 +3,9 @@ use serde_json::Value;
 
 use crate::{
     client::{AuthMode, RequestBody, RequestSpec, SchwabClient},
-    commands::shared::{load_json_body, optional_query, resolve_account_id, JsonBodyArgs},
+    commands::shared::{
+        load_json_body, optional_query, resolve_account_id, resolve_latest_rfc3339_window, JsonBodyArgs,
+    },
     ResolvedContext, Result,
 };
 
@@ -28,11 +30,15 @@ pub(crate) struct OrderListArgs {
     #[arg(long)]
     account: Option<String>,
 
-    #[arg(long, value_name = "RFC3339")]
-    from_entered_time: String,
+    #[arg(
+        long,
+        value_name = "RFC3339",
+        help = "RFC3339 start time. Defaults to 30 days before --to-entered-time or now."
+    )]
+    from_entered_time: Option<String>,
 
-    #[arg(long, value_name = "RFC3339")]
-    to_entered_time: String,
+    #[arg(long, value_name = "RFC3339", help = "RFC3339 end time. Defaults to now.")]
+    to_entered_time: Option<String>,
 
     #[arg(long)]
     max_results: Option<u64>,
@@ -91,9 +97,11 @@ pub(crate) fn run_orders(command: OrderSubcommand, context: &mut ResolvedContext
 
     match command {
         OrderSubcommand::List(args) => {
+            let (from_entered_time, to_entered_time) =
+                resolve_latest_rfc3339_window(args.from_entered_time, args.to_entered_time)?;
             let mut query = vec![
-                ("fromEnteredTime".into(), args.from_entered_time),
-                ("toEnteredTime".into(), args.to_entered_time),
+                ("fromEnteredTime".into(), from_entered_time),
+                ("toEnteredTime".into(), to_entered_time),
             ];
             optional_query(
                 &mut query,

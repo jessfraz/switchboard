@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::{
     client::{AuthMode, RequestBody, RequestSpec, SchwabClient},
-    commands::shared::{optional_query, resolve_account_id},
+    commands::shared::{optional_query, resolve_account_id, resolve_all_account_ids, resolve_latest_rfc3339_window},
     ResolvedContext, Result,
 };
 
@@ -22,13 +22,17 @@ pub(crate) enum TransactionSubcommand {
 #[derive(Debug, Args)]
 pub(crate) struct TransactionListArgs {
     #[arg(long)]
-    account: String,
+    account: Option<String>,
 
-    #[arg(long, value_name = "RFC3339")]
-    start_date: String,
+    #[arg(
+        long,
+        value_name = "RFC3339",
+        help = "RFC3339 start time. Defaults to 30 days before --end-date or now."
+    )]
+    start_date: Option<String>,
 
-    #[arg(long, value_name = "RFC3339")]
-    end_date: String,
+    #[arg(long, value_name = "RFC3339", help = "RFC3339 end time. Defaults to now.")]
+    end_date: Option<String>,
 
     #[arg(
         long,
@@ -53,19 +57,32 @@ pub(crate) fn run_transactions(command: TransactionSubcommand, context: &mut Res
 
     match command {
         TransactionSubcommand::List(args) => {
-            let account_id = resolve_account_id(&client, context, &args.account)?;
-            let mut query = vec![("startDate".into(), args.start_date), ("endDate".into(), args.end_date)];
+            let (start_date, end_date) = resolve_latest_rfc3339_window(args.start_date, args.end_date)?;
+            let account_ids = match args.account.as_deref() {
+                Some(account) => vec![resolve_account_id(&client, context, account)?],
+                None => resolve_all_account_ids(&client, context)?,
+            };
+            let mut query = vec![("startDate".into(), start_date), ("endDate".into(), end_date)];
             optional_query(&mut query, "types", normalize_transaction_types(args.types));
             optional_query(&mut query, "symbol", args.symbol);
 
-            client.execute(RequestSpec {
-                method: reqwest::Method::GET,
-                path: format!("/accounts/{account_id}/transactions"),
-                query,
-                headers: context.trader_headers(),
-                body: RequestBody::None,
-                auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
-            })
+            let mut combined = Vec::new();
+            for account_id in account_ids {
+                let response = client.execute(RequestSpec {
+                    method: reqwest::Method::GET,
+                    path: format!("/accounts/{account_id}/transactions"),
+                    query: query.clone(),
+                    headers: context.trader_headers(),
+                    body: RequestBody::None,
+                    auth: AuthMode::Bearer(context.require_access_token()?.to_owned()),
+                })?;
+                let transactions = response.as_array().ok_or_else(|| {
+                    crate::Error::Config("Schwab transaction list response was not the expected array payload".into())
+                })?;
+                combined.extend(transactions.iter().cloned());
+            }
+            sort_transactions_descending(&mut combined);
+            Ok(Value::Array(combined))
         }
         TransactionSubcommand::Get(args) => {
             let account_id = resolve_account_id(&client, context, &args.account)?;
@@ -90,6 +107,24 @@ fn normalize_transaction_types(types: Option<String>) -> Option<String> {
             Some(trimmed.to_owned())
         }
     })
+}
+
+fn sort_transactions_descending(transactions: &mut [Value]) {
+    transactions.sort_by(|left, right| transaction_sort_key(right).cmp(&transaction_sort_key(left)));
+}
+
+fn transaction_sort_key(transaction: &Value) -> (&str, u64) {
+    let time = transaction
+        .get("time")
+        .and_then(Value::as_str)
+        .or_else(|| transaction.get("tradeDate").and_then(Value::as_str))
+        .unwrap_or("");
+    let activity_id = transaction
+        .get("activityId")
+        .and_then(Value::as_u64)
+        .or_else(|| transaction.get("transactionId").and_then(Value::as_u64))
+        .unwrap_or(0);
+    (time, activity_id)
 }
 
 fn trader_client(context: &ResolvedContext) -> Result<SchwabClient> {
