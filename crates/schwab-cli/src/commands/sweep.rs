@@ -1049,8 +1049,13 @@ fn print_human_plan(output: &SweepOutput) -> Result<()> {
     writeln!(stderr, "{}", output.summary)
         .map_err(|error| Error::Io(format!("failed to write sweep summary: {error}")))?;
     for account in &output.accounts {
-        writeln!(stderr, "- Account {}: {:?}", account.account_number, account.decision)
-            .map_err(|error| Error::Io(format!("failed to write sweep account heading: {error}")))?;
+        writeln!(
+            stderr,
+            "- Account {}: {}",
+            account.account_number,
+            human_decision_label(account.decision)
+        )
+        .map_err(|error| Error::Io(format!("failed to write sweep account heading: {error}")))?;
         writeln!(stderr, "  reason: {}", account.reason)
             .map_err(|error| Error::Io(format!("failed to write sweep reason: {error}")))?;
         writeln!(
@@ -1075,8 +1080,11 @@ fn print_human_plan(output: &SweepOutput) -> Result<()> {
         if let Some(action) = &account.action {
             writeln!(
                 stderr,
-                "  action: {:?} {:.2} {} (estimated cash effect {:+.2})",
-                action.instruction, action.quantity, action.symbol, action.estimated_cash_effect
+                "  action: {} {:.2} {} (estimated cash effect {:+.2})",
+                human_instruction_label(action.instruction),
+                action.quantity,
+                action.symbol,
+                action.estimated_cash_effect
             )
             .map_err(|error| Error::Io(format!("failed to write sweep action summary: {error}")))?;
         }
@@ -1157,7 +1165,12 @@ fn trader_client(context: &ResolvedContext) -> Result<SchwabClient> {
 }
 
 fn round_currency(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
+    let rounded = (value * 100.0).round() / 100.0;
+    if rounded.abs() < 0.005 {
+        0.0
+    } else {
+        rounded
+    }
 }
 
 fn remaining_order_quantity(order: &OrderSnapshot) -> f64 {
@@ -1214,6 +1227,27 @@ fn is_terminal_status(status: Option<&str>) -> bool {
 fn dedupe_strings(values: &mut Vec<String>) {
     values.sort();
     values.dedup();
+}
+
+fn human_decision_label(decision: SweepDecision) -> &'static str {
+    match decision {
+        SweepDecision::BuyFund => "buy fund",
+        SweepDecision::SellFund => "sell fund",
+        SweepDecision::SkipPendingSweep => "skip, pending sweep already covers it",
+        SweepDecision::BlockedByOtherOrders => "blocked by other open orders",
+        SweepDecision::BlockedByConflictingSweepOrders => "blocked by conflicting sweep orders",
+        SweepDecision::BlockedByShortExposure => "blocked by short exposure",
+        SweepDecision::BlockedMissingBalances => "blocked, missing balances",
+        SweepDecision::BlockedUnsupportedNegativeCash => "blocked, unsupported negative cash state",
+        SweepDecision::NoAction => "no action",
+    }
+}
+
+fn human_instruction_label(instruction: SweepInstruction) -> &'static str {
+    match instruction {
+        SweepInstruction::Buy => "buy",
+        SweepInstruction::Sell => "sell",
+    }
 }
 
 fn deserialize_string_or_number<'de, D>(deserializer: D) -> std::result::Result<String, D::Error>
