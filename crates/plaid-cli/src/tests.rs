@@ -127,10 +127,6 @@ fn auth_login_creates_hosted_link_session_and_stores_pending_state() {
         "--no-open",
         "--client-user-id",
         "user-123",
-        "--product",
-        "transactions",
-        "--product",
-        "auth",
     ]);
 
     let request = captured_request(&capture);
@@ -143,6 +139,7 @@ fn auth_login_creates_hosted_link_session_and_stores_pending_state() {
             completion_redirect_uri: PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI.into(),
         })
     );
+    assert_eq!(body.products, Some(vec!["transactions".into(), "auth".into()]));
     assert_eq!(body.redirect_uri.as_deref(), Some(PLAID_GITHUB_PAGES_REDIRECT_URI));
     assert_eq!(output.status, "pending");
     assert_eq!(output.link_token, "link-hosted-123");

@@ -10,7 +10,10 @@ use serde_json::{json, Value};
 
 use crate::{
     commands::{
-        link::{build_link_token_create_request, LinkTokenCreateArgs, LinkTokenCreateResponse, LinkTokenHostedLink},
+        link::{
+            apply_default_auth_login_products, build_link_token_create_request, LinkTokenCreateArgs,
+            LinkTokenCreateResponse, LinkTokenHostedLink,
+        },
         shared::{credentials, redact_secret, require_response_string, serialize_payload, AccessTokenRequest},
     },
     state::PendingLinkSessionState,
@@ -264,7 +267,7 @@ fn run_login(args: AuthLoginArgs, client: &PlaidClient, context: &mut ResolvedCo
         .completion_redirect_uri
         .unwrap_or_else(|| PLAID_GITHUB_PAGES_COMPLETION_REDIRECT_URI.to_owned());
     let request = build_link_token_create_request(
-        args.link,
+        apply_default_auth_login_products(args.link),
         context,
         Some(LinkTokenHostedLink {
             completion_redirect_uri: completion_redirect_uri.clone(),
