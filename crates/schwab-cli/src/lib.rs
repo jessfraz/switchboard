@@ -12,8 +12,9 @@ use serde_json::Value;
 pub(crate) use crate::state::ResolvedContext;
 use crate::{
     commands::{
-        run_accounts, run_auth, run_market, run_orders, run_preferences, run_transactions, AccountCommand, AuthCommand,
-        MarketCommand, OrderCommand, PreferenceCommand, TransactionCommand,
+        maybe_refresh_access_token, refresh_access_token_if_possible, run_accounts, run_auth, run_market, run_orders,
+        run_preferences, run_transactions, AccountCommand, AuthCommand, MarketCommand, OrderCommand, PreferenceCommand,
+        TransactionCommand,
     },
     state::{
         ENV_SCHWAB_ACCESS_TOKEN, ENV_SCHWAB_AUTHORIZE_URL, ENV_SCHWAB_BASE_URL, ENV_SCHWAB_CLIENT_FUNCTION_ID,
@@ -82,15 +83,44 @@ fn run(cli: Cli) -> AnyhowResult<(Value, bool)> {
 
     let output = match cli.command {
         Commands::Auth(command) => run_auth(command.command, &mut context),
-        Commands::Accounts(command) => run_accounts(command.command, &mut context),
-        Commands::Orders(command) => run_orders(command.command, &mut context),
-        Commands::Transactions(command) => run_transactions(command.command, &mut context),
-        Commands::Preferences(command) => run_preferences(command.command, &context),
-        Commands::Market(command) => run_market(command.command, &context),
+        Commands::Accounts(command) => {
+            run_with_auto_refresh(&mut context, |context| run_accounts(command.command, context))
+        }
+        Commands::Orders(command) => {
+            run_with_auto_refresh(&mut context, |context| run_orders(command.command, context))
+        }
+        Commands::Transactions(command) => {
+            run_with_auto_refresh(&mut context, |context| run_transactions(command.command, context))
+        }
+        Commands::Preferences(command) => {
+            run_with_auto_refresh(&mut context, |context| run_preferences(command.command, context))
+        }
+        Commands::Market(command) => {
+            run_with_auto_refresh(&mut context, |context| run_market(command.command, context))
+        }
     }
     .context("Schwab command failed")?;
 
     Ok((output, compact))
+}
+
+fn run_with_auto_refresh<F>(context: &mut ResolvedContext, mut operation: F) -> Result<Value>
+where
+    F: FnMut(&mut ResolvedContext) -> Result<Value>,
+{
+    maybe_refresh_access_token(context)?;
+
+    match operation(context) {
+        Ok(output) => Ok(output),
+        Err(Error::Api { status_code: 401, body }) => {
+            if refresh_access_token_if_possible(context)? {
+                operation(context)
+            } else {
+                Err(Error::Api { status_code: 401, body })
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[derive(Debug, Parser)]
