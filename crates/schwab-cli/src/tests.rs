@@ -418,6 +418,156 @@ fn accounts_get_resolves_plain_account_number_to_hash() {
 }
 
 #[test]
+fn transactions_list_refreshes_expired_access_token_before_request() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "fresh-access-token",
+                    "refresh_token": "fresh-refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "api",
+                    "expires_in": 1800
+                }),
+            ),
+            ResponseSpec::json(
+                200,
+                json!([
+                    {
+                        "type": "TRADE",
+                        "transactionId": 500
+                    }
+                ]),
+            ),
+        ],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-refresh-before-transactions");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            token_url: Some(format!("{}/oauth/token", server.base_url())),
+            client_id: Some("client-id".into()),
+            client_secret: Some("client-secret".into()),
+            access_token: Some("expired-access-token".into()),
+            refresh_token: Some("refresh-token".into()),
+            expires_at_epoch_seconds: Some(1),
+            account_numbers: vec![super::state::AccountNumberHashEntry {
+                account_number: Some("123456789".into()),
+                hash_value: Some("hash-123".into()),
+                synced_at_epoch_seconds: None,
+            }],
+            ..SchwabState::default()
+        },
+    );
+
+    let output: Vec<TransactionListEntry> = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "transactions",
+        "list",
+        "--account",
+        "123456789",
+        "--start-date",
+        "2026-03-01T00:00:00.000Z",
+        "--end-date",
+        "2026-03-27T23:59:59.000Z",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 2);
+    assert_eq!(request[0].method, "POST");
+    assert_eq!(request[0].path, "/oauth/token");
+    assert_eq!(request[0].form_value("grant_type").as_deref(), Some("refresh_token"));
+    assert_eq!(request[0].form_value("refresh_token").as_deref(), Some("refresh-token"));
+    assert_eq!(request[1].path, "/accounts/hash-123/transactions");
+    assert_eq!(request[1].header("authorization"), Some("Bearer fresh-access-token"));
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].transaction_id, 500);
+}
+
+#[test]
+fn preferences_get_retries_after_unauthorized_with_token_refresh() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        vec![
+            ResponseSpec::json(
+                401,
+                json!({
+                    "errors": [
+                        {
+                            "status": 401,
+                            "title": "Unauthorized",
+                            "detail": "Client not authorized"
+                        }
+                    ]
+                }),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "access_token": "refreshed-access-token",
+                    "refresh_token": "refreshed-refresh-token",
+                    "token_type": "Bearer",
+                    "scope": "api",
+                    "expires_in": 1800
+                }),
+            ),
+            ResponseSpec::json(
+                200,
+                json!({
+                    "accounts": []
+                }),
+            ),
+        ],
+        capture.clone(),
+    );
+    let temp_dir = temp_dir("schwab-refresh-after-401");
+    let config_path = temp_dir.join("config.json");
+    write_state(
+        &config_path,
+        SchwabState {
+            base_url: Some(server.base_url()),
+            token_url: Some(format!("{}/oauth/token", server.base_url())),
+            client_id: Some("client-id".into()),
+            client_secret: Some("client-secret".into()),
+            access_token: Some("stale-access-token".into()),
+            refresh_token: Some("refresh-token".into()),
+            expires_at_epoch_seconds: Some(u64::MAX),
+            ..SchwabState::default()
+        },
+    );
+
+    let output: PreferencesResponse = run_command(&[
+        "schwab",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "preferences",
+        "get",
+    ]);
+
+    let request = captured_requests(&capture);
+    assert_eq!(request.len(), 3);
+    assert_eq!(request[0].path, "/userPreference");
+    assert_eq!(request[0].header("authorization"), Some("Bearer stale-access-token"));
+    assert_eq!(request[1].path, "/oauth/token");
+    assert_eq!(request[1].form_value("grant_type").as_deref(), Some("refresh_token"));
+    assert_eq!(request[2].path, "/userPreference");
+    assert_eq!(
+        request[2].header("authorization"),
+        Some("Bearer refreshed-access-token")
+    );
+    assert!(output.accounts.is_empty());
+}
+
+#[test]
 fn orders_list_builds_expected_query() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(

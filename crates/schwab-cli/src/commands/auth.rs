@@ -2,6 +2,7 @@ use std::{
     fs::File,
     io::{self, IsTerminal, Read, Write},
     process::Command,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use clap::{Args, Subcommand};
@@ -12,6 +13,8 @@ use crate::{
     client::{AuthMode, RequestBody, RequestSpec, SchwabClient},
     Error, ResolvedContext, Result,
 };
+
+const ACCESS_TOKEN_REFRESH_SKEW_SECONDS: u64 = 60;
 
 #[derive(Debug, Args)]
 pub(crate) struct AuthCommand {
@@ -151,34 +154,7 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             validate_callback(context, &callback)?;
             exchange_code(&client, context, callback.code, callback.redirect_uri, args.no_store)
         }
-        AuthSubcommand::Refresh(args) => {
-            let (client_id, client_secret) = context.require_client_credentials()?;
-            let refresh_token = args
-                .refresh_token
-                .or_else(|| context.refresh_token.clone())
-                .ok_or_else(|| Error::Config("missing refresh token, pass --refresh-token or login first".into()))?;
-
-            let response = client.execute(RequestSpec {
-                method: reqwest::Method::POST,
-                path: context.token_url.clone(),
-                query: Vec::new(),
-                headers: Vec::new(),
-                body: RequestBody::Form(vec![
-                    ("grant_type".into(), "refresh_token".into()),
-                    ("refresh_token".into(), refresh_token),
-                ]),
-                auth: AuthMode::Basic {
-                    username: client_id.to_owned(),
-                    password: client_secret.to_owned(),
-                },
-            })?;
-
-            if !args.no_store {
-                context.store_oauth_token_response(&response)?;
-            }
-
-            Ok(response)
-        }
+        AuthSubcommand::Refresh(args) => refresh_access_token(context, args.refresh_token, args.no_store),
         AuthSubcommand::Status => auth_status(&client, context),
         AuthSubcommand::Logout => {
             context.clear_auth_state()?;
@@ -189,6 +165,30 @@ pub(crate) fn run_auth(command: AuthSubcommand, context: &mut ResolvedContext) -
             }))
         }
     }
+}
+
+pub(crate) fn maybe_refresh_access_token(context: &mut ResolvedContext) -> Result<bool> {
+    let Some(expires_at_epoch_seconds) = context.expires_at_epoch_seconds else {
+        return Ok(false);
+    };
+    if expires_at_epoch_seconds > current_epoch_seconds().saturating_add(ACCESS_TOKEN_REFRESH_SKEW_SECONDS) {
+        return Ok(false);
+    }
+    if context.refresh_token.is_none() || context.client_id.is_none() || context.client_secret.is_none() {
+        return Ok(false);
+    }
+
+    refresh_access_token(context, None, false)?;
+    Ok(true)
+}
+
+pub(crate) fn refresh_access_token_if_possible(context: &mut ResolvedContext) -> Result<bool> {
+    if context.refresh_token.is_none() || context.client_id.is_none() || context.client_secret.is_none() {
+        return Ok(false);
+    }
+
+    refresh_access_token(context, None, false)?;
+    Ok(true)
 }
 
 struct PreparedAuthorization {
@@ -224,6 +224,35 @@ fn exchange_code(
 
     if !no_store {
         context.remember_redirect_uri(redirect_uri)?;
+        context.store_oauth_token_response(&response)?;
+    }
+
+    Ok(response)
+}
+
+fn refresh_access_token(context: &mut ResolvedContext, refresh_token: Option<String>, no_store: bool) -> Result<Value> {
+    let client = trader_client(context)?;
+    let (client_id, client_secret) = context.require_client_credentials()?;
+    let refresh_token = refresh_token
+        .or_else(|| context.refresh_token.clone())
+        .ok_or_else(|| Error::Config("missing refresh token, pass --refresh-token or login first".into()))?;
+
+    let response = client.execute(RequestSpec {
+        method: reqwest::Method::POST,
+        path: context.token_url.clone(),
+        query: Vec::new(),
+        headers: Vec::new(),
+        body: RequestBody::Form(vec![
+            ("grant_type".into(), "refresh_token".into()),
+            ("refresh_token".into(), refresh_token),
+        ]),
+        auth: AuthMode::Basic {
+            username: client_id.to_owned(),
+            password: client_secret.to_owned(),
+        },
+    })?;
+
+    if !no_store {
         context.store_oauth_token_response(&response)?;
     }
 
@@ -610,6 +639,13 @@ fn normalize_redirect_uri(value: &str) -> Result<String> {
 
 fn generate_oauth_state() -> Result<String> {
     Ok(hex_encode(&random_bytes(16)?))
+}
+
+fn current_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
