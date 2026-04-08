@@ -4,6 +4,7 @@ mod market;
 mod orders;
 mod preferences;
 mod shared;
+mod sweep;
 mod transactions;
 
 pub(crate) use accounts::{run_accounts, AccountCommand};
@@ -11,4 +12,5 @@ pub(crate) use auth::{maybe_refresh_access_token, refresh_access_token_if_possib
 pub(crate) use market::{run_market, MarketCommand};
 pub(crate) use orders::{run_orders, OrderCommand};
 pub(crate) use preferences::{run_preferences, PreferenceCommand};
+pub(crate) use sweep::{run_sweep, SweepCommand};
 pub(crate) use transactions::{run_transactions, TransactionCommand};
