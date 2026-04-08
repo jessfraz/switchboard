@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use super::{
     cache::{AccountSnapshotSource, PlaidCacheStore},
     commands::{
-        accounts::{AccountsBalanceRequest, AccountsRequestOptions},
+        accounts::{AccountsBalanceRequest, AccountsGetRequest, AccountsRequestOptions},
         auth::ExchangePublicTokenRequest,
         cache::{CacheAccountsOutput, CacheItemsOutput, CacheTransactionsOutput},
         institutions::{InstitutionRequestOptions, InstitutionsGetByIdRequest},
@@ -585,6 +585,162 @@ fn accounts_balance_uses_stored_access_token_filters_and_caches_accounts() {
 }
 
 #[test]
+fn accounts_get_without_account_filter_returns_all_item_accounts() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "accounts": [
+                {
+                    "account_id": "acc-123",
+                    "balances": {
+                        "available": 100.5,
+                        "current": 125.0
+                    },
+                    "mask": "0000",
+                    "name": "Cash"
+                },
+                {
+                    "account_id": "acc-456",
+                    "balances": {
+                        "available": 210.0,
+                        "current": 210.0
+                    },
+                    "mask": "1111",
+                    "name": "Savings"
+                }
+            ],
+            "item": {
+                "item_id": "item-1234",
+                "institution_id": "ins_109508"
+            },
+            "request_id": "request-accounts-get"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-accounts-get-all");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            base_url: Some(server.base_url()),
+            client_id: Some("client-id".into()),
+            secret: Some("secret-value".into()),
+            access_token: Some("stored-access-token".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let output: AccountsGetResponse = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "accounts",
+        "get",
+    ]);
+
+    let request = captured_request(&capture);
+    let body: AccountsGetRequest = request.json_body();
+    assert_eq!(request.path, "/accounts/get");
+    assert_eq!(body.access_token, "stored-access-token");
+    assert_eq!(body.options, None);
+    assert_eq!(output.accounts.len(), 2);
+    assert_eq!(output.accounts[0].account_id, "acc-123");
+    assert_eq!(output.accounts[1].account_id, "acc-456");
+
+    let cached: CacheAccountsOutput = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "accounts",
+    ]);
+    assert_eq!(cached.count, 2);
+    assert_eq!(cached.accounts[0].source_endpoint, "/accounts/get");
+    assert_eq!(cached.accounts[1].source_endpoint, "/accounts/get");
+}
+
+#[test]
+fn accounts_balance_without_filters_returns_all_item_accounts() {
+    let capture = Arc::new(Mutex::new(Vec::new()));
+    let server = TestServer::spawn(
+        json!({
+            "accounts": [
+                {
+                    "account_id": "acc-123",
+                    "balances": {
+                        "available": 100.5,
+                        "current": 125.0
+                    },
+                    "mask": "0000",
+                    "name": "Cash"
+                },
+                {
+                    "account_id": "acc-456",
+                    "balances": {
+                        "available": 210.0,
+                        "current": 210.0
+                    },
+                    "mask": "1111",
+                    "name": "Savings"
+                }
+            ],
+            "item": {
+                "item_id": "item-1234",
+                "institution_id": "ins_109508"
+            },
+            "request_id": "request-accounts-balance"
+        })
+        .to_string(),
+        200,
+        Some(capture.clone()),
+    );
+    let temp_dir = temp_dir("plaid-accounts-balance-all");
+    let config_path = temp_dir.join("config.json");
+    StateStore::new(config_path.clone())
+        .save(&PlaidState {
+            base_url: Some(server.base_url()),
+            client_id: Some("client-id".into()),
+            secret: Some("secret-value".into()),
+            access_token: Some("stored-access-token".into()),
+            ..PlaidState::default()
+        })
+        .expect("state should save");
+
+    let output: AccountsBalanceResponse = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "accounts",
+        "balance",
+    ]);
+
+    let request = captured_request(&capture);
+    let body: AccountsBalanceRequest = request.json_body();
+    assert_eq!(request.path, "/accounts/balance/get");
+    assert_eq!(body.access_token, "stored-access-token");
+    assert_eq!(body.options, None);
+    assert_eq!(output.accounts.len(), 2);
+    assert_eq!(output.accounts[0].account_id, "acc-123");
+    assert_eq!(output.accounts[1].account_id, "acc-456");
+
+    let cached: CacheAccountsOutput = run_command(&[
+        "plaid",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--compact",
+        "cache",
+        "accounts",
+    ]);
+    assert_eq!(cached.count, 2);
+    assert_eq!(cached.accounts[0].source_endpoint, "/accounts/balance/get");
+    assert_eq!(cached.accounts[1].source_endpoint, "/accounts/balance/get");
+}
+
+#[test]
 fn institutions_get_by_id_builds_country_codes_and_metadata_options() {
     let capture = Arc::new(Mutex::new(Vec::new()));
     let server = TestServer::spawn(
@@ -840,6 +996,14 @@ fn transactions_sync_uses_cached_cursor_paginates_and_updates_cache() {
     let cached_request = captured_request(&second_capture);
     let cached_body: TransactionsSyncRequest = cached_request.json_body();
     assert_eq!(cached_body.cursor.as_deref(), Some("cursor-final"));
+    assert_eq!(
+        cached_body.options,
+        Some(TransactionsSyncOptions {
+            include_original_description: None,
+            account_id: Some("acc-123".into()),
+            days_requested: None,
+        })
+    );
     assert_eq!(second_output.next_cursor, "cursor-after-cache");
     assert_eq!(second_output.pages_fetched, 1);
 }
@@ -905,6 +1069,16 @@ fn transactions_sync_bootstraps_item_id_before_caching() {
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].path, "/item/get");
     assert_eq!(requests[1].path, "/transactions/sync");
+    let sync_body: TransactionsSyncRequest = requests[1].json_body();
+    assert_eq!(sync_body.cursor, None);
+    assert_eq!(
+        sync_body.options,
+        Some(TransactionsSyncOptions {
+            include_original_description: None,
+            account_id: None,
+            days_requested: Some(30),
+        })
+    );
     assert_eq!(output.item_id, "item-bootstrap");
     assert_eq!(output.next_cursor, "cursor-bootstrap");
 
@@ -1542,6 +1716,11 @@ struct LinkTokenGetRequestBody {
 
 #[derive(Debug, Deserialize)]
 struct AccountsBalanceResponse {
+    accounts: Vec<AccountSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountsGetResponse {
     accounts: Vec<AccountSummary>,
 }
 

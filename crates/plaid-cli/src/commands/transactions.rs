@@ -8,6 +8,7 @@ use crate::{
 };
 
 const MAX_SYNC_RESTARTS: u32 = 3;
+const DEFAULT_INITIAL_SYNC_DAYS_REQUESTED: u32 = 30;
 
 #[derive(Debug, Args)]
 pub(crate) struct TransactionsCommand {
@@ -35,6 +36,7 @@ pub(crate) struct TransactionsSyncArgs {
     #[arg(long)]
     account_id: Option<String>,
 
+    /// Defaults to 30 on the first sync when no explicit or cached cursor exists.
     #[arg(long)]
     days_requested: Option<u32>,
 }
@@ -115,6 +117,9 @@ fn run_transactions_sync(
     } else {
         context.cache.cached_cursor(&item_id, account_scope.as_deref())?
     };
+    let days_requested = args
+        .days_requested
+        .or_else(|| initial_cursor.is_none().then_some(DEFAULT_INITIAL_SYNC_DAYS_REQUESTED));
 
     let mut restart_count = 0_u32;
     'pagination: loop {
@@ -135,7 +140,7 @@ fn run_transactions_sync(
                     args.count,
                     args.include_original_description,
                     account_scope.clone(),
-                    args.days_requested,
+                    days_requested,
                 )?,
             ) {
                 Ok(response) => response,
