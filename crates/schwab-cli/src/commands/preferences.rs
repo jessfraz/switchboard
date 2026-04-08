@@ -6,13 +6,13 @@ use crate::{
     ResolvedContext, Result,
 };
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct PreferenceCommand {
     #[command(subcommand)]
     pub(crate) command: PreferenceSubcommand,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub(crate) enum PreferenceSubcommand {
     Get,
 }

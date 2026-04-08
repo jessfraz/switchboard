@@ -9,13 +9,13 @@ use crate::{
     ResolvedContext, Result,
 };
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderCommand {
     #[command(subcommand)]
     pub(crate) command: OrderSubcommand,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub(crate) enum OrderSubcommand {
     List(OrderListArgs),
     Get(OrderGetArgs),
@@ -25,7 +25,7 @@ pub(crate) enum OrderSubcommand {
     Cancel(OrderCancelArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderListArgs {
     #[arg(long)]
     account: Option<String>,
@@ -47,7 +47,7 @@ pub(crate) struct OrderListArgs {
     status: Option<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderGetArgs {
     #[arg(long)]
     account: String,
@@ -55,7 +55,7 @@ pub(crate) struct OrderGetArgs {
     order_id: u64,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderPlaceArgs {
     #[arg(long)]
     account: String,
@@ -64,7 +64,7 @@ pub(crate) struct OrderPlaceArgs {
     body: JsonBodyArgs,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderPreviewArgs {
     #[arg(long)]
     account: String,
@@ -73,7 +73,7 @@ pub(crate) struct OrderPreviewArgs {
     body: JsonBodyArgs,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderReplaceArgs {
     #[arg(long)]
     account: String,
@@ -84,7 +84,7 @@ pub(crate) struct OrderReplaceArgs {
     body: JsonBodyArgs,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct OrderCancelArgs {
     #[arg(long)]
     account: String,

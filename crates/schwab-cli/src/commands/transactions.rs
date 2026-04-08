@@ -7,19 +7,19 @@ use crate::{
     ResolvedContext, Result,
 };
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct TransactionCommand {
     #[command(subcommand)]
     pub(crate) command: TransactionSubcommand,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub(crate) enum TransactionSubcommand {
     List(TransactionListArgs),
     Get(TransactionGetArgs),
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct TransactionListArgs {
     #[arg(long)]
     account: Option<String>,
@@ -44,7 +44,7 @@ pub(crate) struct TransactionListArgs {
     symbol: Option<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 pub(crate) struct TransactionGetArgs {
     #[arg(long)]
     account: String,
