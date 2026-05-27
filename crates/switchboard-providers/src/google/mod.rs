@@ -1,6 +1,6 @@
 mod materializer;
 
-use std::sync::OnceLock;
+use std::{fs, sync::OnceLock};
 
 use switchboard_core::{
     Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolArgument, ToolDescriptor,
@@ -13,7 +13,17 @@ use crate::{
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
-const DEFAULT_AUTH_LOGIN_SERVICES: &str = "drive,sheets,gmail,calendar,docs,slides,tasks,people";
+const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
+    "https://www.googleapis.com/auth/drive,",
+    "https://www.googleapis.com/auth/spreadsheets,",
+    "https://www.googleapis.com/auth/gmail.modify,",
+    "https://www.googleapis.com/auth/calendar,",
+    "https://www.googleapis.com/auth/documents,",
+    "https://www.googleapis.com/auth/presentations,",
+    "https://www.googleapis.com/auth/tasks,",
+    "https://www.googleapis.com/auth/contacts,",
+    "https://www.googleapis.com/auth/cloud-platform"
+);
 static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct GoogleWorkspaceAdapter {
@@ -58,7 +68,7 @@ impl GoogleWorkspaceAdapter {
             request.mode,
             vec![ToolArgument::option(
                 "argv-json",
-                serde_json::json!(["auth", "login", "--services", DEFAULT_AUTH_LOGIN_SERVICES]).to_string(),
+                serde_json::json!(["auth", "login", "--scopes", DEFAULT_AUTH_LOGIN_SCOPES]).to_string(),
             )?],
         )
     }
@@ -99,6 +109,22 @@ impl GoogleWorkspaceAdapter {
         }
 
         Ok(Some(actual.to_owned()))
+    }
+
+    fn clear_google_auth_token_cache(target: &ExecutionTarget) -> Result<bool> {
+        let Some(state_dir) = target.namespace.state_dir.as_ref() else {
+            return Ok(false);
+        };
+        let token_cache = state_dir.join("token_cache.json");
+
+        match fs::remove_file(&token_cache) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(Error::Execution(format!(
+                "failed to clear gws token cache at {} after auth login: {error}",
+                token_cache.display()
+            ))),
+        }
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -149,6 +175,9 @@ impl Adapter for GoogleWorkspaceAdapter {
                 if Self::is_google_auth_login(action)? {
                     if let Some(authenticated_user) = self.verify_google_auth_account(target, executable)? {
                         output = output.with_field("authenticated_user", authenticated_user);
+                    }
+                    if Self::clear_google_auth_token_cache(target)? {
+                        output = output.with_value_field("token_cache_cleared", serde_json::Value::Bool(true));
                     }
                 }
                 return Ok(output);
@@ -202,7 +231,7 @@ impl Adapter for GoogleWorkspaceAdapter {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, path::PathBuf};
+    use std::{env, fs, path::PathBuf};
 
     use serde::Deserialize;
     use serde_json::{Map, Value};
@@ -213,7 +242,7 @@ mod tests {
     };
 
     use crate::{
-        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SERVICES},
+        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SCOPES},
         test_support::{lock_env, TempScript},
     };
 
@@ -541,7 +570,47 @@ mod tests {
         assert!(!output.fields.contains_key("cli_stderr"));
 
         let captured = script.capture_contents();
-        assert!(captured.contains(&format!("ARGV=auth login --services {DEFAULT_AUTH_LOGIN_SERVICES}")));
+        assert!(captured.contains(&format!("ARGV=auth login --scopes {DEFAULT_AUTH_LOGIN_SCOPES}")));
+        assert!(captured.contains("https://www.googleapis.com/auth/contacts"));
+    }
+
+    #[test]
+    fn raw_cli_auth_login_clears_cached_access_token() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let state_dir = script
+            .path()
+            .parent()
+            .expect("test script should live in a directory")
+            .join("gws-state");
+        fs::create_dir_all(&state_dir).expect("state directory should be created");
+        let token_cache = state_dir.join("token_cache.json");
+        fs::write(&token_cache, "stale access token").expect("token cache fixture should be written");
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target_with_state_dir(state_dir.clone());
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![
+                ToolArgument::option("argv-json", serde_json::json!(["auth", "login"]).to_string())
+                    .expect("option should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let output = adapter
+            .execute(&execution_target_with_state_dir(state_dir), &action)
+            .expect("execution should succeed");
+
+        assert!(!token_cache.exists());
+        assert_eq!(output.fields.get("token_cache_cleared"), Some(&Value::Bool(true)));
     }
 
     #[test]
@@ -573,7 +642,7 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=auth login --readonly"));
-        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SERVICES));
+        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SCOPES));
     }
 
     #[test]
@@ -844,6 +913,10 @@ mod tests {
     }
 
     fn planning_target() -> PlanningTarget {
+        planning_target_with_state_dir(PathBuf::from("/tmp/gws-work"))
+    }
+
+    fn planning_target_with_state_dir(state_dir: PathBuf) -> PlanningTarget {
         PlanningTarget {
             namespace: ResolvedNamespace::new(
                 "google.work",
@@ -851,7 +924,7 @@ mod tests {
                 "jess@example.com",
                 "google.work_auth",
                 false,
-                Some(PathBuf::from("/tmp/gws-work")),
+                Some(state_dir),
             )
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
@@ -870,8 +943,12 @@ mod tests {
     }
 
     fn execution_target() -> ExecutionTarget {
+        execution_target_with_state_dir(PathBuf::from("/tmp/gws-work"))
+    }
+
+    fn execution_target_with_state_dir(state_dir: PathBuf) -> ExecutionTarget {
         ExecutionTarget {
-            namespace: planning_target().namespace,
+            namespace: planning_target_with_state_dir(state_dir).namespace,
             auth: planning_target().auth,
             credentials: ResolvedCredentials::GoogleOAuth {
                 client_id: "client-id".to_owned().into(),
