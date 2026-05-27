@@ -33,7 +33,7 @@ rsa = { version = "0.9.10", features = ["pem", "sha2"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 thiserror = "2.0.17"
 toml = "1.1.2"
 
