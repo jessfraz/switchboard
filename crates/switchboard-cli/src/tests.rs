@@ -463,7 +463,8 @@ fn configured_namespaces_match_current_examples() {
             "github.personal_token",
             "google.personal",
             "google.work",
-            "mychart.ucla"
+            "mychart.ucla",
+            "schwab.personal"
         ]
     );
 }
