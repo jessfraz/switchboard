@@ -3,7 +3,7 @@ use switchboard_core::{ExecutionTarget, PlannedAction, Result, ToolOutput};
 use crate::{
     cli::{
         command::{CliExecutableSpec, CliResponse},
-        executor::{CliExecutor, CliInvocation, ProcessCliExecutor},
+        executor::{CliExecutor, CliInvocation, CliStdioMode, ProcessCliExecutor},
         locator::{CliLocator, DefaultCliLocator},
         probe::{CliProbe, DefaultCliProbe},
     },
@@ -37,12 +37,24 @@ impl CliProviderBackend {
         action: &PlannedAction,
         spec: &CliExecutableSpec,
     ) -> Result<ToolOutput> {
+        let args = spec.args.build_args(action)?;
+        let stdio_mode = spec.args.stdio_mode(action)?;
+        let response = self.execute_raw(target, spec, args, stdio_mode)?;
+
+        spec.decode.decode(target, action, response)
+    }
+
+    pub(crate) fn execute_raw(
+        &self,
+        target: &ExecutionTarget,
+        spec: &CliExecutableSpec,
+        args: Vec<String>,
+        stdio_mode: CliStdioMode,
+    ) -> Result<CliResponse> {
         let program = self.locator.resolve(&spec.binary)?;
         let version = self
             .probe
             .inspect(&spec.binary, &program, &spec.capability, self.executor.as_ref())?;
-        let args = spec.args.build_args(action)?;
-        let stdio_mode = spec.args.stdio_mode(action)?;
         let runtime = self.materializer.prepare(target)?;
         let output = self.executor.execute(CliInvocation {
             program: program.clone(),
@@ -51,15 +63,11 @@ impl CliProviderBackend {
             stdio_mode,
         })?;
 
-        spec.decode.decode(
-            target,
-            action,
-            CliResponse {
-                program,
-                version,
-                stdout: output.stdout,
-                stderr: output.stderr,
-            },
-        )
+        Ok(CliResponse {
+            program,
+            version,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
     }
 }

@@ -8,11 +8,12 @@ use switchboard_core::{
 };
 
 use crate::{
-    cli::{CliProviderBackend, CliProviderCatalog},
+    cli::{passthrough, CliExecutableSpec, CliProviderBackend, CliProviderCatalog, CliStdioMode},
     google::materializer::DefaultGoogleWorkspaceCliMaterializer,
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
+const DEFAULT_AUTH_LOGIN_SERVICES: &str = "drive,sheets,gmail,calendar,docs,slides,tasks,people";
 static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct GoogleWorkspaceAdapter {
@@ -39,6 +40,65 @@ impl GoogleWorkspaceAdapter {
 
     fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
         Self::catalog().find_command(tool)
+    }
+
+    fn request_with_google_auth_defaults(request: &ToolRequest) -> Result<ToolRequest> {
+        if request.tool.as_str() != "google.cli.write" {
+            return Ok(request.clone());
+        }
+
+        let argv = passthrough::parse_passthrough_argv(&request.args)?;
+        if argv != ["auth", "login"] {
+            return Ok(request.clone());
+        }
+
+        ToolRequest::new(
+            request.tool.as_str(),
+            request.namespace.as_str(),
+            request.mode,
+            vec![ToolArgument::option(
+                "argv-json",
+                serde_json::json!(["auth", "login", "--services", DEFAULT_AUTH_LOGIN_SERVICES]).to_string(),
+            )?],
+        )
+    }
+
+    fn is_google_auth_login(action: &PlannedAction) -> Result<bool> {
+        if action.tool.as_str() != "google.cli.write" {
+            return Ok(false);
+        }
+
+        let argv = passthrough::parse_passthrough_argv(&action.args)?;
+        Ok(argv.len() >= 2 && argv[0] == "auth" && argv[1].starts_with("login"))
+    }
+
+    fn verify_google_auth_account(
+        &self,
+        target: &ExecutionTarget,
+        executable: &CliExecutableSpec,
+    ) -> Result<Option<String>> {
+        let response = self.backend.execute_raw(
+            target,
+            executable,
+            vec!["auth".into(), "status".into()],
+            CliStdioMode::Capture,
+        )?;
+        let status: serde_json::Value = serde_json::from_str(&response.stdout)
+            .map_err(|error| Error::Execution(format!("failed to parse gws auth status after auth login: {error}")))?;
+        let actual = status
+            .get("user")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| Error::Execution("gws auth status did not report an authenticated user".into()))?;
+        let expected = target.namespace.account_label.trim();
+
+        if expected.contains('@') && !actual.eq_ignore_ascii_case(expected) {
+            return Err(Error::Execution(format!(
+                "gws auth login authenticated {} as {actual}, but namespace {} expects {expected}",
+                target.auth.id, target.namespace.id
+            )));
+        }
+
+        Ok(Some(actual.to_owned()))
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -71,9 +131,10 @@ impl Adapter for GoogleWorkspaceAdapter {
     ) -> Result<PlannedAction> {
         let command = Self::find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
-        let summary = command.summarize.summarize(&target.namespace, request)?;
+        let request = Self::request_with_google_auth_defaults(request)?;
+        let summary = command.summarize.summarize(&target.namespace, &request)?;
         Ok(PlannedAction::new(
-            request,
+            &request,
             target,
             descriptor.kind,
             summary,
@@ -84,7 +145,13 @@ impl Adapter for GoogleWorkspaceAdapter {
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
         if let Some(command) = Self::find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
-                return self.backend.execute(target, action, executable);
+                let mut output = self.backend.execute(target, action, executable)?;
+                if Self::is_google_auth_login(action)? {
+                    if let Some(authenticated_user) = self.verify_google_auth_account(target, executable)? {
+                        output = output.with_field("authenticated_user", authenticated_user);
+                    }
+                }
+                return Ok(output);
             }
 
             if matches!(action.kind, ToolKind::Write) {
@@ -146,7 +213,7 @@ mod tests {
     };
 
     use crate::{
-        google::GoogleWorkspaceAdapter,
+        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SERVICES},
         test_support::{lock_env, TempScript},
     };
 
@@ -474,7 +541,70 @@ mod tests {
         assert!(!output.fields.contains_key("cli_stderr"));
 
         let captured = script.capture_contents();
-        assert!(captured.contains("ARGV=auth login"));
+        assert!(captured.contains(&format!("ARGV=auth login --services {DEFAULT_AUTH_LOGIN_SERVICES}")));
+    }
+
+    #[test]
+    fn raw_cli_auth_login_preserves_explicit_args() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![ToolArgument::option(
+                "argv-json",
+                serde_json::json!(["auth", "login", "--readonly"]).to_string(),
+            )
+            .expect("option should build")],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        adapter
+            .execute(&execution_target(), &action)
+            .expect("execution should succeed");
+
+        let captured = script.capture_contents();
+        assert!(captured.contains("ARGV=auth login --readonly"));
+        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SERVICES));
+    }
+
+    #[test]
+    fn raw_cli_auth_login_rejects_wrong_account() {
+        let _env_guard = lock_env();
+        let script = google_test_script();
+        env::set_var("SWITCHBOARD_GWS_BIN", script.path());
+        env::set_var("GWS_TEST_AUTH_USER", "wrong@example.com");
+
+        let adapter = GoogleWorkspaceAdapter::default();
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![
+                ToolArgument::option("argv-json", serde_json::json!(["auth", "login"]).to_string())
+                    .expect("option should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let error = adapter
+            .execute(&execution_target(), &action)
+            .expect_err("wrong google account should fail auth verification");
+
+        assert!(error.to_string().contains("expects jess@example.com"));
+        assert!(error.to_string().contains("wrong@example.com"));
     }
 
     #[test]
@@ -714,7 +844,7 @@ mod tests {
             namespace: ResolvedNamespace::new(
                 "google.work",
                 ProviderKind::GoogleWorkspace,
-                "Google Workspace (work)",
+                "jess@example.com",
                 "google.work_auth",
                 false,
                 Some(PathBuf::from("/tmp/gws-work")),

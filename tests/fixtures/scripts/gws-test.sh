@@ -145,5 +145,22 @@ EOF
   exit 0
 fi
 
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  cat >> "$(dirname "$0")/env.txt" <<EOF
+CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
+CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
+CLIENT_SECRET=$GOOGLE_WORKSPACE_CLI_CLIENT_SECRET
+CREDENTIALS_FILE=$GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE
+TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
+ARGV=$*
+---
+EOF
+  auth_user="${GWS_TEST_AUTH_USER:-jess@example.com}"
+  cat <<JSON
+{"user":"$auth_user"}
+JSON
+  exit 0
+fi
+
 echo "unexpected args: $*" >&2
 exit 1
