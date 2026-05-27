@@ -68,8 +68,23 @@
       pkgs,
       system,
     }: let
+      # naersk still builds crate archive URLs through the crates.io API endpoint,
+      # which can reject CI fetches. Use the canonical static archive CDN instead.
+      fetchCrateFromStaticCdn = args: let
+        crateMatch = builtins.match ".*/api/v1/crates/([^/]+)/([^/]+)/download" args.url;
+      in
+        pkgs.fetchurl (
+          args
+          // pkgs.lib.optionalAttrs (crateMatch != null) {
+            url = let
+              name = builtins.elemAt crateMatch 0;
+              version = builtins.elemAt crateMatch 1;
+            in "https://static.crates.io/crates/${name}/${name}-${version}.crate";
+          }
+        );
       naersk-lib = pkgs.callPackage naersk {
         cargo = pkgs.rustToolchain;
+        fetchurl = fetchCrateFromStaticCdn;
         rustc = pkgs.rustToolchain;
       };
       buildCli = {
