@@ -579,9 +579,8 @@ mod tests {
     #[test]
     fn raw_cli_auth_login_rejects_wrong_account() {
         let _env_guard = lock_env();
-        let script = google_test_script();
+        let script = google_test_script_with_auth_user("wrong@example.com");
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
-        env::set_var("GWS_TEST_AUTH_USER", "wrong@example.com");
 
         let adapter = GoogleWorkspaceAdapter::default();
         let planning = planning_target();
@@ -826,10 +825,14 @@ mod tests {
     }
 
     fn google_test_script() -> TempScript {
-        TempScript::new("gws-test", &render_google_script())
+        google_test_script_with_auth_user("jess@example.com")
     }
 
-    fn render_google_script() -> String {
+    fn google_test_script_with_auth_user(auth_user: &str) -> TempScript {
+        TempScript::new("gws-test", &render_google_script(auth_user))
+    }
+
+    fn render_google_script(auth_user: &str) -> String {
         GOOGLE_SCRIPT_TEMPLATE
             .replace("__AGENDA_FIXTURE__", AGENDA_FIXTURE)
             .replace("__GMAIL_TRIAGE_FIXTURE__", GMAIL_TRIAGE_FIXTURE)
@@ -837,6 +840,7 @@ mod tests {
             .replace("__GMAIL_DRAFT_CREATE_FIXTURE__", GMAIL_DRAFT_CREATE_FIXTURE)
             .replace("__CALENDAR_DELETE_FIXTURE__", CALENDAR_DELETE_FIXTURE)
             .replace("__CALENDAR_CREATE_FIXTURE__", CALENDAR_CREATE_FIXTURE)
+            .replace("__AUTH_STATUS_USER__", auth_user)
     }
 
     fn planning_target() -> PlanningTarget {
