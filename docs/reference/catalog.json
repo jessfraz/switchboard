@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 747,
+    "tool_count": 752,
     "curated_count": 15,
-    "raw_count": 732,
+    "raw_count": 737,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -10,9 +10,9 @@
   "providers": [
     {
       "provider": "github",
-      "tool_count": 193,
+      "tool_count": 198,
       "curated_count": 7,
-      "raw_count": 186,
+      "raw_count": 191,
       "stable_count": 5,
       "planning_only_count": 2,
       "undoable_count": 0,
@@ -5896,6 +5896,176 @@
         "# fixed CLI path: secret set"
       ],
       "doc_path": "reference/#tool=github.cli.secret.set"
+    },
+    {
+      "name": "github.cli.skill.install",
+      "provider": "github",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gh command gh skill install",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard github.cli.skill.install --ns github.default --draft -- --format json ...",
+        "switchboard github.cli.skill.install --ns github.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: skill install"
+      ],
+      "doc_path": "reference/#tool=github.cli.skill.install"
+    },
+    {
+      "name": "github.cli.skill.preview",
+      "provider": "github",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gh command gh skill preview",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard github.cli.skill.preview --ns github.default --draft -- --format json ...",
+        "switchboard github.cli.skill.preview --ns github.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: skill preview"
+      ],
+      "doc_path": "reference/#tool=github.cli.skill.preview"
+    },
+    {
+      "name": "github.cli.skill.publish",
+      "provider": "github",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gh command gh skill publish",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard github.cli.skill.publish --ns github.default --draft -- --format json ...",
+        "switchboard github.cli.skill.publish --ns github.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: skill publish"
+      ],
+      "doc_path": "reference/#tool=github.cli.skill.publish"
+    },
+    {
+      "name": "github.cli.skill.search",
+      "provider": "github",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gh command gh skill search",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard github.cli.skill.search --ns github.default --json -- --format json",
+        "switchboard github.cli.skill.search --ns github.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: skill search"
+      ],
+      "doc_path": "reference/#tool=github.cli.skill.search"
+    },
+    {
+      "name": "github.cli.skill.update",
+      "provider": "github",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gh command gh skill update",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard github.cli.skill.update --ns github.default --draft -- --format json ...",
+        "switchboard github.cli.skill.update --ns github.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: skill update"
+      ],
+      "doc_path": "reference/#tool=github.cli.skill.update"
     },
     {
       "name": "github.cli.ssh-key.add",

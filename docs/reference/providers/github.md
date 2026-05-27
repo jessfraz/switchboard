@@ -1,6 +1,6 @@
 # `github` Provider
 
-`github` exposes `193` total tools, `7` curated and `186` raw inventory passthrough.
+`github` exposes `198` total tools, `7` curated and `191` raw inventory passthrough.
 
 ## Curated tools
 
@@ -17,4 +17,4 @@
 - `github.cli.read`
 - `github.cli.write`
 
-`github` also ships `184` more raw command projections. The complete structured surface lives in [catalog.json](../catalog.json) and the deployed reference explorer.
+`github` also ships `189` more raw command projections. The complete structured surface lives in [catalog.json](../catalog.json) and the deployed reference explorer.
