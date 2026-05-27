@@ -33,7 +33,7 @@ jobs:
           sudo install "/tmp/gh_${gh_version}_linux_amd64/bin/gh" /usr/local/bin/gh
 
       - name: Install Google Workspace CLI
-        run: cargo install --locked google-workspace-cli --bin gws
+        run: cargo install --version 0.22.5 --locked google-workspace-cli --bin gws
 
       - name: Build MyChart CLI
         run: cargo build -p mychart-cli
