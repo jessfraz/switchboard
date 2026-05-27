@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 760,
+    "tool_count": 761,
     "curated_count": 15,
-    "raw_count": 745,
+    "raw_count": 746,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -40,9 +40,9 @@
     },
     {
       "provider": "schwab",
-      "tool_count": 31,
+      "tool_count": 32,
       "curated_count": 0,
-      "raw_count": 31,
+      "raw_count": 32,
       "stable_count": 0,
       "planning_only_count": 0,
       "undoable_count": 0,
@@ -26149,6 +26149,40 @@
         "switchboard schwab.cli.read --ns schwab.default -- ..."
       ],
       "doc_path": "reference/#tool=schwab.cli.read"
+    },
+    {
+      "name": "schwab.cli.sweep",
+      "provider": "schwab",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw schwab command schwab sweep",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard schwab.cli.sweep --ns schwab.default --draft -- --format json ...",
+        "switchboard schwab.cli.sweep --ns schwab.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: sweep"
+      ],
+      "doc_path": "reference/#tool=schwab.cli.sweep"
     },
     {
       "name": "schwab.cli.transactions.get",
