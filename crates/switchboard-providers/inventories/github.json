@@ -26,6 +26,7 @@
         "project",
         "release",
         "repo",
+        "skill",
         "cache",
         "run",
         "workflow",
@@ -4069,6 +4070,125 @@
       "operation_kind": "unknown",
       "undo_support": {
         "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "skill"
+      ],
+      "command": "gh skill",
+      "summary": "Install and manage agent skills from GitHub repositories.",
+      "usage": "gh skill <command> [flags]",
+      "help_args": [
+        "help",
+        "skill"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "install",
+        "preview",
+        "publish",
+        "search",
+        "update"
+      ]
+    },
+    {
+      "path": [
+        "skill",
+        "install"
+      ],
+      "command": "gh skill install",
+      "summary": "Install agent skills from a GitHub repository or local directory into",
+      "usage": "gh skill install <repository> [<skill[@version]>] [flags]",
+      "help_args": [
+        "help",
+        "skill",
+        "install"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "skill",
+        "preview"
+      ],
+      "command": "gh skill preview",
+      "summary": "Render a skill's `SKILL.md` content in the terminal. This fetches the",
+      "usage": "gh skill preview <repository> [<skill>] [flags]",
+      "help_args": [
+        "help",
+        "skill",
+        "preview"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "skill",
+        "publish"
+      ],
+      "command": "gh skill publish",
+      "summary": "Validate a local repository's skills against the Agent Skills specification",
+      "usage": "gh skill publish [<directory>] [flags]",
+      "help_args": [
+        "help",
+        "skill",
+        "publish"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "skill",
+        "search"
+      ],
+      "command": "gh skill search",
+      "summary": "Search across all public GitHub repositories for skills matching a keyword.",
+      "usage": "gh skill search <query> [flags]",
+      "help_args": [
+        "help",
+        "skill",
+        "search"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "skill",
+        "update"
+      ],
+      "command": "gh skill update",
+      "summary": "Checks installed skills for available updates by comparing the local",
+      "usage": "gh skill update [<skill>...] [flags]",
+      "help_args": [
+        "help",
+        "skill",
+        "update"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
       }
     },
     {
