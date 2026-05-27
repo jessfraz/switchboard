@@ -2132,6 +2132,7 @@ fn render_google_script_template() -> String {
         .replace("__GMAIL_DRAFT_CREATE_FIXTURE__", GOOGLE_GMAIL_DRAFT_CREATE_FIXTURE)
         .replace("__CALENDAR_CREATE_FIXTURE__", GOOGLE_CALENDAR_CREATE_FIXTURE)
         .replace("__CALENDAR_DELETE_FIXTURE__", GOOGLE_CALENDAR_DELETE_FIXTURE)
+        .replace("__AUTH_STATUS_USER__", "jess@example.com")
 }
 
 fn render_github_script_template() -> String {

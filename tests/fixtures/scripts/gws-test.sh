@@ -155,9 +155,8 @@ TOKEN=$GOOGLE_WORKSPACE_CLI_TOKEN
 ARGV=$*
 ---
 EOF
-  auth_user="${GWS_TEST_AUTH_USER:-jess@example.com}"
   cat <<JSON
-{"user":"$auth_user"}
+{"user":"__AUTH_STATUS_USER__"}
 JSON
   exit 0
 fi
