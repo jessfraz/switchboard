@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 752,
+    "tool_count": 760,
     "curated_count": 15,
-    "raw_count": 737,
+    "raw_count": 745,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -20,9 +20,9 @@
     },
     {
       "provider": "google",
-      "tool_count": 491,
+      "tool_count": 499,
       "curated_count": 8,
-      "raw_count": 483,
+      "raw_count": 491,
       "stable_count": 6,
       "planning_only_count": 2,
       "undoable_count": 1,
@@ -9100,6 +9100,40 @@
       "doc_path": "reference/#tool=google.cli.chat.spaces.findDirectMessage"
     },
     {
+      "name": "google.cli.chat.spaces.findGroupChats",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat spaces findGroupChats",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.spaces.findGroupChats --ns google.default --json -- --format json",
+        "switchboard google.cli.chat.spaces.findGroupChats --ns google.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: chat spaces findGroupChats"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.spaces.findGroupChats"
+    },
+    {
       "name": "google.cli.chat.spaces.get",
       "provider": "google",
       "kind": "read",
@@ -14098,6 +14132,142 @@
       "doc_path": "reference/#tool=google.cli.drive.accessproposals.resolve"
     },
     {
+      "name": "google.cli.drive.approvals.approve",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive approvals approve",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.approvals.approve --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.approvals.approve --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive approvals approve"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.approvals.approve"
+    },
+    {
+      "name": "google.cli.drive.approvals.cancel",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive approvals cancel",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.approvals.cancel --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.approvals.cancel --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive approvals cancel"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.approvals.cancel"
+    },
+    {
+      "name": "google.cli.drive.approvals.comment",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive approvals comment",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.approvals.comment --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.approvals.comment --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive approvals comment"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.approvals.comment"
+    },
+    {
+      "name": "google.cli.drive.approvals.decline",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive approvals decline",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.approvals.decline --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.approvals.decline --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive approvals decline"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.approvals.decline"
+    },
+    {
       "name": "google.cli.drive.approvals.get",
       "provider": "google",
       "kind": "read",
@@ -14164,6 +14334,74 @@
         "# fixed CLI path: drive approvals list"
       ],
       "doc_path": "reference/#tool=google.cli.drive.approvals.list"
+    },
+    {
+      "name": "google.cli.drive.approvals.reassign",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive approvals reassign",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.approvals.reassign --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.approvals.reassign --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive approvals reassign"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.approvals.reassign"
+    },
+    {
+      "name": "google.cli.drive.approvals.start",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive approvals start",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.approvals.start --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.approvals.start --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive approvals start"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.approvals.start"
     },
     {
       "name": "google.cli.drive.apps.get",
@@ -14980,6 +15218,40 @@
         "# fixed CLI path: drive files export"
       ],
       "doc_path": "reference/#tool=google.cli.drive.files.export"
+    },
+    {
+      "name": "google.cli.drive.files.generateCseToken",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws drive files generateCseToken",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.drive.files.generateCseToken --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.drive.files.generateCseToken --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: drive files generateCseToken"
+      ],
+      "doc_path": "reference/#tool=google.cli.drive.files.generateCseToken"
     },
     {
       "name": "google.cli.drive.files.generateIds",
