@@ -3,13 +3,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rsa::{
     pkcs1v15::SigningKey,
     pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding},
+    sha2::Sha256,
     signature::{SignatureEncoding, Signer},
     traits::PublicKeyParts,
     RsaPrivateKey, RsaPublicKey,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::Sha256;
 
 use crate::{base64_url_encode, generate_nonce, Error, Result};
 

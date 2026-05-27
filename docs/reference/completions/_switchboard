@@ -34,7 +34,7 @@ _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
 '-h[Print help]' \
 '--help[Print help]' \
-":: :_switchboard__ns_commands" \
+":: :_switchboard__subcmd__ns_commands" \
 "*::: :->ns" \
 && ret=0
 
@@ -61,7 +61,7 @@ _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
 '-h[Print help]' \
 '--help[Print help]' \
-":: :_switchboard__tools_commands" \
+":: :_switchboard__subcmd__tools_commands" \
 "*::: :->tools" \
 && ret=0
 
@@ -97,7 +97,7 @@ _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
 '-h[Print help]' \
 '--help[Print help]' \
-":: :_switchboard__audit_commands" \
+":: :_switchboard__subcmd__audit_commands" \
 "*::: :->audit" \
 && ret=0
 
@@ -134,7 +134,7 @@ _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
 '-h[Print help]' \
 '--help[Print help]' \
-":: :_switchboard__op_commands" \
+":: :_switchboard__subcmd__op_commands" \
 "*::: :->op" \
 && ret=0
 
@@ -223,38 +223,38 @@ _switchboard_commands() {
     )
     _describe -t commands 'switchboard commands' commands "$@"
 }
-(( $+functions[_switchboard__audit_commands] )) ||
-_switchboard__audit_commands() {
+(( $+functions[_switchboard__subcmd__audit_commands] )) ||
+_switchboard__subcmd__audit_commands() {
     local commands; commands=(
 'list:' \
 'show:' \
     )
     _describe -t commands 'switchboard audit commands' commands "$@"
 }
-(( $+functions[_switchboard__audit__list_commands] )) ||
-_switchboard__audit__list_commands() {
+(( $+functions[_switchboard__subcmd__audit__subcmd__list_commands] )) ||
+_switchboard__subcmd__audit__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard audit list commands' commands "$@"
 }
-(( $+functions[_switchboard__audit__show_commands] )) ||
-_switchboard__audit__show_commands() {
+(( $+functions[_switchboard__subcmd__audit__subcmd__show_commands] )) ||
+_switchboard__subcmd__audit__subcmd__show_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard audit show commands' commands "$@"
 }
-(( $+functions[_switchboard__ns_commands] )) ||
-_switchboard__ns_commands() {
+(( $+functions[_switchboard__subcmd__ns_commands] )) ||
+_switchboard__subcmd__ns_commands() {
     local commands; commands=(
 'list:' \
     )
     _describe -t commands 'switchboard ns commands' commands "$@"
 }
-(( $+functions[_switchboard__ns__list_commands] )) ||
-_switchboard__ns__list_commands() {
+(( $+functions[_switchboard__subcmd__ns__subcmd__list_commands] )) ||
+_switchboard__subcmd__ns__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard ns list commands' commands "$@"
 }
-(( $+functions[_switchboard__op_commands] )) ||
-_switchboard__op_commands() {
+(( $+functions[_switchboard__subcmd__op_commands] )) ||
+_switchboard__subcmd__op_commands() {
     local commands; commands=(
 'list:' \
 'show:' \
@@ -265,51 +265,51 @@ _switchboard__op_commands() {
     )
     _describe -t commands 'switchboard op commands' commands "$@"
 }
-(( $+functions[_switchboard__op__apply_commands] )) ||
-_switchboard__op__apply_commands() {
+(( $+functions[_switchboard__subcmd__op__subcmd__apply_commands] )) ||
+_switchboard__subcmd__op__subcmd__apply_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op apply commands' commands "$@"
 }
-(( $+functions[_switchboard__op__approve_commands] )) ||
-_switchboard__op__approve_commands() {
+(( $+functions[_switchboard__subcmd__op__subcmd__approve_commands] )) ||
+_switchboard__subcmd__op__subcmd__approve_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op approve commands' commands "$@"
 }
-(( $+functions[_switchboard__op__list_commands] )) ||
-_switchboard__op__list_commands() {
+(( $+functions[_switchboard__subcmd__op__subcmd__list_commands] )) ||
+_switchboard__subcmd__op__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op list commands' commands "$@"
 }
-(( $+functions[_switchboard__op__reject_commands] )) ||
-_switchboard__op__reject_commands() {
+(( $+functions[_switchboard__subcmd__op__subcmd__reject_commands] )) ||
+_switchboard__subcmd__op__subcmd__reject_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op reject commands' commands "$@"
 }
-(( $+functions[_switchboard__op__show_commands] )) ||
-_switchboard__op__show_commands() {
+(( $+functions[_switchboard__subcmd__op__subcmd__show_commands] )) ||
+_switchboard__subcmd__op__subcmd__show_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op show commands' commands "$@"
 }
-(( $+functions[_switchboard__op__undo_commands] )) ||
-_switchboard__op__undo_commands() {
+(( $+functions[_switchboard__subcmd__op__subcmd__undo_commands] )) ||
+_switchboard__subcmd__op__subcmd__undo_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op undo commands' commands "$@"
 }
-(( $+functions[_switchboard__tools_commands] )) ||
-_switchboard__tools_commands() {
+(( $+functions[_switchboard__subcmd__tools_commands] )) ||
+_switchboard__subcmd__tools_commands() {
     local commands; commands=(
 'list:' \
 'describe:' \
     )
     _describe -t commands 'switchboard tools commands' commands "$@"
 }
-(( $+functions[_switchboard__tools__describe_commands] )) ||
-_switchboard__tools__describe_commands() {
+(( $+functions[_switchboard__subcmd__tools__subcmd__describe_commands] )) ||
+_switchboard__subcmd__tools__subcmd__describe_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard tools describe commands' commands "$@"
 }
-(( $+functions[_switchboard__tools__list_commands] )) ||
-_switchboard__tools__list_commands() {
+(( $+functions[_switchboard__subcmd__tools__subcmd__list_commands] )) ||
+_switchboard__subcmd__tools__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard tools list commands' commands "$@"
 }
