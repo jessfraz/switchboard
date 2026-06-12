@@ -2306,7 +2306,7 @@
         "search"
       ],
       "command": "gws chat spaces search",
-      "summary": "Returns a list of spaces in a Google Workspace organization based on an administrator's search. In the request, set `use_admin_access` to `true`. For an example, see Search for and manage spaces.",
+      "summary": "Returns a list of spaces in a Google Workspace organization. For an example, see Search for and manage spaces.",
       "usage": "gws spaces search [OPTIONS]",
       "help_args": [
         "chat",
