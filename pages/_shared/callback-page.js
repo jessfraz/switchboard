@@ -66,6 +66,12 @@
       <summary>Debug details</summary>
       <div class="meta">
         ${metaRowsHtml}
+        ${Array.isArray(localBridge.urls) && localBridge.urls.length > 0 ? `
+          <div class="meta-row">
+            <span class="meta-key">Local bridge</span>
+            <span id="bridge-status" class="meta-value">Not attempted</span>
+          </div>
+        ` : ""}
       </div>
     </details>
 
@@ -82,6 +88,7 @@
   const copyPrimary = document.getElementById("copy-primary");
   const copyCommand = document.getElementById("copy-command");
   const metaValues = Array.from(document.querySelectorAll("[data-meta-index]"));
+  const bridgeStatus = document.getElementById("bridge-status");
 
   const currentUrl = new URL(window.location.href);
   const hasQuery = currentUrl.search.length > 1;
@@ -190,6 +197,12 @@
     });
   }
 
+  function setBridgeStatus(status) {
+    if (bridgeStatus) {
+      bridgeStatus.textContent = status;
+    }
+  }
+
   function render() {
     if (!callbackUrl) {
       statusPill.textContent = "No callback data";
@@ -246,12 +259,15 @@
 
     const payload = collectBridgePayload(parsed);
     if (!payload) {
+      setBridgeStatus("No callback payload");
       return;
     }
     if (window.sessionStorage.getItem(config.storageKey + "_bridge_sent") === payload) {
+      setBridgeStatus("Already sent");
       return;
     }
 
+    setBridgeStatus("Sending to CLI...");
     for (const baseUrl of urls) {
       try {
         const response = await fetch(baseUrl + "?" + payload, {
@@ -259,17 +275,19 @@
           mode: "cors",
           cache: "no-store",
           referrerPolicy: "no-referrer",
-          targetAddressSpace: "local",
+          targetAddressSpace: "loopback",
         });
         if (!response.ok) {
-          throw new Error("local bridge rejected callback");
+          throw new Error("HTTP " + response.status);
         }
         window.sessionStorage.setItem(config.storageKey + "_bridge_sent", payload);
         statusPill.textContent = localBridge.statusLabel || "Sent to CLI";
         statusPill.className = "status good";
+        setBridgeStatus("Sent to CLI");
         return;
       } catch (error) {
-        // The terminal fallback is still right there. No need to turn this into drama.
+        const message = error && error.message ? error.message : "Failed";
+        setBridgeStatus("Failed: " + message);
       }
     }
   }
