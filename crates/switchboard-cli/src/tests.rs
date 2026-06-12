@@ -195,6 +195,8 @@ struct JsonToolCatalogDetail {
     execution_support: ToolExecutionSupport,
     undo_support: ToolUndoSupport,
     arguments: Vec<JsonToolArgumentSpec>,
+    notes: Vec<String>,
+    examples: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1200,6 +1202,98 @@ fn tools_describe_raw_google_tool_explains_passthrough_usage() {
     assert!(output.contains("policy, auth isolation, and audit still apply"));
     assert!(output.contains("put switchboard flags before --"));
     assert!(output.contains("switchboard google.cli.write --ns google."));
+}
+
+#[test]
+fn tools_describe_mychart_write_prefers_ucla_preset_login() {
+    let environment = TestEnvironment::new();
+    let config_path = environment.path_string();
+    let cli = Cli::try_parse_from([
+        "switchboard",
+        "--config",
+        &config_path,
+        "tools",
+        "describe",
+        "mychart.cli.write",
+        "--json",
+    ])
+    .expect("cli should parse");
+
+    let output = run(cli).expect("tools describe should succeed");
+    let value: JsonToolCatalogDetailEnvelope = parse_json(&output);
+
+    assert_eq!(
+        value.tool.name,
+        ToolName::new("mychart.cli.write").expect("tool should build")
+    );
+    assert!(
+        value.tool.notes.iter().any(|note| note.contains("mychart login ucla")),
+        "expected MyChart write notes to point at the UCLA preset login"
+    );
+    assert!(
+        value
+            .tool
+            .examples
+            .iter()
+            .any(|example| example == "switchboard mychart.cli.write --ns mychart.ucla --draft -- login ucla"),
+        "expected MyChart write examples to prefer the UCLA preset login"
+    );
+    assert!(
+        value
+            .tool
+            .examples
+            .iter()
+            .all(|example| !example.contains("auth login --dynamic-client")),
+        "expected MyChart write examples not to advertise low-level dynamic auth"
+    );
+}
+
+#[test]
+fn tools_describe_mychart_auth_login_redirects_to_ucla_preset_login() {
+    let environment = TestEnvironment::new();
+    let config_path = environment.path_string();
+    let cli = Cli::try_parse_from([
+        "switchboard",
+        "--config",
+        &config_path,
+        "tools",
+        "describe",
+        "mychart.cli.auth.login",
+        "--json",
+    ])
+    .expect("cli should parse");
+
+    let output = run(cli).expect("tools describe should succeed");
+    let value: JsonToolCatalogDetailEnvelope = parse_json(&output);
+
+    assert_eq!(
+        value.tool.name,
+        ToolName::new("mychart.cli.auth.login").expect("tool should build")
+    );
+    assert!(
+        value
+            .tool
+            .notes
+            .iter()
+            .any(|note| note.contains("prefer the preset login flow")),
+        "expected raw auth login notes to steer toward the preset"
+    );
+    assert!(
+        value
+            .tool
+            .examples
+            .iter()
+            .any(|example| example == "switchboard mychart.cli.login --ns mychart.ucla --draft -- ucla"),
+        "expected raw auth login examples to show mychart login ucla"
+    );
+    assert!(
+        value
+            .tool
+            .examples
+            .iter()
+            .all(|example| !example.contains("--base-url")),
+        "expected raw auth login examples not to teach manual FHIR endpoint auth"
+    );
 }
 
 #[test]

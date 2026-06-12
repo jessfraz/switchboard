@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{io::IsTerminal, time::Duration};
 
 use reqwest::Url;
 use serde_json::{json, Value};
@@ -7,7 +7,7 @@ use super::{
     access_token_is_fresh, auth_debug, auth_debug_token_response,
     callback::{
         launch_browser_for_authorization, loopback_bind_address, parse_callback_input, prompt_for_callback_url,
-        redirect_uri_uses_loopback, wait_for_oauth_callback,
+        redirect_uri_uses_loopback, wait_for_hosted_callback_bridge, wait_for_oauth_callback,
     },
     can_fallback_to_interactive_auth,
     dynamic_client::{exchange_dynamic_client_token, login_with_dynamic_client},
@@ -24,6 +24,29 @@ use crate::{
 };
 
 pub(super) fn run_login(args: AuthLoginArgs, context: &mut ResolvedContext) -> Result<Value> {
+    if !args.dynamic_client {
+        let redirect_uri = context.require_redirect_uri(args.options.redirect_uri.clone())?;
+        if !redirect_uri_uses_loopback(&redirect_uri)? {
+            let output = run_authorize_url(
+                AuthAuthorizeUrlArgs {
+                    options: args.options,
+                    no_store: false,
+                    no_open: args.no_open,
+                },
+                context,
+            )?;
+            return match complete_or_wait_for_hosted_authorization(
+                context,
+                output,
+                None,
+                "The local login bridge did not receive the browser callback. Copy the login code from the callback page and run `mychart finish '<auth-code>'`.",
+                Duration::from_secs(args.timeout_seconds),
+            )? {
+                HostedAuthorizationOutcome::Completed(output) | HostedAuthorizationOutcome::Pending(output) => Ok(output),
+            };
+        }
+    }
+
     let mut options = args.options.clone();
     if args.dynamic_client {
         options.scopes.retain(|scope| scope != "offline_access");
@@ -112,7 +135,7 @@ pub(super) fn run_authorize_url(args: AuthAuthorizeUrlArgs, context: &mut Resolv
         "browser_open_attempted": browser_launch.attempted,
         "opened_browser": browser_launch.opened,
         "browser_open_error": browser_launch.error,
-        "next_step": "After the browser finishes, paste the copied login code into the waiting terminal, or run `mychart finish '<auth-code>'` in this repo.",
+        "next_step": "After the browser finishes, the waiting CLI should complete automatically. If it does not, copy the login code from the callback page and run `mychart finish '<auth-code>'`.",
     }))
 }
 
@@ -233,7 +256,8 @@ pub(super) fn interactive_auth_bootstrap(context: &mut ResolvedContext) -> Resul
         context,
         output,
         None,
-        "Finish the browser login, paste the copied login code back into this terminal, or run `mychart finish '<auth-code>'` later, then rerun the original command.",
+        "The local login bridge did not receive the browser callback. Copy the login code from the callback page, run `mychart finish '<auth-code>'`, then rerun the original command.",
+        Duration::from_secs(AUTO_LOGIN_TIMEOUT_SECONDS),
     )? {
         HostedAuthorizationOutcome::Completed(_) => Ok(ApiSessionBootstrap::Ready),
         HostedAuthorizationOutcome::Pending(output) => Ok(ApiSessionBootstrap::Pending(output)),
@@ -245,8 +269,45 @@ pub(crate) fn complete_or_wait_for_hosted_authorization(
     mut authorize_output: Value,
     callback_url: Option<String>,
     pending_next_step: &str,
+    bridge_timeout: Duration,
 ) -> Result<HostedAuthorizationOutcome> {
-    if let Some(callback_url) = callback_url.or_else(prompt_for_callback_url) {
+    if let Some(callback_url) = callback_url {
+        let output = exchange_url(
+            AuthExchangeUrlArgs {
+                callback_input: callback_url,
+                no_store: false,
+            },
+            context,
+        )?;
+        return Ok(HostedAuthorizationOutcome::Completed(output));
+    }
+
+    let opened_browser = authorize_output
+        .get("opened_browser")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if opened_browser && !std::io::stdin().is_terminal() {
+        let expected_state = context.pending_oauth_state.clone().or_else(|| {
+            authorize_output
+                .get("state")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        });
+        if let Some(expected_state) = expected_state {
+            if let Some(callback_input) = wait_for_hosted_callback_bridge(context, &expected_state, bridge_timeout)? {
+                let output = exchange_url(
+                    AuthExchangeUrlArgs {
+                        callback_input,
+                        no_store: false,
+                    },
+                    context,
+                )?;
+                return Ok(HostedAuthorizationOutcome::Completed(output));
+            }
+        }
+    }
+
+    if let Some(callback_url) = prompt_for_callback_url() {
         let output = exchange_url(
             AuthExchangeUrlArgs {
                 callback_input: callback_url,
@@ -383,7 +444,7 @@ pub(super) fn exchange_url(args: AuthExchangeUrlArgs, context: &mut ResolvedCont
     let expected_state = context
         .pending_oauth_state
         .clone()
-        .ok_or_else(|| Error::Config("missing pending OAuth state, run mychart auth authorize-url first".into()))?;
+        .ok_or_else(|| Error::Config("missing pending OAuth state, run `mychart login ucla` first".into()))?;
     if returned_state != expected_state {
         return Err(Error::Auth {
             message: "OAuth callback state mismatch".into(),

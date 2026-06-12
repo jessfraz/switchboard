@@ -2,6 +2,7 @@ mod api;
 mod appointments;
 mod auth_exchange;
 mod auth_login;
+mod help;
 mod meds_claims_pack;
 mod notes;
 mod support;

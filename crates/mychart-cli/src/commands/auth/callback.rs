@@ -12,6 +12,11 @@ use serde_json::{json, Value};
 use super::auth_debug;
 use crate::{state::ResolvedContext, Error, Result};
 
+pub(super) const HOSTED_CALLBACK_BRIDGE_URL: &str = "http://127.0.0.1:8911/mychart-callback";
+
+const HOSTED_CALLBACK_BRIDGE_BIND_ADDRESS: &str = "127.0.0.1:8911";
+const HOSTED_CALLBACK_BRIDGE_PATH: &str = "/mychart-callback";
+
 #[derive(Debug)]
 pub(super) struct BrowserLaunch {
     pub(super) attempted: bool,
@@ -67,7 +72,7 @@ pub(super) fn prompt_for_callback_url() -> Option<String> {
     }
 
     eprintln!(
-        "Finish the browser login. When the callback page loads, paste the copied login code here. If you paste the callback URL or the full `mychart finish ...` command, that works too."
+        "Finish the browser login. The CLI should complete automatically if the callback page can reach the local bridge. If it does not, paste the copied login code here. A callback URL or full `mychart finish ...` command works too."
     );
     eprint!("Login code> ");
     let _ = io::stderr().flush();
@@ -187,7 +192,7 @@ pub(super) fn loopback_bind_address(redirect_uri: &Url) -> Result<String> {
         .ok_or_else(|| Error::Arguments("auth login requires a redirect URI with an explicit host".into()))?;
     if host != "127.0.0.1" && host != "localhost" {
         return Err(Error::Arguments(
-            "auth login currently requires a loopback redirect URI like http://127.0.0.1:8910/callback, use auth authorize-url plus auth exchange-url for hosted HTTPS callbacks".into(),
+            "low-level dynamic auth login requires a loopback redirect URI like http://127.0.0.1:8910/callback; for UCLA use `mychart login ucla`".into(),
         ));
     }
     let port = redirect_uri
@@ -230,6 +235,61 @@ pub(super) fn wait_for_oauth_callback(
             }
             Err(error) => {
                 return Err(Error::Io(format!("failed while waiting for OAuth callback: {error}")));
+            }
+        }
+    }
+}
+
+pub(super) fn wait_for_hosted_callback_bridge(
+    context: &ResolvedContext,
+    expected_state: &str,
+    timeout: Duration,
+) -> Result<Option<String>> {
+    let listener = match TcpListener::bind(HOSTED_CALLBACK_BRIDGE_BIND_ADDRESS) {
+        Ok(listener) => listener,
+        Err(error) => {
+            auth_debug(
+                context,
+                "hosted_callback_bridge_bind_failed",
+                json!({
+                    "bind_address": HOSTED_CALLBACK_BRIDGE_BIND_ADDRESS,
+                    "error": error.to_string(),
+                }),
+            );
+            return Ok(None);
+        }
+    };
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| Error::Io(format!("failed to configure hosted callback bridge listener: {error}")))?;
+
+    eprintln!("Waiting for hosted callback bridge on {HOSTED_CALLBACK_BRIDGE_URL}");
+    let deadline = Instant::now() + timeout;
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => match read_hosted_callback_bridge(&mut stream, expected_state) {
+                Ok(Some(callback_input)) => return Ok(Some(callback_input)),
+                Ok(None) => {}
+                Err(error) => {
+                    auth_debug(
+                        context,
+                        "hosted_callback_bridge_request_failed",
+                        json!({
+                            "error": error.render(true),
+                        }),
+                    );
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Ok(None);
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                return Err(Error::Io(format!(
+                    "failed while waiting for hosted callback bridge: {error}"
+                )));
             }
         }
     }
@@ -344,6 +404,74 @@ fn read_oauth_callback(stream: &mut TcpStream, redirect_uri: &Url, expected_stat
     Ok(OAuthCallback { code })
 }
 
+fn read_hosted_callback_bridge(stream: &mut TcpStream, expected_state: &str) -> Result<Option<String>> {
+    let request = read_http_request(stream)?;
+    let (method, request_target) = request_parts(&request)?;
+    if method == "OPTIONS" {
+        write_hosted_bridge_response(stream, 204, "No Content", String::new())?;
+        return Ok(None);
+    }
+    if method != "GET" {
+        write_hosted_bridge_response(
+            stream,
+            405,
+            "Method Not Allowed",
+            callback_page_html("Hosted callback bridge expects GET."),
+        )?;
+        return Ok(None);
+    }
+
+    let callback_url = Url::parse(&format!("http://127.0.0.1:8911{request_target}")).map_err(|error| {
+        Error::Http(format!(
+            "failed to parse hosted callback bridge request target {request_target:?}: {error}"
+        ))
+    })?;
+
+    if callback_url.path() != HOSTED_CALLBACK_BRIDGE_PATH {
+        write_hosted_bridge_response(
+            stream,
+            404,
+            "Not Found",
+            callback_page_html("Wrong hosted callback bridge path."),
+        )?;
+        return Ok(None);
+    }
+
+    let params = callback_url.query_pairs().collect::<Vec<_>>();
+    let state = params
+        .iter()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string());
+    if state.as_deref() != Some(expected_state) {
+        write_hosted_bridge_response(
+            stream,
+            400,
+            "Bad Request",
+            callback_page_html("Hosted callback bridge state mismatch."),
+        )?;
+        return Ok(None);
+    }
+
+    let callback_input = callback_url.query().unwrap_or_default().to_owned();
+    if callback_input.is_empty() {
+        write_hosted_bridge_response(
+            stream,
+            400,
+            "Bad Request",
+            callback_page_html("Hosted callback bridge received an empty callback payload."),
+        )?;
+        return Ok(None);
+    }
+
+    write_hosted_bridge_response(
+        stream,
+        200,
+        "OK",
+        callback_page_html("MyChart authorization received by the local CLI."),
+    )?;
+    Ok(Some(callback_input))
+}
+
 fn read_http_request(stream: &mut TcpStream) -> Result<String> {
     let mut buffer = Vec::new();
     let mut temp = [0u8; 1024];
@@ -364,6 +492,16 @@ fn read_http_request(stream: &mut TcpStream) -> Result<String> {
 }
 
 fn request_target(request: &str) -> Result<String> {
+    let (method, target) = request_parts(request)?;
+    if method != "GET" {
+        return Err(Error::Http(format!(
+            "OAuth callback used unsupported HTTP method {method:?}, expected GET"
+        )));
+    }
+    Ok(target)
+}
+
+fn request_parts(request: &str) -> Result<(&str, String)> {
     let first_line = request
         .lines()
         .next()
@@ -372,20 +510,45 @@ fn request_target(request: &str) -> Result<String> {
     let method = parts
         .next()
         .ok_or_else(|| Error::Http("OAuth callback request line was missing the HTTP method".into()))?;
-    if method != "GET" {
-        return Err(Error::Http(format!(
-            "OAuth callback used unsupported HTTP method {method:?}, expected GET"
-        )));
-    }
-    parts
+    let target = parts
         .next()
         .map(ToOwned::to_owned)
-        .ok_or_else(|| Error::Http("OAuth callback request line was missing the request target".into()))
+        .ok_or_else(|| Error::Http("OAuth callback request line was missing the request target".into()))?;
+    Ok((method, target))
 }
 
 fn write_http_response(stream: &mut TcpStream, status_code: u16, reason: &str, body: String) -> Result<()> {
+    write_http_response_with_headers(stream, status_code, reason, body, &[])
+}
+
+fn write_hosted_bridge_response(stream: &mut TcpStream, status_code: u16, reason: &str, body: String) -> Result<()> {
+    write_http_response_with_headers(
+        stream,
+        status_code,
+        reason,
+        body,
+        &[
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "GET, OPTIONS"),
+            ("Access-Control-Allow-Private-Network", "true"),
+            ("Access-Control-Max-Age", "600"),
+        ],
+    )
+}
+
+fn write_http_response_with_headers(
+    stream: &mut TcpStream,
+    status_code: u16,
+    reason: &str,
+    body: String,
+    extra_headers: &[(&str, &str)],
+) -> Result<()> {
+    let rendered_extra_headers = extra_headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
     let response = format!(
-        "HTTP/1.1 {status_code} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status_code} {reason}\r\nContent-Type: text/html; charset=utf-8\r\n{rendered_extra_headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream
