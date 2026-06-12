@@ -259,6 +259,7 @@
           mode: "cors",
           cache: "no-store",
           referrerPolicy: "no-referrer",
+          targetAddressSpace: "local",
         });
         if (!response.ok) {
           throw new Error("local bridge rejected callback");
