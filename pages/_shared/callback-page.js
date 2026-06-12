@@ -8,6 +8,7 @@
   const config = JSON.parse(configScript.textContent || "{}");
   const theme = config.theme || {};
   const showCommandSection = config.showCommandSection !== false && !!config.commandPrefix;
+  const localBridge = config.localBridge || {};
   const metaFields = Array.isArray(config.metaFields) && config.metaFields.length > 0 ? config.metaFields : [
     { kind: "redirect_uri", label: "Redirect URI" },
     { kind: "param_presence", label: "Authorization code", param: "code" },
@@ -105,6 +106,17 @@
       return code;
     }
 
+    const params = new URLSearchParams();
+    (config.payloadKeys || []).forEach((key) => {
+      const value = parsed.searchParams.get(key);
+      if (value) {
+        params.set(key, value);
+      }
+    });
+    return params.toString();
+  }
+
+  function collectBridgePayload(parsed) {
     const params = new URLSearchParams();
     (config.payloadKeys || []).forEach((key) => {
       const value = parsed.searchParams.get(key);
@@ -217,12 +229,48 @@
       statusPill.textContent = "Ready";
       statusPill.className = "status good";
       lead.innerHTML = config.leadReadyHtml;
+      notifyLocalBridge(parsed);
       return;
     }
 
     statusPill.textContent = "Incomplete callback";
     statusPill.className = "status";
     lead.innerHTML = config.leadIncompleteHtml;
+  }
+
+  async function notifyLocalBridge(parsed) {
+    const urls = Array.isArray(localBridge.urls) ? localBridge.urls : [];
+    if (!urls.length) {
+      return;
+    }
+
+    const payload = collectBridgePayload(parsed);
+    if (!payload) {
+      return;
+    }
+    if (window.sessionStorage.getItem(config.storageKey + "_bridge_sent") === payload) {
+      return;
+    }
+
+    for (const baseUrl of urls) {
+      try {
+        const response = await fetch(baseUrl + "?" + payload, {
+          method: "GET",
+          mode: "cors",
+          cache: "no-store",
+          referrerPolicy: "no-referrer",
+        });
+        if (!response.ok) {
+          throw new Error("local bridge rejected callback");
+        }
+        window.sessionStorage.setItem(config.storageKey + "_bridge_sent", payload);
+        statusPill.textContent = localBridge.statusLabel || "Sent to CLI";
+        statusPill.className = "status good";
+        return;
+      } catch (error) {
+        // The terminal fallback is still right there. No need to turn this into drama.
+      }
+    }
   }
 
   async function copyText(text, button, successLabel) {

@@ -105,6 +105,7 @@ impl ToolCatalogDetail {
                     .to_owned(),
             );
             notes.push("for scripted calls, --argv-json accepts one JSON array of argv tokens".to_owned());
+            notes.extend(raw_tool_notes(tool));
             raw_tool_examples(tool, &example_namespace)
         } else {
             curated_tool_examples(tool, &example_namespace)
@@ -138,6 +139,10 @@ fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> 
 }
 
 fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
+    if let Some(examples) = mychart_raw_tool_examples(tool, namespace) {
+        return examples;
+    }
+
     if let Some(path) = inventory_raw_tool_path(&tool.name) {
         let command = path.join(" ");
         return match tool.kind {
@@ -216,15 +221,82 @@ fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
         ],
         (ProviderKind::MyChart, ToolKind::Write) => vec![
             format!(
-                "switchboard {} --ns {namespace} --draft -- auth login --dynamic-client --scope patient/*.read",
-                tool.name
+                "switchboard {} --ns {} --draft -- login ucla",
+                tool.name,
+                mychart_example_namespace(namespace)
             ),
             format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"portal\",\"auth\",\"logout\"]' --apply --json",
-                tool.name
+                "switchboard {} --ns {} --draft -- finish '<auth-code>'",
+                tool.name,
+                mychart_example_namespace(namespace)
             ),
         ],
         (_, _) => vec![format!("switchboard {} --ns {namespace} -- ...", tool.name)],
+    }
+}
+
+fn raw_tool_notes(tool: &RegisteredTool) -> Vec<String> {
+    if tool.provider != ProviderKind::MyChart {
+        return Vec::new();
+    }
+
+    let Some(path) = inventory_raw_tool_path(&tool.name) else {
+        return vec![
+            "for UCLA, use the preset login flow: `mychart login ucla`".to_owned(),
+            "`mychart finish` is a fallback when the browser cannot reach the local login bridge".to_owned(),
+        ];
+    };
+    let path = path.iter().map(String::as_str).collect::<Vec<_>>();
+    match path.as_slice() {
+        ["auth", "authorize-url"] | ["auth", "login"] | ["auth", "exchange-url"] => vec![
+            "for UCLA, prefer the preset login flow: `mychart login ucla`".to_owned(),
+            "low-level `mychart auth ...` commands are for custom FHIR endpoints and fallback plumbing".to_owned(),
+        ],
+        ["login"] => {
+            vec!["for UCLA, pass `ucla`; the preset supplies the FHIR URL, client ID, and hosted callback".to_owned()]
+        }
+        ["finish"] => {
+            vec!["`mychart finish` is a fallback when the browser cannot reach the local login bridge".to_owned()]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn mychart_raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Option<Vec<String>> {
+    if tool.provider != ProviderKind::MyChart {
+        return None;
+    }
+
+    let namespace = mychart_example_namespace(namespace);
+    let path = inventory_raw_tool_path(&tool.name)?;
+    let path = path.iter().map(String::as_str).collect::<Vec<_>>();
+    match path.as_slice() {
+        ["auth", "authorize-url"] | ["auth", "login"] => Some(vec![
+            format!("switchboard mychart.cli.login --ns {namespace} --draft -- ucla"),
+            format!("switchboard mychart.cli.write --ns {namespace} --draft -- login ucla"),
+            "# low-level auth commands are for custom FHIR endpoints, not the UCLA preset".to_owned(),
+        ]),
+        ["auth", "exchange-url"] => Some(vec![
+            format!("switchboard mychart.cli.finish --ns {namespace} --draft -- '<auth-code>'"),
+            "# auth exchange-url is the low-level fallback behind mychart finish".to_owned(),
+        ]),
+        ["login"] => Some(vec![
+            format!("switchboard {} --ns {namespace} --draft -- ucla", tool.name),
+            format!("switchboard mychart.cli.write --ns {namespace} --draft -- login ucla"),
+        ]),
+        ["finish"] => Some(vec![
+            format!("switchboard {} --ns {namespace} --draft -- '<auth-code>'", tool.name),
+            "# fallback only when the local login bridge does not receive the browser callback".to_owned(),
+        ]),
+        _ => None,
+    }
+}
+
+fn mychart_example_namespace(namespace: &str) -> &str {
+    if namespace == "mychart.default" {
+        "mychart.ucla"
+    } else {
+        namespace
     }
 }
 

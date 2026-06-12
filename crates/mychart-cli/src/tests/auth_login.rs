@@ -116,6 +116,53 @@ fn top_level_login_with_hosted_redirect_starts_authorization_flow() {
 }
 
 #[test]
+fn auth_login_with_hosted_redirect_starts_authorization_flow() {
+    let server = TestServer::spawn(vec![ResponseSpec::json(
+        200,
+        capability_statement_json("http://placeholder", &[]),
+        Vec::new(),
+    )]);
+    let temp_dir = temp_dir("mychart-auth-login-hosted");
+    let config_path = temp_dir.join("config.json");
+
+    let output: AuthorizationPendingOutput = run_command_json(&[
+        "mychart",
+        "--config",
+        config_path.to_str().expect("config path should be utf-8"),
+        "--base-url",
+        &format!("{}/", server.base_url()),
+        "--client-id",
+        "client-123",
+        "--redirect-uri",
+        "https://jessfraz.github.io/switchboard/mychart-callback/",
+        "--compact",
+        "auth",
+        "login",
+        "--no-open",
+        "--state",
+        "test-state",
+        "--code-verifier",
+        "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJK",
+    ]);
+
+    assert_eq!(output.status, "authorization_pending");
+    assert!(!output.opened_browser);
+    assert!(output.next_step.contains("mychart finish"));
+
+    let state = StateStore::new(config_path).load().expect("state should load");
+    let account = state
+        .accounts
+        .get("default")
+        .expect("default account should be persisted");
+    assert_eq!(
+        account.redirect_uri.as_deref(),
+        Some("https://jessfraz.github.io/switchboard/mychart-callback/")
+    );
+    assert_eq!(account.pending_oauth_state.as_deref(), Some("test-state"));
+    assert!(account.pending_code_verifier.is_some());
+}
+
+#[test]
 fn top_level_login_with_hosted_redirect_can_finish_with_callback_url() {
     let server = TestServer::spawn(vec![
         ResponseSpec::json(200, capability_statement_json("http://placeholder", &[]), Vec::new()),

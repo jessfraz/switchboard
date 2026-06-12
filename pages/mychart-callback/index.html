@@ -13,9 +13,9 @@
         "title": "Finish MyChart login",
         "storageKey": "mychart_callback_url",
         "fieldLabel": "Login code",
-        "leadInitialHtml": "Copy the login code below, paste it into the terminal waiting on <code>mychart login</code>, and move on with your life.",
+        "leadInitialHtml": "The terminal running <code>mychart login ucla</code> should finish automatically. If it does not, copy the login code below.",
         "leadNoCallbackHtml": "Open this page through the OAuth redirect. There is nothing to copy yet.",
-        "leadReadyHtml": "Copy the login code and paste it into the terminal where <code>mychart login</code> is waiting.",
+        "leadReadyHtml": "The terminal running <code>mychart login ucla</code> should finish automatically. If it does not, copy the login code.",
         "leadErrorHtml": "Epic returned an OAuth error instead of an authorization code. Copy the payload and paste it into the waiting terminal.",
         "leadIncompleteHtml": "The redirect landed here but is missing the expected code and state parameters.",
         "copyButtonLabel": "Copy code",
@@ -26,6 +26,10 @@
         "primaryValueMode": "payload",
         "commandValueMode": "primary_value_or_callback_url",
         "preferCodeOnly": true,
+        "localBridge": {
+          "statusLabel": "Sent to CLI",
+          "urls": ["http://127.0.0.1:8911/mychart-callback"]
+        },
         "payloadKeys": ["code", "state", "error", "error_description"],
         "readyParams": ["code", "state"],
         "placeholder": "Waiting for OAuth redirect...",

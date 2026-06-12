@@ -24275,12 +24275,14 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "for UCLA, prefer the preset login flow: `mychart login ucla`",
+        "low-level `mychart auth ...` commands are for custom FHIR endpoints and fallback plumbing"
       ],
       "examples": [
-        "switchboard mychart.cli.auth.authorize-url --ns mychart.default --draft -- --format json ...",
-        "switchboard mychart.cli.auth.authorize-url --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
-        "# fixed CLI path: auth authorize-url"
+        "switchboard mychart.cli.login --ns mychart.ucla --draft -- ucla",
+        "switchboard mychart.cli.write --ns mychart.ucla --draft -- login ucla",
+        "# low-level auth commands are for custom FHIR endpoints, not the UCLA preset"
       ],
       "doc_path": "reference/#tool=mychart.cli.auth.authorize-url"
     },
@@ -24343,12 +24345,13 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "for UCLA, prefer the preset login flow: `mychart login ucla`",
+        "low-level `mychart auth ...` commands are for custom FHIR endpoints and fallback plumbing"
       ],
       "examples": [
-        "switchboard mychart.cli.auth.exchange-url --ns mychart.default --draft -- --format json ...",
-        "switchboard mychart.cli.auth.exchange-url --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
-        "# fixed CLI path: auth exchange-url"
+        "switchboard mychart.cli.finish --ns mychart.ucla --draft -- '<auth-code>'",
+        "# auth exchange-url is the low-level fallback behind mychart finish"
       ],
       "doc_path": "reference/#tool=mychart.cli.auth.exchange-url"
     },
@@ -24377,12 +24380,14 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "for UCLA, prefer the preset login flow: `mychart login ucla`",
+        "low-level `mychart auth ...` commands are for custom FHIR endpoints and fallback plumbing"
       ],
       "examples": [
-        "switchboard mychart.cli.auth.login --ns mychart.default --draft -- --format json ...",
-        "switchboard mychart.cli.auth.login --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
-        "# fixed CLI path: auth login"
+        "switchboard mychart.cli.login --ns mychart.ucla --draft -- ucla",
+        "switchboard mychart.cli.write --ns mychart.ucla --draft -- login ucla",
+        "# low-level auth commands are for custom FHIR endpoints, not the UCLA preset"
       ],
       "doc_path": "reference/#tool=mychart.cli.auth.login"
     },
@@ -24717,12 +24722,12 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "`mychart finish` is a fallback when the browser cannot reach the local login bridge"
       ],
       "examples": [
-        "switchboard mychart.cli.finish --ns mychart.default --draft -- --format json ...",
-        "switchboard mychart.cli.finish --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
-        "# fixed CLI path: finish"
+        "switchboard mychart.cli.finish --ns mychart.ucla --draft -- '<auth-code>'",
+        "# fallback only when the local login bridge does not receive the browser callback"
       ],
       "doc_path": "reference/#tool=mychart.cli.finish"
     },
@@ -24819,12 +24824,12 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "for UCLA, pass `ucla`; the preset supplies the FHIR URL, client ID, and hosted callback"
       ],
       "examples": [
-        "switchboard mychart.cli.login --ns mychart.default --draft -- --format json ...",
-        "switchboard mychart.cli.login --ns mychart.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
-        "# fixed CLI path: login"
+        "switchboard mychart.cli.login --ns mychart.ucla --draft -- ucla",
+        "switchboard mychart.cli.write --ns mychart.ucla --draft -- login ucla"
       ],
       "doc_path": "reference/#tool=mychart.cli.login"
     },
@@ -25125,7 +25130,9 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "for UCLA, use the preset login flow: `mychart login ucla`",
+        "`mychart finish` is a fallback when the browser cannot reach the local login bridge"
       ],
       "examples": [
         "switchboard mychart.cli.read --ns mychart.default --json -- notes search --query migraine",
@@ -25192,11 +25199,13 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
-        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens",
+        "for UCLA, use the preset login flow: `mychart login ucla`",
+        "`mychart finish` is a fallback when the browser cannot reach the local login bridge"
       ],
       "examples": [
-        "switchboard mychart.cli.write --ns mychart.default --draft -- auth login --dynamic-client --scope patient/*.read",
-        "switchboard mychart.cli.write --ns mychart.default --argv-json '[\"portal\",\"auth\",\"logout\"]' --apply --json"
+        "switchboard mychart.cli.write --ns mychart.ucla --draft -- login ucla",
+        "switchboard mychart.cli.write --ns mychart.ucla --draft -- finish '<auth-code>'"
       ],
       "doc_path": "reference/#tool=mychart.cli.write"
     },

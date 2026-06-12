@@ -15,7 +15,7 @@ use std::{
     fs,
     io::Read,
     process::ExitCode,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result as AnyhowResult};
@@ -156,7 +156,8 @@ fn run_easy_login(command: LoginCommand, context: &mut ResolvedContext) -> Resul
         context,
         output,
         command.callback_url,
-        "Finish the browser login, paste the copied login code back into this terminal, or run `mychart finish '<auth-code>'` later.",
+        "The local login bridge did not receive the browser callback. Copy the login code from the callback page and run `mychart finish '<auth-code>'`.",
+        Duration::from_secs(command.timeout_seconds),
     )? {
         HostedAuthorizationOutcome::Completed(output) => Ok(output),
         HostedAuthorizationOutcome::Pending(output) => Ok(output),
