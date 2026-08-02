@@ -3,8 +3,8 @@ mod materializer;
 use std::{fs, sync::OnceLock};
 
 use switchboard_core::{
-    Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolArgument, ToolDescriptor,
-    ToolKind, ToolOutput, ToolRequest,
+    Adapter, AuthScopeProfile, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result,
+    ToolArgument, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
 };
 
 use crate::{
@@ -23,6 +23,12 @@ const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/tasks,",
     "https://www.googleapis.com/auth/contacts,",
     "https://www.googleapis.com/auth/cloud-platform"
+);
+const WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES: &str = concat!(
+    "https://www.googleapis.com/auth/admin.directory.user,",
+    "https://www.googleapis.com/auth/admin.directory.orgunit,",
+    "https://www.googleapis.com/auth/admin.directory.group,",
+    "https://www.googleapis.com/auth/apps.groups.settings"
 );
 static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
@@ -52,7 +58,7 @@ impl GoogleWorkspaceAdapter {
         Self::catalog().find_command(tool)
     }
 
-    fn request_with_google_auth_defaults(request: &ToolRequest) -> Result<ToolRequest> {
+    fn request_with_google_auth_defaults(target: &PlanningTarget, request: &ToolRequest) -> Result<ToolRequest> {
         if request.tool.as_str() != "google.cli.write" {
             return Ok(request.clone());
         }
@@ -62,13 +68,19 @@ impl GoogleWorkspaceAdapter {
             return Ok(request.clone());
         }
 
+        let scopes = if target.namespace.auth_scope_profile == AuthScopeProfile::WorkspaceAdmin {
+            format!("{DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES}")
+        } else {
+            DEFAULT_AUTH_LOGIN_SCOPES.to_owned()
+        };
+
         ToolRequest::new(
             request.tool.as_str(),
             request.namespace.as_str(),
             request.mode,
             vec![ToolArgument::option(
                 "argv-json",
-                serde_json::json!(["auth", "login", "--scopes", DEFAULT_AUTH_LOGIN_SCOPES]).to_string(),
+                serde_json::json!(["auth", "login", "--scopes", scopes]).to_string(),
             )?],
         )
     }
@@ -157,7 +169,7 @@ impl Adapter for GoogleWorkspaceAdapter {
     ) -> Result<PlannedAction> {
         let command = Self::find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
-        let request = Self::request_with_google_auth_defaults(request)?;
+        let request = Self::request_with_google_auth_defaults(target, request)?;
         let summary = command.summarize.summarize(&target.namespace, &request)?;
         Ok(PlannedAction::new(
             &request,
@@ -236,13 +248,14 @@ mod tests {
     use serde::Deserialize;
     use serde_json::{Map, Value};
     use switchboard_core::{
-        Adapter, ApprovalState, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationApproval,
-        PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument,
-        ToolExecutionSupport, ToolName, ToolRequest, ToolSurface, ToolUndoSupport,
+        Adapter, ApprovalState, AuthKind, AuthScopeProfile, AuthSecretRefs, ExecutionMode, ExecutionTarget,
+        OperationApproval, PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
+        SecretRef, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest, ToolSurface, ToolUndoSupport,
     };
 
     use crate::{
-        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SCOPES},
+        cli::passthrough,
+        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SCOPES, WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES},
         test_support::{lock_env, TempScript},
     };
 
@@ -570,8 +583,54 @@ mod tests {
         assert!(!output.fields.contains_key("cli_stderr"));
 
         let captured = script.capture_contents();
-        assert!(captured.contains(&format!("ARGV=auth login --scopes {DEFAULT_AUTH_LOGIN_SCOPES}")));
+        assert!(captured.contains(&format!(
+            "ARGV=auth login --scopes {DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES}"
+        )));
         assert!(captured.contains("https://www.googleapis.com/auth/contacts"));
+        for scope in [
+            "https://www.googleapis.com/auth/admin.directory.user",
+            "https://www.googleapis.com/auth/admin.directory.orgunit",
+            "https://www.googleapis.com/auth/admin.directory.group",
+            "https://www.googleapis.com/auth/apps.groups.settings",
+        ] {
+            assert!(
+                captured.contains(scope),
+                "default Google auth login should request {scope}"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_cli_personal_auth_login_omits_workspace_admin_scopes() {
+        let adapter = GoogleWorkspaceAdapter::default();
+        let mut planning = planning_target();
+        planning.namespace = ResolvedNamespace::new(
+            "google.personal",
+            ProviderKind::GoogleWorkspace,
+            "me@example.com",
+            "google.personal_auth",
+            false,
+            Some(PathBuf::from("/tmp/gws-personal")),
+        )
+        .expect("namespace should build");
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.personal",
+            ExecutionMode::Apply,
+            vec![
+                ToolArgument::option("argv-json", serde_json::json!(["auth", "login"]).to_string())
+                    .expect("option should build"),
+            ],
+        )
+        .expect("request should build");
+        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
+        let action = adapter
+            .plan(&planning, &request, descriptor)
+            .expect("plan should succeed");
+        let argv = passthrough::parse_passthrough_argv(&action.args).expect("auth login argv should parse");
+
+        assert_eq!(argv, ["auth", "login", "--scopes", DEFAULT_AUTH_LOGIN_SCOPES]);
+        assert!(!argv.iter().any(|arg| arg.contains(WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES)));
     }
 
     #[test]
@@ -926,7 +985,9 @@ mod tests {
                 false,
                 Some(state_dir),
             )
-            .expect("namespace should build"),
+            .expect("namespace should build")
+            .with_auth_scope_profile(AuthScopeProfile::WorkspaceAdmin)
+            .expect("workspace admin scope profile should build"),
             auth: ResolvedAuth::new(
                 "google.work_auth",
                 ProviderKind::GoogleWorkspace,
