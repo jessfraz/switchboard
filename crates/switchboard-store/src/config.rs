@@ -6,8 +6,8 @@ use std::{
 
 use serde::Deserialize;
 use switchboard_core::{
-    AuthKind, AuthRef, AuthSecretRefs, AuthStore, Error, ProviderKind, ResolvedAuth, ResolvedNamespace, ResolvedSecret,
-    Result, SecretRef, SecretSource, SecretStore, WritePolicy,
+    AuthKind, AuthRef, AuthScopeProfile, AuthSecretRefs, AuthStore, Error, ProviderKind, ResolvedAuth,
+    ResolvedNamespace, ResolvedSecret, Result, SecretRef, SecretSource, SecretStore, WritePolicy,
 };
 
 use crate::{ConfiguredPolicyEngine, StaticAuthStore, StaticNamespaceStore, StaticSecretStore};
@@ -149,6 +149,7 @@ fn build_namespace_store(
         })?;
 
         for (alias, namespace) in aliases {
+            let auth_scope_profile = namespace.auth_scope_profile;
             if alias.trim().is_empty() {
                 return Err(Error::Config(format!(
                     "namespace.{provider_key} contains an empty namespace alias"
@@ -210,14 +211,17 @@ fn build_namespace_store(
                 }
             };
 
-            namespaces.push(ResolvedNamespace::new(
-                format!("{provider_key}.{alias}"),
-                provider,
-                namespace.account,
-                auth_ref.as_str(),
-                namespace.default_read,
-                namespace.state_dir,
-            )?);
+            namespaces.push(
+                ResolvedNamespace::new(
+                    format!("{provider_key}.{alias}"),
+                    provider,
+                    namespace.account,
+                    auth_ref.as_str(),
+                    namespace.default_read,
+                    namespace.state_dir,
+                )?
+                .with_auth_scope_profile(auth_scope_profile)?,
+            );
         }
     }
 
@@ -544,6 +548,8 @@ struct RawNamespace {
     #[serde(default)]
     default_read: bool,
     #[serde(default)]
+    auth_scope_profile: AuthScopeProfile,
+    #[serde(default)]
     state_dir: Option<PathBuf>,
 }
 
@@ -608,8 +614,8 @@ mod tests {
     };
 
     use switchboard_core::{
-        AuthKind, AuthRef, AuthStore, Error, NamespaceId, NamespaceStore, SecretRef, SecretSource, SecretStore,
-        WritePolicy,
+        AuthKind, AuthRef, AuthScopeProfile, AuthStore, Error, NamespaceId, NamespaceStore, SecretRef, SecretSource,
+        SecretStore, WritePolicy,
     };
 
     use super::{resolve_configured_path, SwitchboardConfig};
@@ -686,6 +692,12 @@ mod tests {
             .get(&NamespaceId::new("google.work").expect("namespace should parse"))
             .expect("google.work should exist");
         assert_eq!(google_work.auth_ref.as_str(), "google_work");
+        assert_eq!(google_work.auth_scope_profile, AuthScopeProfile::WorkspaceAdmin);
+
+        let google_personal = namespaces
+            .get(&NamespaceId::new("google.personal").expect("namespace should parse"))
+            .expect("google.personal should exist");
+        assert_eq!(google_personal.auth_scope_profile, AuthScopeProfile::Standard);
 
         let mychart_ucla = namespaces
             .get(&NamespaceId::new("mychart.ucla").expect("namespace should parse"))

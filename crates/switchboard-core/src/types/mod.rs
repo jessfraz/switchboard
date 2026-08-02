@@ -13,7 +13,7 @@ pub use crate::types::{
         AuthKind, AuthRef, AuthSecretRefs, ResolvedAuth, ResolvedCredentials, ResolvedSecret, SecretRef, SecretSource,
         SecretString,
     },
-    context::{BackendKind, ExecutionTarget, PlanningTarget, ResolvedNamespace},
+    context::{AuthScopeProfile, BackendKind, ExecutionTarget, PlanningTarget, ResolvedNamespace},
     identity::{NamespaceId, OperationId, ProviderKind, ToolName},
     operation::{ApprovalState, OperationApproval, OperationEffect, OperationStatus, StoredOperation},
     policy::{PolicyDecision, WritePolicy},

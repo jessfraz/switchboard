@@ -10,6 +10,20 @@ use crate::{
     types::{AuthRef, ProviderKind, ResolvedAuth, ResolvedCredentials},
 };
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthScopeProfile {
+    #[default]
+    Standard,
+    WorkspaceAdmin,
+}
+
+impl AuthScopeProfile {
+    fn is_standard(&self) -> bool {
+        *self == Self::Standard
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackendKind {
@@ -39,6 +53,8 @@ pub struct ResolvedNamespace {
     pub account_label: String,
     pub auth_ref: AuthRef,
     pub default_read: bool,
+    #[serde(skip_serializing_if = "AuthScopeProfile::is_standard")]
+    pub auth_scope_profile: AuthScopeProfile,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_dir: Option<PathBuf>,
 }
@@ -67,8 +83,20 @@ impl ResolvedNamespace {
             account_label,
             auth_ref: AuthRef::new(auth_ref)?,
             default_read,
+            auth_scope_profile: AuthScopeProfile::Standard,
             state_dir,
         })
+    }
+
+    pub fn with_auth_scope_profile(mut self, profile: AuthScopeProfile) -> Result<Self> {
+        if profile == AuthScopeProfile::WorkspaceAdmin && self.provider != ProviderKind::GoogleWorkspace {
+            return Err(Error::InvalidArguments(
+                "workspace_admin auth scope profile requires a Google Workspace namespace".into(),
+            ));
+        }
+
+        self.auth_scope_profile = profile;
+        Ok(self)
     }
 }
 
@@ -83,4 +111,29 @@ pub struct ExecutionTarget {
     pub namespace: ResolvedNamespace,
     pub auth: ResolvedAuth,
     pub credentials: ResolvedCredentials,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AuthScopeProfile, ResolvedNamespace};
+    use crate::types::ProviderKind;
+
+    #[test]
+    fn workspace_admin_scope_profile_rejects_non_google_namespaces() {
+        let namespace = ResolvedNamespace::new(
+            "github.work",
+            ProviderKind::GitHub,
+            "example",
+            "github.work_auth",
+            false,
+            None,
+        )
+        .expect("namespace should build");
+
+        let error = namespace
+            .with_auth_scope_profile(AuthScopeProfile::WorkspaceAdmin)
+            .expect_err("non-Google namespace should reject workspace admin scopes");
+
+        assert!(error.to_string().contains("requires a Google Workspace namespace"));
+    }
 }
