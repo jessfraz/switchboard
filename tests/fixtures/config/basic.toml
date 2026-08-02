@@ -76,6 +76,7 @@ provider = "google"
 account = "jess@company.com"
 auth = "google_work"
 default_read = true
+auth_scope_profile = "workspace_admin"
 state_dir = "/tmp/switchboard-google-work"
 
 [namespace.google.personal]
