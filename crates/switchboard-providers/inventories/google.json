@@ -757,6 +757,7 @@
         "get",
         "insert",
         "patch",
+        "transferOwnership",
         "update"
       ]
     },
@@ -868,6 +869,27 @@
       "operation_kind": "write",
       "undo_support": {
         "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "calendar",
+        "calendars",
+        "transferOwnership"
+      ],
+      "command": "gws calendar calendars transferOwnership",
+      "summary": "Transfers a secondary calendar between users within a Google Workspace organization.",
+      "usage": "gws calendars transferOwnership [OPTIONS]",
+      "help_args": [
+        "calendar",
+        "calendars",
+        "transferOwnership",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
       }
     },
     {
@@ -1968,6 +1990,7 @@
         "get",
         "list",
         "patch",
+        "search",
         "update",
         "attachments",
         "reactions"
@@ -2260,6 +2283,29 @@
         "chat",
         "spaces",
         "messages",
+        "search"
+      ],
+      "command": "gws chat spaces messages search",
+      "summary": "Searches for messages in Google Chat that the calling user has access to. Returns a list of messages matching the search criteria.",
+      "usage": "gws spaces messages search [OPTIONS]",
+      "help_args": [
+        "chat",
+        "spaces",
+        "messages",
+        "search",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "spaces",
+        "messages",
         "update"
       ],
       "command": "gws chat spaces messages update",
@@ -2431,9 +2477,153 @@
         "kind": "unknown"
       },
       "subcommands": [
+        "availability",
         "sections",
         "spaces"
       ]
+    },
+    {
+      "path": [
+        "chat",
+        "users",
+        "availability"
+      ],
+      "command": "gws chat users availability",
+      "summary": "Operations on the 'availability' resource",
+      "usage": "gws users availability [OPTIONS] <COMMAND>",
+      "help_args": [
+        "chat",
+        "users",
+        "availability",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "get",
+        "markAsActive",
+        "markAsAway",
+        "markAsDoNotDisturb",
+        "patch"
+      ]
+    },
+    {
+      "path": [
+        "chat",
+        "users",
+        "availability",
+        "get"
+      ],
+      "command": "gws chat users availability get",
+      "summary": "Returns availability information for a human user in Google Chat. For example, this can be used to check if a user is online or away, or to retrieve their custom status message.",
+      "usage": "gws users availability get [OPTIONS]",
+      "help_args": [
+        "chat",
+        "users",
+        "availability",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "users",
+        "availability",
+        "markAsActive"
+      ],
+      "command": "gws chat users availability markAsActive",
+      "summary": "Marks user as `ACTIVE` in Google Chat. Sets the user's availability state to `ACTIVE`. The `ACTIVE` state lasts until the specified expiration, at which point the user's state becomes `AWAY`.",
+      "usage": "gws users availability markAsActive [OPTIONS]",
+      "help_args": [
+        "chat",
+        "users",
+        "availability",
+        "markAsActive",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "users",
+        "availability",
+        "markAsAway"
+      ],
+      "command": "gws chat users availability markAsAway",
+      "summary": "Marks user as `AWAY` in Google Chat. Sets the user's state to away and is not affected by the user's activity. This method only updates the authenticated user's availability.",
+      "usage": "gws users availability markAsAway [OPTIONS]",
+      "help_args": [
+        "chat",
+        "users",
+        "availability",
+        "markAsAway",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "users",
+        "availability",
+        "markAsDoNotDisturb"
+      ],
+      "command": "gws chat users availability markAsDoNotDisturb",
+      "summary": "Marks user as `DO_NOT_DISTURB` in Google Chat. Sets a user's availability state to `DO_NOT_DISTURB` until a specified expiration time.",
+      "usage": "gws users availability markAsDoNotDisturb [OPTIONS]",
+      "help_args": [
+        "chat",
+        "users",
+        "availability",
+        "markAsDoNotDisturb",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "users",
+        "availability",
+        "patch"
+      ],
+      "command": "gws chat users availability patch",
+      "summary": "Updates availability information for a human user. Only the `custom_status` field can be updated through this method. This method only updates the authenticated user's availability.",
+      "usage": "gws users availability patch [OPTIONS]",
+      "help_args": [
+        "chat",
+        "users",
+        "availability",
+        "patch",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
     },
     {
       "path": [
