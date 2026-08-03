@@ -22,6 +22,7 @@ const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/presentations,",
     "https://www.googleapis.com/auth/tasks,",
     "https://www.googleapis.com/auth/contacts,",
+    "https://www.googleapis.com/auth/cloud-identity.groups,",
     "https://www.googleapis.com/auth/cloud-platform"
 );
 const WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES: &str = concat!(
@@ -321,6 +322,7 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains("CONFIG_DIR=/tmp/gws-work"));
+        assert!(captured.contains("CREDENTIAL_STORAGE_BACKEND=file"));
         assert!(captured.contains("CLIENT_ID=client-id"));
         assert!(captured.contains("CLIENT_SECRET=client-secret"));
         assert!(captured.contains("CREDENTIALS_FILE="));
@@ -586,8 +588,9 @@ mod tests {
         assert!(captured.contains(&format!(
             "ARGV=auth login --scopes {DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES}"
         )));
-        assert!(captured.contains("https://www.googleapis.com/auth/contacts"));
         for scope in [
+            "https://www.googleapis.com/auth/contacts",
+            "https://www.googleapis.com/auth/cloud-identity.groups",
             "https://www.googleapis.com/auth/admin.directory.user",
             "https://www.googleapis.com/auth/admin.directory.orgunit",
             "https://www.googleapis.com/auth/admin.directory.group",
@@ -630,6 +633,9 @@ mod tests {
         let argv = passthrough::parse_passthrough_argv(&action.args).expect("auth login argv should parse");
 
         assert_eq!(argv, ["auth", "login", "--scopes", DEFAULT_AUTH_LOGIN_SCOPES]);
+        assert!(argv[3]
+            .split(',')
+            .any(|scope| scope == "https://www.googleapis.com/auth/cloud-identity.groups"));
         assert!(!argv.iter().any(|arg| arg.contains(WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES)));
     }
 

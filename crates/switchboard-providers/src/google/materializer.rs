@@ -6,6 +6,7 @@ pub(crate) const CLIENT_ID_ENV: &str = "GOOGLE_WORKSPACE_CLI_CLIENT_ID";
 pub(crate) const CLIENT_SECRET_ENV: &str = "GOOGLE_WORKSPACE_CLI_CLIENT_SECRET";
 pub(crate) const CONFIG_DIR_ENV: &str = "GOOGLE_WORKSPACE_CLI_CONFIG_DIR";
 pub(crate) const CREDENTIALS_FILE_ENV: &str = "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE";
+pub(crate) const CREDENTIAL_STORAGE_BACKEND_ENV: &str = "GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND";
 pub(crate) const TOKEN_ENV: &str = "GOOGLE_WORKSPACE_CLI_TOKEN";
 
 pub(crate) struct DefaultGoogleWorkspaceCliMaterializer;
@@ -43,10 +44,14 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
 impl CliRuntimeMaterializer for DefaultGoogleWorkspaceCliMaterializer {
     fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext> {
         let mut context = ProcessContext::new();
-
-        if let Some(state_dir) = target.namespace.state_dir.as_ref() {
-            context.set_env(CONFIG_DIR_ENV, state_dir.display().to_string());
-        }
+        context.set_env(CREDENTIAL_STORAGE_BACKEND_ENV, "file");
+        let state_dir = target.namespace.state_dir.as_ref().ok_or_else(|| {
+            Error::Config(format!(
+                "google workspace namespace {} requires state_dir for isolated credential storage",
+                target.namespace.id
+            ))
+        })?;
+        context.set_env(CONFIG_DIR_ENV, state_dir.display().to_string());
 
         match GoogleWorkspaceCliCredentials::from_target(target)? {
             GoogleWorkspaceCliCredentials::ClientSecrets {
@@ -76,15 +81,15 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use switchboard_core::{
-        AuthKind, AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
-        SecretRef,
+        AuthKind, AuthSecretRefs, Error, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials,
+        ResolvedNamespace, SecretRef,
     };
 
     use crate::{
         cli::CliRuntimeMaterializer,
         google::materializer::{
             DefaultGoogleWorkspaceCliMaterializer, CLIENT_ID_ENV, CLIENT_SECRET_ENV, CONFIG_DIR_ENV,
-            CREDENTIALS_FILE_ENV, TOKEN_ENV,
+            CREDENTIALS_FILE_ENV, CREDENTIAL_STORAGE_BACKEND_ENV, TOKEN_ENV,
         },
     };
 
@@ -108,6 +113,10 @@ mod tests {
         let process = materializer.prepare(&target).expect("materialization should succeed");
 
         assert_eq!(process.env().get(CLIENT_ID_ENV).map(String::as_str), Some("client-id"));
+        assert_eq!(
+            process.env().get(CREDENTIAL_STORAGE_BACKEND_ENV).map(String::as_str),
+            Some("file")
+        );
         assert_eq!(
             process.env().get(CLIENT_SECRET_ENV).map(String::as_str),
             Some("client-secret")
@@ -138,6 +147,10 @@ mod tests {
             .get(CREDENTIALS_FILE_ENV)
             .map(PathBuf::from)
             .expect("credentials file should be prepared");
+        assert_eq!(
+            process.env().get(CREDENTIAL_STORAGE_BACKEND_ENV).map(String::as_str),
+            Some("file")
+        );
         assert!(credentials_path.exists());
         assert_eq!(
             fs::read_to_string(&credentials_path).expect("credentials file should be readable"),
@@ -172,7 +185,7 @@ mod tests {
             ResolvedCredentials::GitHubToken {
                 token: "definitely-not-google".to_owned().into(),
             },
-            None,
+            Some(PathBuf::from("/tmp/gws-work")),
         );
 
         let error = match materializer.prepare(&target) {
@@ -183,6 +196,31 @@ mod tests {
         assert!(error
             .to_string()
             .contains("google workspace cli materializer does not support github_token credentials"));
+    }
+
+    #[test]
+    fn materializer_rejects_missing_state_dir() {
+        let materializer = DefaultGoogleWorkspaceCliMaterializer;
+        let target = execution_target(
+            ResolvedCredentials::GoogleOAuth {
+                client_id: "client-id".to_owned().into(),
+                client_secret: "client-secret".to_owned().into(),
+                refresh_token: None,
+            },
+            None,
+        );
+
+        let error = match materializer.prepare(&target) {
+            Ok(_) => panic!("google credentials without isolated storage should be rejected"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            Error::Config(
+                "google workspace namespace google.work requires state_dir for isolated credential storage".into()
+            )
+        );
     }
 
     fn execution_target(credentials: ResolvedCredentials, state_dir: Option<PathBuf>) -> ExecutionTarget {
