@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 761,
+    "tool_count": 768,
     "curated_count": 15,
-    "raw_count": 746,
+    "raw_count": 753,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -20,9 +20,9 @@
     },
     {
       "provider": "google",
-      "tool_count": 499,
+      "tool_count": 506,
       "curated_count": 8,
-      "raw_count": 491,
+      "raw_count": 498,
       "stable_count": 6,
       "planning_only_count": 2,
       "undoable_count": 1,
@@ -8114,6 +8114,40 @@
       "doc_path": "reference/#tool=google.cli.calendar.calendars.patch"
     },
     {
+      "name": "google.cli.calendar.calendars.transferOwnership",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws calendar calendars transferOwnership",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.calendar.calendars.transferOwnership --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.calendar.calendars.transferOwnership --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: calendar calendars transferOwnership"
+      ],
+      "doc_path": "reference/#tool=google.cli.calendar.calendars.transferOwnership"
+    },
+    {
       "name": "google.cli.calendar.calendars.update",
       "provider": "google",
       "kind": "write",
@@ -9678,6 +9712,40 @@
       "doc_path": "reference/#tool=google.cli.chat.spaces.messages.reactions.list"
     },
     {
+      "name": "google.cli.chat.spaces.messages.search",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat spaces messages search",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.spaces.messages.search --ns google.default --json -- --format json",
+        "switchboard google.cli.chat.spaces.messages.search --ns google.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: chat spaces messages search"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.spaces.messages.search"
+    },
+    {
       "name": "google.cli.chat.spaces.messages.update",
       "provider": "google",
       "kind": "write",
@@ -9880,6 +9948,176 @@
         "# fixed CLI path: chat spaces spaceEvents list"
       ],
       "doc_path": "reference/#tool=google.cli.chat.spaces.spaceEvents.list"
+    },
+    {
+      "name": "google.cli.chat.users.availability.get",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat users availability get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.users.availability.get --ns google.default --json -- --format json",
+        "switchboard google.cli.chat.users.availability.get --ns google.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: chat users availability get"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.users.availability.get"
+    },
+    {
+      "name": "google.cli.chat.users.availability.markAsActive",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat users availability markAsActive",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.users.availability.markAsActive --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.chat.users.availability.markAsActive --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: chat users availability markAsActive"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.users.availability.markAsActive"
+    },
+    {
+      "name": "google.cli.chat.users.availability.markAsAway",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat users availability markAsAway",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.users.availability.markAsAway --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.chat.users.availability.markAsAway --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: chat users availability markAsAway"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.users.availability.markAsAway"
+    },
+    {
+      "name": "google.cli.chat.users.availability.markAsDoNotDisturb",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat users availability markAsDoNotDisturb",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.users.availability.markAsDoNotDisturb --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.chat.users.availability.markAsDoNotDisturb --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: chat users availability markAsDoNotDisturb"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.users.availability.markAsDoNotDisturb"
+    },
+    {
+      "name": "google.cli.chat.users.availability.patch",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat users availability patch",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.users.availability.patch --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.chat.users.availability.patch --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: chat users availability patch"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.users.availability.patch"
     },
     {
       "name": "google.cli.chat.users.sections.create",
