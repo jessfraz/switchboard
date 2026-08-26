@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 768,
+    "tool_count": 771,
     "curated_count": 15,
-    "raw_count": 753,
+    "raw_count": 756,
     "stable_count": 11,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -20,9 +20,9 @@
     },
     {
       "provider": "google",
-      "tool_count": 506,
+      "tool_count": 509,
       "curated_count": 8,
-      "raw_count": 498,
+      "raw_count": 501,
       "stable_count": 6,
       "planning_only_count": 2,
       "undoable_count": 1,
@@ -9404,6 +9404,108 @@
         "# fixed CLI path: chat spaces members patch"
       ],
       "doc_path": "reference/#tool=google.cli.chat.spaces.members.patch"
+    },
+    {
+      "name": "google.cli.chat.spaces.messagePins.create",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat spaces messagePins create",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.spaces.messagePins.create --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.chat.spaces.messagePins.create --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: chat spaces messagePins create"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.spaces.messagePins.create"
+    },
+    {
+      "name": "google.cli.chat.spaces.messagePins.delete",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat spaces messagePins delete",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.spaces.messagePins.delete --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.chat.spaces.messagePins.delete --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: chat spaces messagePins delete"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.spaces.messagePins.delete"
+    },
+    {
+      "name": "google.cli.chat.spaces.messagePins.list",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gws command gws chat spaces messagePins list",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.chat.spaces.messagePins.list --ns google.default --json -- --format json",
+        "switchboard google.cli.chat.spaces.messagePins.list --ns google.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: chat spaces messagePins list"
+      ],
+      "doc_path": "reference/#tool=google.cli.chat.spaces.messagePins.list"
     },
     {
       "name": "google.cli.chat.spaces.messages.attachments.get",

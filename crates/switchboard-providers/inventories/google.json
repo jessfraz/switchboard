@@ -1659,6 +1659,7 @@
         "search",
         "setup",
         "members",
+        "messagePins",
         "messages",
         "spaceEvents"
       ]
@@ -1962,6 +1963,107 @@
       "operation_kind": "write",
       "undo_support": {
         "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "spaces",
+        "messagePins"
+      ],
+      "command": "gws chat spaces messagePins",
+      "summary": "Operations on the 'messagePins' resource",
+      "usage": "gws spaces messagePins [OPTIONS] <COMMAND>",
+      "help_args": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "create",
+        "delete",
+        "list"
+      ]
+    },
+    {
+      "path": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "create"
+      ],
+      "command": "gws chat spaces messagePins create",
+      "summary": "Creates a message pin. Requires user authentication with one of the following authorization scopes: - `https://www.googleapis.com/auth/chat.spaces.pins` - `https://www.googleapis.com/auth/chat.spaces`",
+      "usage": "gws spaces messagePins create [OPTIONS]",
+      "help_args": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "create",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "chat",
+          "spaces",
+          "messagePins",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "delete"
+      ],
+      "command": "gws chat spaces messagePins delete",
+      "summary": "Deletes a message pin. Requires user authentication with one of the following authorization scopes: - `https://www.googleapis.com/auth/chat.spaces.pins` - `https://www.googleapis.com/auth/chat.spaces`",
+      "usage": "gws spaces messagePins delete [OPTIONS]",
+      "help_args": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "delete",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "list"
+      ],
+      "command": "gws chat spaces messagePins list",
+      "summary": "Lists message pins in a space. Users can pin important messages in spaces for easy access. For more information, see Pin or unpin a conversation in Google Chat.",
+      "usage": "gws spaces messagePins list [OPTIONS]",
+      "help_args": [
+        "chat",
+        "spaces",
+        "messagePins",
+        "list",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
       }
     },
     {
@@ -6768,7 +6870,7 @@
         "list"
       ],
       "command": "gws drive approvals list",
-      "summary": "Lists the approvals on a file. For more information, see Manage approvals.",
+      "summary": "Lists the approvals on a file. For more information, see Manage approvals. By default, this method returns a minimal response that may not include the items array.",
       "usage": "gws approvals list [OPTIONS]",
       "help_args": [
         "drive",
