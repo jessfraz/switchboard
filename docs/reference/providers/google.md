@@ -1,6 +1,6 @@
 # `google` Provider
 
-`google` exposes `506` total tools, `8` curated and `498` raw inventory passthrough.
+`google` exposes `509` total tools, `8` curated and `501` raw inventory passthrough.
 
 ## Curated tools
 
@@ -18,4 +18,4 @@
 - `google.cli.read`
 - `google.cli.write`
 
-`google` also ships `496` more raw command projections. The complete structured surface lives in [catalog.json](../catalog.json) and the deployed reference explorer.
+`google` also ships `499` more raw command projections. The complete structured surface lives in [catalog.json](../catalog.json) and the deployed reference explorer.
