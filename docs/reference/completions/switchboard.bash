@@ -126,7 +126,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__audit__subcmd__show)
-            opts="-h --json --config --help <SELECTOR>"
+            opts="-h --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -198,7 +198,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__op__subcmd__apply)
-            opts="-h --json --config --help <ID>"
+            opts="-h --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -216,7 +216,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__op__subcmd__approve)
-            opts="-h --actor --note --apply --json --config --help <ID>"
+            opts="-h --actor --note --apply --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -260,7 +260,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__op__subcmd__reject)
-            opts="-h --actor --note --json --config --help <ID>"
+            opts="-h --actor --note --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -286,7 +286,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__op__subcmd__show)
-            opts="-h --json --config --help <ID>"
+            opts="-h --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -304,7 +304,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__op__subcmd__undo)
-            opts="-h --apply --json --config --help <ID>"
+            opts="-h --apply --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -340,7 +340,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__tools__subcmd__describe)
-            opts="-h --json --config --help <TOOL>"
+            opts="-h --json --config --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
