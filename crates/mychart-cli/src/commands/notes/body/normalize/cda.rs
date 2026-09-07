@@ -64,7 +64,7 @@ pub(super) fn extract_cda_section_text(input: &str) -> Option<String> {
                 tag_stack.pop();
             }
             Ok(Event::Text(event)) => {
-                if let Some(text) = decode_xml_text(event.as_ref()) {
+                if let Ok(text) = unescape(event.as_ref()) {
                     push_cda_text_fragment(
                         &mut sections,
                         &mut document_title,
@@ -76,16 +76,14 @@ pub(super) fn extract_cda_section_text(input: &str) -> Option<String> {
                 }
             }
             Ok(Event::CData(event)) => {
-                if let Some(text) = decode_cdata_text(event.as_ref()) {
-                    push_cda_text_fragment(
-                        &mut sections,
-                        &mut document_title,
-                        capture_document_title,
-                        capture_section_title,
-                        inside_section_text > 0,
-                        &text,
-                    );
-                }
+                push_cda_text_fragment(
+                    &mut sections,
+                    &mut document_title,
+                    capture_document_title,
+                    capture_section_title,
+                    inside_section_text > 0,
+                    event.as_ref(),
+                );
             }
             Ok(Event::Eof) => break,
             Err(_) => return None,
@@ -132,22 +130,7 @@ fn has_open_section(tag_stack: &[String]) -> bool {
 }
 
 fn xml_name_string(name: QName<'_>) -> String {
-    let local = name
-        .as_ref()
-        .rsplit(|byte| *byte == b':')
-        .next()
-        .unwrap_or(name.as_ref());
-    String::from_utf8_lossy(local).into_owned()
-}
-
-fn decode_xml_text(bytes: &[u8]) -> Option<String> {
-    let decoded = std::str::from_utf8(bytes).ok()?;
-    let unescaped = unescape(decoded).ok()?;
-    Some(unescaped.into_owned())
-}
-
-fn decode_cdata_text(bytes: &[u8]) -> Option<String> {
-    Some(String::from_utf8_lossy(bytes).into_owned())
+    name.local_name().as_ref().to_owned()
 }
 
 fn push_cda_text_fragment(
@@ -226,5 +209,39 @@ fn push_cda_tag_end(sections: &mut [CdaSectionText], name: &str) {
         }
         "td" | "th" => push_cda_text_separator(sections, ' '),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::commands::notes::body::normalize::cda::extract_cda_section_text;
+
+    #[test]
+    fn extracts_namespaced_unicode_text_and_literal_cdata() {
+        let document = r#"
+<cda:ClinicalDocument xmlns:cda="urn:hl7-org:v3">
+  <cda:title>Résumé</cda:title>
+  <cda:section>
+    <cda:title>Observations</cda:title>
+    <cda:text>
+      <cda:paragraph>Café déjà vu.</cda:paragraph>
+      <cda:paragraph><![CDATA[Literal <tag> &amp; café]]></cda:paragraph>
+    </cda:text>
+  </cda:section>
+</cda:ClinicalDocument>
+"#;
+
+        assert_eq!(
+            extract_cda_section_text(document).as_deref(),
+            Some("Résumé\n\nObservations\nCafé déjà vu.\nLiteral <tag> &amp; café")
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_cda() {
+        assert!(
+            extract_cda_section_text("<ClinicalDocument><section><text>Incomplete</section></ClinicalDocument>")
+                .is_none()
+        );
     }
 }
