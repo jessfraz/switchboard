@@ -1,7 +1,5 @@
 mod materializer;
 
-use std::sync::OnceLock;
-
 use switchboard_core::{
     Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolDescriptor, ToolKind,
     ToolOutput, ToolRequest,
@@ -14,31 +12,21 @@ use crate::{
 };
 
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/schwab.json"));
-static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct SchwabAdapter {
     backend: CliProviderBackend,
-}
-
-impl Default for SchwabAdapter {
-    fn default() -> Self {
-        Self {
-            backend: CliProviderBackend::new(Box::new(DefaultSchwabCliMaterializer)),
-        }
-    }
+    catalog: CliProviderCatalog,
 }
 
 impl SchwabAdapter {
-    fn catalog() -> &'static CliProviderCatalog {
-        CATALOG.get_or_init(|| {
-            let inventory = embedded_inventory(ProviderKind::Schwab).expect("schwab inventory should be valid");
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)
-                .expect("schwab provider manifest should be valid")
+    /// Load and validate this adapter's embedded catalog.
+    pub fn new() -> Result<Self> {
+        let inventory = embedded_inventory(ProviderKind::Schwab)?;
+        let catalog = CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)?;
+        Ok(Self {
+            backend: CliProviderBackend::new(Box::new(DefaultSchwabCliMaterializer)),
+            catalog,
         })
-    }
-
-    fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
-        Self::catalog().find_command(tool)
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -49,7 +37,7 @@ impl SchwabAdapter {
         )
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id.to_string())
+        .with_field("auth", target.auth.id().to_string())
         .with_field("note", "schwab command execution is not wired yet")
     }
 }
@@ -59,17 +47,19 @@ impl Adapter for SchwabAdapter {
         ProviderKind::Schwab
     }
 
-    fn tools(&self) -> &'static [ToolDescriptor] {
-        Self::catalog().tools()
+    fn tools(&self) -> &[ToolDescriptor] {
+        self.catalog.tools()
     }
 
     fn plan(
         &self,
         target: &PlanningTarget,
         request: &ToolRequest,
-        descriptor: &'static ToolDescriptor,
+        descriptor: &ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let command = Self::find_command(request.tool.as_str())
+        let command = self
+            .catalog
+            .find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let summary = command.summarize.summarize(&target.namespace, request)?;
         Ok(PlannedAction::new(
@@ -82,7 +72,7 @@ impl Adapter for SchwabAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
-        if let Some(command) = Self::find_command(action.tool.as_str()) {
+        if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 return self.backend.execute(target, action, executable);
             }
@@ -107,7 +97,7 @@ mod tests {
 
     use serde::Deserialize;
     use switchboard_core::{
-        Adapter, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
+        Adapter, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
         ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest,
         ToolSurface,
     };
@@ -128,7 +118,7 @@ mod tests {
         let script = TempScript::new("schwab-test", SCHWAB_SCRIPT_TEMPLATE);
         env::set_var("SWITCHBOARD_SCHWAB_BIN", script.path());
 
-        let adapter = SchwabAdapter::default();
+        let adapter = SchwabAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "schwab.cli.read",
@@ -166,7 +156,7 @@ mod tests {
 
     #[test]
     fn tool_catalog_includes_inventory_backed_leaf_tools() {
-        let adapter = SchwabAdapter::default();
+        let adapter = SchwabAdapter::new().expect("embedded catalog should load");
         let auth_status_tool = adapter
             .find_tool(&ToolName::new("schwab.cli.auth.status").expect("tool name should parse"))
             .expect("inventory-backed tool should exist");
@@ -212,8 +202,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "schwab_personal",
-                ProviderKind::Schwab,
-                AuthKind::SchwabCli,
                 "jessfraz",
                 AuthSecretRefs::SchwabCli {
                     base_url: None,
@@ -254,8 +242,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "schwab_personal",
-                ProviderKind::Schwab,
-                AuthKind::SchwabCli,
                 "jessfraz",
                 AuthSecretRefs::SchwabCli {
                     base_url: None,

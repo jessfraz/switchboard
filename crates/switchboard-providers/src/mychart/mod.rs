@@ -1,7 +1,5 @@
 mod materializer;
 
-use std::sync::OnceLock;
-
 use switchboard_core::{
     Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolDescriptor, ToolKind,
     ToolOutput, ToolRequest,
@@ -14,31 +12,21 @@ use crate::{
 };
 
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/mychart.json"));
-static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct MyChartAdapter {
     backend: CliProviderBackend,
-}
-
-impl Default for MyChartAdapter {
-    fn default() -> Self {
-        Self {
-            backend: CliProviderBackend::new(Box::new(DefaultMyChartCliMaterializer)),
-        }
-    }
+    catalog: CliProviderCatalog,
 }
 
 impl MyChartAdapter {
-    fn catalog() -> &'static CliProviderCatalog {
-        CATALOG.get_or_init(|| {
-            let inventory = embedded_inventory(ProviderKind::MyChart).expect("mychart inventory should be valid");
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)
-                .expect("mychart provider manifest should be valid")
+    /// Load and validate this adapter's embedded catalog.
+    pub fn new() -> Result<Self> {
+        let inventory = embedded_inventory(ProviderKind::MyChart)?;
+        let catalog = CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)?;
+        Ok(Self {
+            backend: CliProviderBackend::new(Box::new(DefaultMyChartCliMaterializer)),
+            catalog,
         })
-    }
-
-    fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
-        Self::catalog().find_command(tool)
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -49,7 +37,7 @@ impl MyChartAdapter {
         )
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id.to_string())
+        .with_field("auth", target.auth.id().to_string())
         .with_field("note", "mychart command execution is not wired yet")
     }
 }
@@ -59,17 +47,19 @@ impl Adapter for MyChartAdapter {
         ProviderKind::MyChart
     }
 
-    fn tools(&self) -> &'static [ToolDescriptor] {
-        Self::catalog().tools()
+    fn tools(&self) -> &[ToolDescriptor] {
+        self.catalog.tools()
     }
 
     fn plan(
         &self,
         target: &PlanningTarget,
         request: &ToolRequest,
-        descriptor: &'static ToolDescriptor,
+        descriptor: &ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let command = Self::find_command(request.tool.as_str())
+        let command = self
+            .catalog
+            .find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let summary = command.summarize.summarize(&target.namespace, request)?;
         Ok(PlannedAction::new(
@@ -82,7 +72,7 @@ impl Adapter for MyChartAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
-        if let Some(command) = Self::find_command(action.tool.as_str()) {
+        if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 return self.backend.execute(target, action, executable);
             }
@@ -107,7 +97,7 @@ mod tests {
 
     use serde::Deserialize;
     use switchboard_core::{
-        Adapter, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
+        Adapter, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
         ResolvedCredentials, ResolvedNamespace, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest, ToolSurface,
     };
 
@@ -135,7 +125,7 @@ mod tests {
         let script = TempScript::new("mychart-test", &render_mychart_script());
         env::set_var("SWITCHBOARD_MYCHART_BIN", script.path());
 
-        let adapter = MyChartAdapter::default();
+        let adapter = MyChartAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "mychart.cli.read",
@@ -181,7 +171,7 @@ mod tests {
         let script = TempScript::new("mychart-test", &render_mychart_script());
         env::set_var("SWITCHBOARD_MYCHART_BIN", script.path());
 
-        let adapter = MyChartAdapter::default();
+        let adapter = MyChartAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "mychart.cli.appointments.upcoming",
@@ -218,7 +208,7 @@ mod tests {
 
     #[test]
     fn tool_catalog_includes_inventory_backed_leaf_tools() {
-        let adapter = MyChartAdapter::default();
+        let adapter = MyChartAdapter::new().expect("embedded catalog should load");
         let appointment_tool = adapter
             .find_tool(&ToolName::new("mychart.cli.appointments.upcoming").expect("tool name should parse"))
             .expect("inventory-backed tool should exist");
@@ -286,8 +276,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "mychart_ucla",
-                ProviderKind::MyChart,
-                AuthKind::MyChartCli,
                 "ucla",
                 AuthSecretRefs::MyChartCli {
                     base_url: None,

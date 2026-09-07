@@ -39,7 +39,7 @@ impl CliRuntimeMaterializer for DefaultGitHubCliMaterializer {
             | ResolvedCredentials::MyChartCli { .. }
             | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "github cli materializer does not support {} credentials",
-                target.auth.kind
+                target.auth.kind()
             ))),
         }
     }
@@ -50,8 +50,7 @@ mod tests {
     use std::path::PathBuf;
 
     use switchboard_core::{
-        AuthKind, AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
-        SecretRef,
+        AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef,
     };
 
     use crate::{
@@ -97,8 +96,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "github.personal_auth",
-                ProviderKind::GitHub,
-                AuthKind::GitHubToken,
                 "jessfraz",
                 AuthSecretRefs::GitHubToken {
                     token: SecretRef::new("github.personal_token").expect("secret ref should build"),

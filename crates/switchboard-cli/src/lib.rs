@@ -57,7 +57,7 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let operations = SqliteOperationStore::open(&state_db_path).context("failed to open operation store")?;
     let audit = SqliteAuditStore::open(&state_db_path).context("failed to open audit store")?;
 
-    Ok(build_switchboard(
+    build_switchboard(
         Arc::new(namespaces),
         Arc::new(auth),
         Arc::new(secrets),
@@ -68,7 +68,7 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
         Arc::new(policy),
         Arc::new(audit),
         Arc::new(operations),
-    ))
+    )
 }
 
 fn build_switchboard(
@@ -79,10 +79,10 @@ fn build_switchboard(
     policy: Arc<dyn switchboard_core::PolicyEngine>,
     audit: Arc<dyn switchboard_core::AuditStore>,
     operations: Arc<dyn switchboard_core::OperationStore>,
-) -> Switchboard {
-    let adapters = default_registry();
+) -> Result<Switchboard> {
+    let adapters = default_registry().context("failed to load provider catalogs")?;
 
-    Switchboard::new(
+    Ok(Switchboard::new(
         SwitchboardServices {
             namespaces,
             auth,
@@ -93,7 +93,7 @@ fn build_switchboard(
             operations,
         },
         adapters,
-    )
+    ))
 }
 
 /// Run the Switchboard CLI and return a process exit code.

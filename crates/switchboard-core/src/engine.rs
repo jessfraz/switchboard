@@ -198,10 +198,10 @@ impl Switchboard {
             .auth
             .get(&namespace.auth_ref)
             .ok_or_else(|| Error::MissingAuth(namespace.auth_ref.to_string()))?;
-        if auth.provider != namespace.provider {
+        if auth.provider() != namespace.provider {
             return Err(Error::AuthProviderMismatch {
                 auth_ref: namespace.auth_ref.to_string(),
-                auth_provider: auth.provider,
+                auth_provider: auth.provider(),
                 namespace_provider: namespace.provider,
             });
         }
@@ -356,10 +356,10 @@ impl Switchboard {
             .auth
             .get(&operation.auth_ref)
             .ok_or_else(|| Error::MissingAuth(operation.auth_ref.to_string()))?;
-        if auth.provider != namespace.provider {
+        if auth.provider() != namespace.provider {
             return Err(Error::AuthProviderMismatch {
                 auth_ref: operation.auth_ref.to_string(),
-                auth_provider: auth.provider,
+                auth_provider: auth.provider(),
                 namespace_provider: namespace.provider,
             });
         }
@@ -427,8 +427,8 @@ impl Switchboard {
     }
 
     fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {
-        let credentials = match &target.auth.secrets {
-            AuthSecretRefs::None => ResolvedCredentials::GitHubCli,
+        let credentials = match target.auth.secrets() {
+            AuthSecretRefs::GitHubCli => ResolvedCredentials::GitHubCli,
             AuthSecretRefs::GoogleCli => ResolvedCredentials::GoogleCli,
             AuthSecretRefs::GitHubToken { token } => ResolvedCredentials::GitHubToken {
                 token: self.resolve_secret(token)?,
@@ -604,7 +604,7 @@ mod tests {
         traits::{
             Adapter, AuditStore, AuthStore, NamespaceStore, OperationStore, PolicyEngine, SecretResolver, SecretStore,
         },
-        AuditEvent, AuditEventId, AuditOutcome, AuthKind, AuthRef, AuthSecretRefs, BackendKind, DispatchOutcome, Error,
+        AuditEvent, AuditEventId, AuditOutcome, AuthRef, AuthSecretRefs, BackendKind, DispatchOutcome, Error,
         ExecutionMode, ExecutionTarget, NamespaceId, OperationEffect, OperationId, OperationStatus, PlannedAction,
         PlanningTarget, PolicyDecision, ProviderKind, ResolvedAuth, ResolvedNamespace, ResolvedSecret, Result,
         SecretRef, SecretSource, SecretString, StoredAuditEvent, StoredOperation, ToolDescriptor, ToolKind, ToolOutput,
@@ -619,7 +619,7 @@ mod tests {
             Arc::new(RequireApprovalPolicy),
             audit.clone(),
             operations.clone(),
-            Arc::new(TestAdapter { fail_execution: false }),
+            Arc::new(TestAdapter::new(false)),
         );
 
         let outcome = switchboard
@@ -664,7 +664,7 @@ mod tests {
             Arc::new(AllowPolicy),
             audit.clone(),
             operations.clone(),
-            Arc::new(TestAdapter { fail_execution: true }),
+            Arc::new(TestAdapter::new(true)),
         );
 
         let error = switchboard
@@ -714,14 +714,8 @@ mod tests {
             None,
         )
         .expect("namespace should build");
-        let auth = ResolvedAuth::new(
-            "github.personal_auth",
-            ProviderKind::GitHub,
-            AuthKind::GitHubCli,
-            "jessfraz",
-            AuthSecretRefs::None,
-        )
-        .expect("auth should build");
+        let auth = ResolvedAuth::new("github.personal_auth", "jessfraz", AuthSecretRefs::GitHubCli)
+            .expect("auth should build");
 
         let mut adapters = AdapterRegistry::default();
         adapters.register(adapter);
@@ -742,6 +736,22 @@ mod tests {
 
     struct TestAdapter {
         fail_execution: bool,
+        tools: Vec<ToolDescriptor>,
+    }
+
+    impl TestAdapter {
+        fn new(fail_execution: bool) -> Self {
+            Self {
+                fail_execution,
+                tools: vec![ToolDescriptor::new(
+                    "github.issue.comment",
+                    ToolKind::Write,
+                    "Comment on a GitHub issue",
+                    BackendKind::Cli,
+                )
+                .expect("test tool descriptor should build")],
+            }
+        }
     }
 
     impl Adapter for TestAdapter {
@@ -749,24 +759,15 @@ mod tests {
             ProviderKind::GitHub
         }
 
-        fn tools(&self) -> &'static [ToolDescriptor] {
-            static TOOLS: std::sync::OnceLock<Vec<ToolDescriptor>> = std::sync::OnceLock::new();
-            TOOLS.get_or_init(|| {
-                vec![ToolDescriptor::new(
-                    "github.issue.comment",
-                    ToolKind::Write,
-                    "Comment on a GitHub issue",
-                    BackendKind::Cli,
-                )
-                .expect("test tool descriptor should build")]
-            })
+        fn tools(&self) -> &[ToolDescriptor] {
+            &self.tools
         }
 
         fn plan(
             &self,
             target: &PlanningTarget,
             request: &ToolRequest,
-            descriptor: &'static ToolDescriptor,
+            descriptor: &ToolDescriptor,
         ) -> Result<PlannedAction> {
             Ok(PlannedAction::new(
                 request,
@@ -840,7 +841,7 @@ mod tests {
 
     impl AuthStore for TestAuthStore {
         fn get(&self, id: &AuthRef) -> Option<ResolvedAuth> {
-            (self.auth.id == *id).then_some(self.auth.clone())
+            (self.auth.id() == id).then_some(self.auth.clone())
         }
 
         fn list(&self) -> Vec<ResolvedAuth> {

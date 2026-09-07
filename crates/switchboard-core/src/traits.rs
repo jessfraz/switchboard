@@ -71,13 +71,13 @@ pub trait Adapter: Send + Sync {
     /// Return the provider this adapter owns.
     fn provider(&self) -> ProviderKind;
     /// Return the tool catalog exposed by this adapter.
-    fn tools(&self) -> &'static [ToolDescriptor];
+    fn tools(&self) -> &[ToolDescriptor];
     /// Turn one tool request into a planned action for this provider.
     fn plan(
         &self,
         target: &PlanningTarget,
         request: &ToolRequest,
-        descriptor: &'static ToolDescriptor,
+        descriptor: &ToolDescriptor,
     ) -> Result<PlannedAction>;
     /// Execute one planned action against the provider backend.
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput>;
@@ -88,7 +88,7 @@ pub trait Adapter: Send + Sync {
     }
 
     /// Find one tool descriptor by name inside this adapter's catalog.
-    fn find_tool(&self, name: &ToolName) -> Option<&'static ToolDescriptor> {
+    fn find_tool(&self, name: &ToolName) -> Option<&ToolDescriptor> {
         self.tools()
             .iter()
             .find(|descriptor| descriptor.name.as_str() == name.as_str())

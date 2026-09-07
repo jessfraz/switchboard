@@ -167,7 +167,7 @@ impl PlannedAction {
         Self {
             tool: request.tool.clone(),
             namespace: target.namespace.id.clone(),
-            auth_ref: target.auth.id.clone(),
+            auth_ref: target.auth.id().clone(),
             kind,
             mode: request.mode,
             summary: summary.into(),

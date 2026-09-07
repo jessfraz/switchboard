@@ -28,11 +28,11 @@ pub fn validate_manifest_json(manifest_json: &str, inventory: &CliInventory) -> 
 }
 
 /// Build the default registry of provider adapters available in this workspace.
-pub fn default_registry() -> AdapterRegistry {
+pub fn default_registry() -> switchboard_core::Result<AdapterRegistry> {
     let mut adapters = AdapterRegistry::default();
-    adapters.register(Arc::new(GitHubAdapter::default()));
-    adapters.register(Arc::new(GoogleWorkspaceAdapter::default()));
-    adapters.register(Arc::new(MyChartAdapter::default()));
-    adapters.register(Arc::new(SchwabAdapter::default()));
-    adapters
+    adapters.register(Arc::new(GitHubAdapter::new()?));
+    adapters.register(Arc::new(GoogleWorkspaceAdapter::new()?));
+    adapters.register(Arc::new(MyChartAdapter::new()?));
+    adapters.register(Arc::new(SchwabAdapter::new()?));
+    Ok(adapters)
 }

@@ -1,6 +1,6 @@
 mod materializer;
 
-use std::{fs, sync::OnceLock};
+use std::fs;
 
 use switchboard_core::{
     Adapter, AuthScopeProfile, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result,
@@ -31,32 +31,21 @@ const WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/admin.directory.group,",
     "https://www.googleapis.com/auth/apps.groups.settings"
 );
-static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct GoogleWorkspaceAdapter {
     backend: CliProviderBackend,
-}
-
-impl Default for GoogleWorkspaceAdapter {
-    fn default() -> Self {
-        Self {
-            backend: CliProviderBackend::new(Box::new(DefaultGoogleWorkspaceCliMaterializer)),
-        }
-    }
+    catalog: CliProviderCatalog,
 }
 
 impl GoogleWorkspaceAdapter {
-    fn catalog() -> &'static CliProviderCatalog {
-        CATALOG.get_or_init(|| {
-            let inventory =
-                embedded_inventory(ProviderKind::GoogleWorkspace).expect("google inventory should be valid");
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)
-                .expect("google provider manifest should be valid")
+    /// Load and validate this adapter's embedded catalog.
+    pub fn new() -> Result<Self> {
+        let inventory = embedded_inventory(ProviderKind::GoogleWorkspace)?;
+        let catalog = CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)?;
+        Ok(Self {
+            backend: CliProviderBackend::new(Box::new(DefaultGoogleWorkspaceCliMaterializer)),
+            catalog,
         })
-    }
-
-    fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
-        Self::catalog().find_command(tool)
     }
 
     fn request_with_google_auth_defaults(target: &PlanningTarget, request: &ToolRequest) -> Result<ToolRequest> {
@@ -117,7 +106,8 @@ impl GoogleWorkspaceAdapter {
         if expected.contains('@') && !actual.eq_ignore_ascii_case(expected) {
             return Err(Error::Execution(format!(
                 "gws auth login authenticated {} as {actual}, but namespace {} expects {expected}",
-                target.auth.id, target.namespace.id
+                target.auth.id(),
+                target.namespace.id
             )));
         }
 
@@ -148,7 +138,7 @@ impl GoogleWorkspaceAdapter {
         )
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id.to_string())
+        .with_field("auth", target.auth.id().to_string())
         .with_field("note", "google workspace command execution is not wired yet")
     }
 }
@@ -158,17 +148,19 @@ impl Adapter for GoogleWorkspaceAdapter {
         ProviderKind::GoogleWorkspace
     }
 
-    fn tools(&self) -> &'static [ToolDescriptor] {
-        Self::catalog().tools()
+    fn tools(&self) -> &[ToolDescriptor] {
+        self.catalog.tools()
     }
 
     fn plan(
         &self,
         target: &PlanningTarget,
         request: &ToolRequest,
-        descriptor: &'static ToolDescriptor,
+        descriptor: &ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let command = Self::find_command(request.tool.as_str())
+        let command = self
+            .catalog
+            .find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let request = Self::request_with_google_auth_defaults(target, request)?;
         let summary = command.summarize.summarize(&target.namespace, &request)?;
@@ -182,7 +174,7 @@ impl Adapter for GoogleWorkspaceAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
-        if let Some(command) = Self::find_command(action.tool.as_str()) {
+        if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 let mut output = self.backend.execute(target, action, executable)?;
                 if Self::is_google_auth_login(action)? {
@@ -249,9 +241,9 @@ mod tests {
     use serde::Deserialize;
     use serde_json::{Map, Value};
     use switchboard_core::{
-        Adapter, ApprovalState, AuthKind, AuthScopeProfile, AuthSecretRefs, ExecutionMode, ExecutionTarget,
-        OperationApproval, PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
-        SecretRef, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest, ToolSurface, ToolUndoSupport,
+        Adapter, ApprovalState, AuthScopeProfile, AuthSecretRefs, ExecutionMode, ExecutionTarget, OperationApproval,
+        PlanningTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument,
+        ToolExecutionSupport, ToolName, ToolRequest, ToolSurface, ToolUndoSupport,
     };
 
     use crate::{
@@ -295,7 +287,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.calendar.list",
@@ -336,7 +328,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.mail.search",
@@ -377,7 +369,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.mail.read",
@@ -411,7 +403,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.mail.draft",
@@ -458,7 +450,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.calendar.create",
@@ -512,7 +504,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.cli.write",
@@ -560,7 +552,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.cli.write",
@@ -605,7 +597,7 @@ mod tests {
 
     #[test]
     fn raw_cli_personal_auth_login_omits_workspace_admin_scopes() {
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let mut planning = planning_target();
         planning.namespace = ResolvedNamespace::new(
             "google.personal",
@@ -654,7 +646,7 @@ mod tests {
         let token_cache = state_dir.join("token_cache.json");
         fs::write(&token_cache, "stale access token").expect("token cache fixture should be written");
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target_with_state_dir(state_dir.clone());
         let request = ToolRequest::new(
             "google.cli.write",
@@ -684,7 +676,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.cli.write",
@@ -716,7 +708,7 @@ mod tests {
         let script = google_test_script_with_auth_user("wrong@example.com");
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.cli.write",
@@ -746,7 +738,7 @@ mod tests {
         let script = google_test_script();
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.cli.calendar.+agenda",
@@ -776,7 +768,7 @@ mod tests {
 
     #[test]
     fn planning_only_drive_search_uses_manifest_summary_template() {
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "google.drive.search",
@@ -798,7 +790,7 @@ mod tests {
 
     #[test]
     fn compensation_request_for_calendar_create_targets_calendar_delete() {
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let request = adapter
             .compensation_request(
                 &switchboard_core::StoredOperation {
@@ -847,7 +839,7 @@ mod tests {
 
     #[test]
     fn manifest_catalog_marks_raw_planning_and_undo_metadata() {
-        let adapter = GoogleWorkspaceAdapter::default();
+        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
         let calendar_create = adapter
             .find_tool(&ToolName::new("google.calendar.create").expect("tool should build"))
             .expect("tool should exist");
@@ -996,8 +988,6 @@ mod tests {
             .expect("workspace admin scope profile should build"),
             auth: ResolvedAuth::new(
                 "google.work_auth",
-                ProviderKind::GoogleWorkspace,
-                AuthKind::GoogleOAuth,
                 "jess@example.com",
                 AuthSecretRefs::GoogleOAuth {
                     client_id: SecretRef::new("google.work_client_id").expect("secret ref should build"),

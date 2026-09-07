@@ -1,7 +1,5 @@
 mod materializer;
 
-use std::sync::OnceLock;
-
 use switchboard_core::{
     Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolDescriptor, ToolKind,
     ToolOutput, ToolRequest,
@@ -13,31 +11,21 @@ use crate::{
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/github.json"));
-static CATALOG: OnceLock<CliProviderCatalog> = OnceLock::new();
 
 pub struct GitHubAdapter {
     backend: CliProviderBackend,
-}
-
-impl Default for GitHubAdapter {
-    fn default() -> Self {
-        Self {
-            backend: CliProviderBackend::new(Box::new(DefaultGitHubCliMaterializer)),
-        }
-    }
+    catalog: CliProviderCatalog,
 }
 
 impl GitHubAdapter {
-    fn catalog() -> &'static CliProviderCatalog {
-        CATALOG.get_or_init(|| {
-            let inventory = embedded_inventory(ProviderKind::GitHub).expect("github inventory should be valid");
-            CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)
-                .expect("github provider manifest should be valid")
+    /// Load and validate this adapter's embedded catalog.
+    pub fn new() -> Result<Self> {
+        let inventory = embedded_inventory(ProviderKind::GitHub)?;
+        let catalog = CliProviderCatalog::from_embedded(MANIFEST_JSON, &inventory)?;
+        Ok(Self {
+            backend: CliProviderBackend::new(Box::new(DefaultGitHubCliMaterializer)),
+            catalog,
         })
-    }
-
-    fn find_command(tool: &str) -> Option<&'static crate::cli::CliCommandSpec> {
-        Self::catalog().find_command(tool)
     }
 
     fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
@@ -48,7 +36,7 @@ impl GitHubAdapter {
         )
         .with_field("status", "stub")
         .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id.to_string())
+        .with_field("auth", target.auth.id().to_string())
         .with_field("note", "github command execution is not wired yet")
     }
 }
@@ -58,17 +46,19 @@ impl Adapter for GitHubAdapter {
         ProviderKind::GitHub
     }
 
-    fn tools(&self) -> &'static [ToolDescriptor] {
-        Self::catalog().tools()
+    fn tools(&self) -> &[ToolDescriptor] {
+        self.catalog.tools()
     }
 
     fn plan(
         &self,
         target: &PlanningTarget,
         request: &ToolRequest,
-        descriptor: &'static ToolDescriptor,
+        descriptor: &ToolDescriptor,
     ) -> Result<PlannedAction> {
-        let command = Self::find_command(request.tool.as_str())
+        let command = self
+            .catalog
+            .find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let summary = command.summarize.summarize(&target.namespace, request)?;
         Ok(PlannedAction::new(
@@ -81,7 +71,7 @@ impl Adapter for GitHubAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
-        if let Some(command) = Self::find_command(action.tool.as_str()) {
+        if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 return self.backend.execute(target, action, executable);
             }
@@ -107,7 +97,7 @@ mod tests {
     use serde::Deserialize;
     use serde_json::{Map, Value};
     use switchboard_core::{
-        Adapter, AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
+        Adapter, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlanningTarget, ProviderKind, ResolvedAuth,
         ResolvedCredentials, ResolvedNamespace, SecretRef, ToolArgument, ToolExecutionSupport, ToolName, ToolRequest,
         ToolSurface,
     };
@@ -152,7 +142,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.notifications.list",
@@ -192,7 +182,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.pull_request.search",
@@ -237,7 +227,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.pull_request.read",
@@ -279,7 +269,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.issue.read",
@@ -320,7 +310,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.cli.read",
@@ -355,7 +345,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.cli.pr.view",
@@ -392,7 +382,7 @@ mod tests {
         let script = TempScript::new("gh-test", &render_github_script());
         env::set_var("SWITCHBOARD_GH_BIN", script.path());
 
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.repository.search",
@@ -433,7 +423,7 @@ mod tests {
 
     #[test]
     fn planning_only_comment_tool_uses_manifest_summary_template() {
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let planning = planning_target();
         let request = ToolRequest::new(
             "github.pull_request.comment",
@@ -458,7 +448,7 @@ mod tests {
 
     #[test]
     fn manifest_catalog_marks_raw_and_planning_only_metadata() {
-        let adapter = GitHubAdapter::default();
+        let adapter = GitHubAdapter::new().expect("embedded catalog should load");
         let notifications = adapter
             .find_tool(&ToolName::new("github.notifications.list").expect("tool should build"))
             .expect("tool should exist");
@@ -598,8 +588,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "github.personal_auth",
-                ProviderKind::GitHub,
-                AuthKind::GitHubToken,
                 "jessfraz",
                 AuthSecretRefs::GitHubToken {
                     token: SecretRef::new("github.personal_token").expect("secret ref should build"),

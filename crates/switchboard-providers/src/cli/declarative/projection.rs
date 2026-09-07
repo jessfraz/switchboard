@@ -158,7 +158,7 @@ impl CliJsonProjection {
         let mut output = ToolOutput::new(action.tool.clone(), action.namespace.clone(), summary)
             .with_field("status", "ok")
             .with_field("backend", action.backend.to_string())
-            .with_field("auth", target.auth.id.to_string())
+            .with_field("auth", target.auth.id().to_string())
             .with_field("cli_version", version)
             .with_value_field(self.response_field.clone(), projected)
             .with_refs(refs);

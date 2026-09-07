@@ -605,8 +605,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "google.personal_auth",
-                ProviderKind::GoogleWorkspace,
-                switchboard_core::AuthKind::GoogleOAuthFile,
                 "me@gmail.com",
                 switchboard_core::AuthSecretRefs::GoogleOAuthFile {
                     credentials: switchboard_core::SecretRef::new("google.personal_oauth")

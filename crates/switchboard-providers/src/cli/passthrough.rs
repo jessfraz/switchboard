@@ -57,7 +57,7 @@ pub(crate) fn decode_prefixed_passthrough(
     )
     .with_field("status", "ok")
     .with_field("backend", action.backend.to_string())
-    .with_field("auth", target.auth.id.to_string())
+    .with_field("auth", target.auth.id().to_string())
     .with_field("cli_version", version)
     .with_value_field("argv", json!(argv));
 

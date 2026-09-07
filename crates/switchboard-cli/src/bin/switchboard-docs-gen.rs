@@ -119,7 +119,7 @@ fn run() -> Result<()> {
 }
 
 fn load_snapshot() -> Result<CatalogSnapshot> {
-    let registry = default_registry();
+    let registry = default_registry().context("failed to load provider catalogs")?;
     let tools = registry.list_tools().context("failed to load tool catalog")?;
     Ok(build_snapshot(&tools))
 }

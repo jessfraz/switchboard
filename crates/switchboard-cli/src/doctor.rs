@@ -153,7 +153,7 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
         } else {
             Vec::new()
         };
-        if google && auth.kind == AuthKind::GoogleCli && !saved_auth_files.iter().any(is_saved_credential) {
+        if google && auth.kind() == AuthKind::GoogleCli && !saved_auth_files.iter().any(is_saved_credential) {
             report.issues.push(format!(
                 "{}: no saved Google credentials found; run switchboard google.cli.write --ns {} -- auth login after configuring the OAuth client.",
                 namespace.id, namespace.id
@@ -179,7 +179,7 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
         report.namespaces.push(NamespaceDiagnostic {
             namespace: namespace.id.to_string(),
             provider: namespace.provider,
-            auth_mode: auth.kind.to_string(),
+            auth_mode: auth.kind().to_string(),
             secret_source_kinds: source_kinds,
             state_dir: namespace.state_dir.as_deref().map(inspect_path),
             google_storage_backend: google.then_some("file"),

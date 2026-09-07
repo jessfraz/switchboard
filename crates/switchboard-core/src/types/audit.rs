@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::Result,
+    error::{Error, Result},
     types::{AuthRef, BackendKind, NamespaceId, OperationId, PlannedAction, StoredOperation, ToolName},
 };
 
@@ -63,8 +63,16 @@ impl AuditEvent {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "String")]
 pub struct AuditEventId(String);
+
+impl TryFrom<String> for AuditEventId {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::new(value)
+    }
+}
 
 impl AuditEventId {
     pub fn new(value: impl Into<String>) -> Result<Self> {

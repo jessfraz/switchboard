@@ -73,7 +73,7 @@ impl CliRuntimeMaterializer for DefaultSchwabCliMaterializer {
             | ResolvedCredentials::GoogleOAuthFile { .. }
             | ResolvedCredentials::MyChartCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "schwab cli materializer does not support {} credentials",
-                target.auth.kind
+                target.auth.kind()
             ))),
         }
     }
@@ -95,8 +95,7 @@ mod tests {
     use std::path::PathBuf;
 
     use switchboard_core::{
-        AuthKind, AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
-        SecretRef,
+        AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef,
     };
 
     use crate::{
@@ -286,12 +285,12 @@ mod tests {
                 access_token: None,
                 refresh_token: Some(SecretRef::new("schwab.personal_refresh_token").expect("secret ref should build")),
             },
-            ResolvedCredentials::GitHubCli => AuthSecretRefs::None,
+            ResolvedCredentials::GitHubCli => AuthSecretRefs::GitHubCli,
             ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
             ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
-            | ResolvedCredentials::MyChartCli { .. } => AuthSecretRefs::None,
+            | ResolvedCredentials::MyChartCli { .. } => AuthSecretRefs::GitHubCli,
         };
 
         ExecutionTarget {
@@ -304,22 +303,7 @@ mod tests {
                 state_dir,
             )
             .expect("namespace should build"),
-            auth: ResolvedAuth::new(
-                "schwab_personal",
-                ProviderKind::Schwab,
-                match credentials {
-                    ResolvedCredentials::SchwabCli { .. } => AuthKind::SchwabCli,
-                    ResolvedCredentials::GitHubCli => AuthKind::GitHubCli,
-                    ResolvedCredentials::GitHubToken { .. } => AuthKind::GitHubToken,
-                    ResolvedCredentials::GoogleCli => AuthKind::GoogleCli,
-                    ResolvedCredentials::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
-                    ResolvedCredentials::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
-                    ResolvedCredentials::MyChartCli { .. } => AuthKind::MyChartCli,
-                },
-                "jessfraz",
-                secrets,
-            )
-            .expect("auth should build"),
+            auth: ResolvedAuth::new("schwab_personal", "jessfraz", secrets).expect("auth should build"),
             credentials,
         }
     }

@@ -38,7 +38,7 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
             | ResolvedCredentials::MyChartCli { .. }
             | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "google workspace cli materializer does not support {} credentials",
-                target.auth.kind
+                target.auth.kind()
             ))),
         }
     }
@@ -97,8 +97,8 @@ mod tests {
     use std::{fs, path::PathBuf};
 
     use switchboard_core::{
-        AuthKind, AuthSecretRefs, Error, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials,
-        ResolvedNamespace, SecretRef,
+        AuthSecretRefs, Error, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
+        SecretRef,
     };
 
     use crate::{
@@ -265,62 +265,47 @@ mod tests {
     }
 
     fn execution_target(credentials: ResolvedCredentials, state_dir: Option<PathBuf>) -> ExecutionTarget {
-        let (kind, secrets) = match credentials {
-            ResolvedCredentials::GoogleCli => (AuthKind::GoogleCli, AuthSecretRefs::GoogleCli),
-            ResolvedCredentials::GoogleOAuth { .. } => (
-                AuthKind::GoogleOAuth,
-                AuthSecretRefs::GoogleOAuth {
-                    client_id: SecretRef::new("google.work_client_id").expect("secret ref should build"),
-                    client_secret: SecretRef::new("google.work_client_secret").expect("secret ref should build"),
-                    refresh_token: Some(SecretRef::new("google.work_refresh_token").expect("secret ref should build")),
-                },
-            ),
-            ResolvedCredentials::GoogleOAuthFile { .. } => (
-                AuthKind::GoogleOAuthFile,
-                AuthSecretRefs::GoogleOAuthFile {
-                    credentials: SecretRef::new("google.personal_credentials").expect("secret ref should build"),
-                },
-            ),
-            ResolvedCredentials::GitHubToken { .. } => (
-                AuthKind::GitHubToken,
-                AuthSecretRefs::GitHubToken {
-                    token: SecretRef::new("github.personal_token").expect("secret ref should build"),
-                },
-            ),
-            ResolvedCredentials::GitHubCli => (AuthKind::GitHubCli, AuthSecretRefs::None),
-            ResolvedCredentials::MyChartCli { .. } => (
-                AuthKind::MyChartCli,
-                AuthSecretRefs::MyChartCli {
-                    base_url: None,
-                    portal_base_url: None,
-                    client_id: None,
-                    client_secret: None,
-                    redirect_uri: None,
-                    access_token: None,
-                    refresh_token: None,
-                    username: None,
-                },
-            ),
-            ResolvedCredentials::SchwabCli { .. } => (
-                AuthKind::SchwabCli,
-                AuthSecretRefs::SchwabCli {
-                    base_url: None,
-                    market_data_base_url: None,
-                    authorize_url: None,
-                    token_url: None,
-                    client_id: None,
-                    client_secret: None,
-                    third_party_id: None,
-                    client_channel: None,
-                    client_app_id: None,
-                    client_function_id: None,
-                    resource_version: None,
-                    rrbus_pilot_rollout: None,
-                    redirect_uri: None,
-                    access_token: None,
-                    refresh_token: None,
-                },
-            ),
+        let secrets = match credentials {
+            ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
+            ResolvedCredentials::GoogleOAuth { .. } => AuthSecretRefs::GoogleOAuth {
+                client_id: SecretRef::new("google.work_client_id").expect("secret ref should build"),
+                client_secret: SecretRef::new("google.work_client_secret").expect("secret ref should build"),
+                refresh_token: Some(SecretRef::new("google.work_refresh_token").expect("secret ref should build")),
+            },
+            ResolvedCredentials::GoogleOAuthFile { .. } => AuthSecretRefs::GoogleOAuthFile {
+                credentials: SecretRef::new("google.personal_credentials").expect("secret ref should build"),
+            },
+            ResolvedCredentials::GitHubToken { .. } => AuthSecretRefs::GitHubToken {
+                token: SecretRef::new("github.personal_token").expect("secret ref should build"),
+            },
+            ResolvedCredentials::GitHubCli => AuthSecretRefs::GitHubCli,
+            ResolvedCredentials::MyChartCli { .. } => AuthSecretRefs::MyChartCli {
+                base_url: None,
+                portal_base_url: None,
+                client_id: None,
+                client_secret: None,
+                redirect_uri: None,
+                access_token: None,
+                refresh_token: None,
+                username: None,
+            },
+            ResolvedCredentials::SchwabCli { .. } => AuthSecretRefs::SchwabCli {
+                base_url: None,
+                market_data_base_url: None,
+                authorize_url: None,
+                token_url: None,
+                client_id: None,
+                client_secret: None,
+                third_party_id: None,
+                client_channel: None,
+                client_app_id: None,
+                client_function_id: None,
+                resource_version: None,
+                rrbus_pilot_rollout: None,
+                redirect_uri: None,
+                access_token: None,
+                refresh_token: None,
+            },
         };
 
         ExecutionTarget {
@@ -333,8 +318,7 @@ mod tests {
                 state_dir,
             )
             .expect("namespace should build"),
-            auth: ResolvedAuth::new("google.work_auth", kind.provider(), kind, "jess@example.com", secrets)
-                .expect("auth should build"),
+            auth: ResolvedAuth::new("google.work_auth", "jess@example.com", secrets).expect("auth should build"),
             credentials,
         }
     }

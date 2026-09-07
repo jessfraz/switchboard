@@ -41,8 +41,8 @@ impl PolicyEngine for ConfiguredPolicyEngine {
 #[cfg(test)]
 mod tests {
     use switchboard_core::{
-        AuthKind, AuthSecretRefs, BackendKind, ExecutionMode, PlannedAction, PlanningTarget, PolicyDecision,
-        PolicyEngine, ProviderKind, ResolvedAuth, ResolvedNamespace, SecretRef, ToolKind, ToolRequest, WritePolicy,
+        AuthSecretRefs, BackendKind, ExecutionMode, PlannedAction, PlanningTarget, PolicyDecision, PolicyEngine,
+        ProviderKind, ResolvedAuth, ResolvedNamespace, SecretRef, ToolKind, ToolRequest, WritePolicy,
     };
 
     use crate::policy::ConfiguredPolicyEngine;
@@ -92,8 +92,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "google.personal_auth",
-                ProviderKind::GoogleWorkspace,
-                AuthKind::GoogleOAuthFile,
                 "me@gmail.com",
                 AuthSecretRefs::GoogleOAuthFile {
                     credentials: SecretRef::new("google.personal_oauth").expect("secret ref should build"),

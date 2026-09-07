@@ -45,7 +45,7 @@ pub struct StaticAuthStore {
 
 impl StaticAuthStore {
     pub fn new(auth: impl IntoIterator<Item = ResolvedAuth>) -> Self {
-        let auth = auth.into_iter().map(|entry| (entry.id.clone(), entry)).collect();
+        let auth = auth.into_iter().map(|entry| (entry.id().clone(), entry)).collect();
 
         Self { auth }
     }
@@ -349,8 +349,6 @@ mod tests {
             .expect("namespace should build"),
             auth: ResolvedAuth::new(
                 "google.personal_auth",
-                ProviderKind::GoogleWorkspace,
-                switchboard_core::AuthKind::GoogleOAuthFile,
                 "me@gmail.com",
                 switchboard_core::AuthSecretRefs::GoogleOAuthFile {
                     credentials: switchboard_core::SecretRef::new("google.personal_oauth")

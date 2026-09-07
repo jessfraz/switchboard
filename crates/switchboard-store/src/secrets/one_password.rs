@@ -8,7 +8,7 @@ use std::{
 };
 
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
 
 use crate::{
@@ -88,8 +88,8 @@ impl SecretBackend for OnePasswordSecretBackend {
             &self.config,
         )?;
         let config = session.command_config(&self.config);
-        match fetch_item_fields(&secret.id, &item_key, session.token(), &config) {
-            Ok(fields) => {
+        match fetch_item_fields(&secret.id, &item_key, session.token(), &config)? {
+            ItemLookup::Fields(fields) => {
                 cache_item_fields(&self.items, &item_key, &fields);
                 warn_cache_write(
                     "item",
@@ -99,12 +99,7 @@ impl SecretBackend for OnePasswordSecretBackend {
                     return Ok(value.clone());
                 }
             }
-            Err(Error::SecretResolution { reason, .. })
-                if reason.starts_with("1Password CLI returned invalid item JSON") =>
-            {
-                // Fall back to the direct field lookup path if JSON item decoding fails.
-            }
-            Err(error) => return Err(error),
+            ItemLookup::ReadField => {}
         }
 
         let args = item_args(account, vault.as_deref(), item, field);
@@ -327,22 +322,28 @@ impl SessionHandle {
     }
 }
 
+// JSON decoding can request a direct field lookup. CLI execution failures must
+// propagate without retrying or relying on a human-facing error message.
+enum ItemLookup {
+    Fields(BTreeMap<String, SecretString>),
+    ReadField,
+}
+
 fn fetch_item_fields(
     secret_ref: &SecretRef,
     item_key: &OnePasswordItemKey,
     session: Option<&str>,
     config: &OnePasswordConfig,
-) -> Result<BTreeMap<String, SecretString>> {
+) -> Result<ItemLookup> {
     let args = item_json_args(&item_key.account, item_key.vault.as_deref(), &item_key.item);
     let output = run(secret_ref, &args, session, config)?;
-    parse_item_fields(secret_ref, &output)
+    Ok(parse_item_fields(&output))
 }
 
-fn parse_item_fields(secret_ref: &SecretRef, output: &str) -> Result<BTreeMap<String, SecretString>> {
-    let item: OnePasswordItem = serde_json::from_str(output).map_err(|error| Error::SecretResolution {
-        secret_ref: secret_ref.to_string(),
-        reason: format!("1Password CLI returned invalid item JSON: {error}"),
-    })?;
+fn parse_item_fields(output: &str) -> ItemLookup {
+    let Ok(item) = serde_json::from_str::<OnePasswordItem>(output) else {
+        return ItemLookup::ReadField;
+    };
 
     let mut fields = BTreeMap::new();
     for field in item.fields {
@@ -359,7 +360,7 @@ fn parse_item_fields(secret_ref: &SecretRef, output: &str) -> Result<BTreeMap<St
         }
     }
 
-    Ok(fields)
+    ItemLookup::Fields(fields)
 }
 
 fn ensure_session(
@@ -412,7 +413,7 @@ fn ensure_session(
                     cache_token_session(sessions, session_cache_path, account, &token);
                     return Ok(SessionHandle::Token(token));
                 }
-                forget_session(sessions, session_cache_path, account);
+                forget_session(sessions, session_cache_path, account, &CachedSession::Token(token));
             }
             CachedSession::AppIntegration => {
                 if let Some(token) = sign_in(secret_ref, account, config)? {
@@ -425,7 +426,7 @@ fn ensure_session(
                     return Ok(SessionHandle::CliDefault);
                 }
 
-                forget_session(sessions, session_cache_path, account);
+                forget_session(sessions, session_cache_path, account, &CachedSession::AppIntegration);
             }
         }
     }
@@ -588,10 +589,7 @@ fn cache_token_session(
     }
 
     let session = CachedSession::Token(token.to_owned());
-    warn_cache_write(
-        "session",
-        write_session_cache(session_cache_path, account, Some(&session)),
-    );
+    warn_cache_write("session", write_session_cache(session_cache_path, account, &session));
 }
 
 fn cache_app_session(
@@ -611,23 +609,35 @@ fn cache_app_session(
     }
 
     let session = CachedSession::AppIntegration;
-    warn_cache_write(
-        "session",
-        write_session_cache(session_cache_path, account, Some(&session)),
-    );
+    warn_cache_write("session", write_session_cache(session_cache_path, account, &session));
 }
 
-fn forget_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, session_cache_path: Option<&Path>, account: &str) {
-    match sessions.lock() {
-        Ok(mut sessions) => {
+fn forget_session(
+    sessions: &Mutex<BTreeMap<String, CachedSession>>,
+    session_cache_path: Option<&Path>,
+    account: &str,
+    observed: &CachedSession,
+) {
+    {
+        let mut sessions = sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if sessions.get(account) == Some(observed) {
             sessions.remove(account);
-        }
-        Err(poisoned) => {
-            poisoned.into_inner().remove(account);
         }
     }
 
-    warn_cache_write("session", write_session_cache(session_cache_path, account, None));
+    warn_cache_write(
+        "session",
+        update_cache(session_cache_path, |cache: &mut SessionCacheFile| {
+            let current = cache
+                .sessions
+                .get(account)
+                .cloned()
+                .and_then(PersistedSession::into_cached);
+            if current.as_ref() == Some(observed) {
+                cache.sessions.remove(account);
+            }
+        }),
+    );
 }
 
 fn cached_session_on_disk(session_cache_path: Option<&Path>, account: &str) -> Option<CachedSession> {
@@ -707,30 +717,24 @@ fn open_session_cache_lock(path: &Path) -> std::io::Result<Connection> {
     open_cache_lock(path)
 }
 
-fn write_session_cache(
-    session_cache_path: Option<&Path>,
-    account: &str,
-    session: Option<&CachedSession>,
-) -> std::io::Result<()> {
-    let Some(path) = session_cache_path else {
+/// Read, check, and update the latest snapshot while holding the cross-process
+/// lock. A snapshot read before acquiring this lock cannot authorize deletion.
+fn update_cache<T>(path: Option<&Path>, update: impl FnOnce(&mut T)) -> std::io::Result<()>
+where
+    T: Default + DeserializeOwned + Serialize,
+{
+    let Some(path) = path else {
         return Ok(());
     };
-
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-
     let lock_connection = open_cache_lock(path)?;
-
-    let mut cache = read_session_cache(path).unwrap_or_default();
-    match session.and_then(PersistedSession::from_cached) {
-        Some(session) => {
-            cache.sessions.insert(account.to_owned(), session);
-        }
-        _ => {
-            cache.sessions.remove(account);
-        }
-    }
+    let mut cache = fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .unwrap_or_default();
+    update(&mut cache);
 
     let serialized = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
     let temp_path = path.with_extension("tmp");
@@ -741,49 +745,50 @@ fn write_session_cache(
     lock_connection.execute_batch("COMMIT").map_err(std::io::Error::other)
 }
 
+fn write_session_cache(
+    session_cache_path: Option<&Path>,
+    account: &str,
+    session: &CachedSession,
+) -> std::io::Result<()> {
+    let entry = PersistedSession::from_cached(session).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cannot save an empty 1Password session",
+        )
+    })?;
+    update_cache(session_cache_path, |cache: &mut SessionCacheFile| {
+        cache.sessions.insert(account.to_owned(), entry);
+    })
+}
+
 fn write_item_cache_entry(
     item_cache_path: Option<&Path>,
     item_key: &OnePasswordItemKey,
     fields: Option<&BTreeMap<String, SecretString>>,
 ) -> std::io::Result<()> {
-    let Some(path) = item_cache_path else {
-        return Ok(());
-    };
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let lock_connection = open_cache_lock(path)?;
-
-    let mut cache = read_item_cache(path).unwrap_or_default();
-    prune_expired_item_cache_entries(&mut cache);
-
-    match fields {
-        Some(fields) if !fields.is_empty() => {
-            cache.items.insert(
-                item_key.cache_key(),
-                PersistedItemFields {
-                    expires_at_epoch_seconds: unix_timestamp_now() + one_password_item_cache_ttl().as_secs(),
-                    fields: fields
-                        .iter()
-                        .map(|(field, value)| (field.clone(), value.expose().to_owned()))
-                        .collect(),
-                },
-            );
+    update_cache(item_cache_path, |cache: &mut ItemCacheFile| {
+        prune_expired_item_cache_entries(cache);
+        match fields {
+            Some(fields) if !fields.is_empty() => {
+                cache.items.insert(
+                    item_key.cache_key(),
+                    PersistedItemFields {
+                        expires_at_epoch_seconds: unix_timestamp_now() + one_password_item_cache_ttl().as_secs(),
+                        fields: fields
+                            .iter()
+                            .map(|(field, value)| (field.clone(), value.expose().to_owned()))
+                            .collect(),
+                    },
+                );
+            }
+            Some(_) => {
+                cache.items.remove(&item_key.cache_key());
+            }
+            // An expired reader only requests pruning. A concurrent writer may
+            // already have refreshed this key while that reader waited for the lock.
+            None => {}
         }
-        _ => {
-            cache.items.remove(&item_key.cache_key());
-        }
-    }
-
-    let serialized = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
-    let temp_path = path.with_extension("tmp");
-    fs::write(&temp_path, serialized)?;
-    set_owner_only_permissions(&temp_path)?;
-    fs::rename(&temp_path, path)?;
-    set_owner_only_permissions(path)?;
-    lock_connection.execute_batch("COMMIT").map_err(std::io::Error::other)
+    })
 }
 
 fn prune_expired_item_cache_entries(cache: &mut ItemCacheFile) {
@@ -906,6 +911,172 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
     static TEMP_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn expired_item_observation_cannot_delete_a_concurrent_refresh() {
+        let fixture = TempFixtureDir::new();
+        let path = fixture.path.join("onepassword-items.json");
+        let key = OnePasswordItemKey::new("account", None, "item");
+        let expired = super::ItemCacheFile {
+            items: std::collections::BTreeMap::from([(
+                key.cache_key(),
+                super::PersistedItemFields {
+                    expires_at_epoch_seconds: 1,
+                    fields: std::collections::BTreeMap::from([("credential".into(), "old-value".into())]),
+                },
+            )]),
+        };
+        fs::write(&path, serde_json::to_vec(&expired).expect("cache serializes")).expect("expired entry is saved");
+        let observed = super::read_item_cache(&path).expect("reader observes the old cache");
+        assert!(observed
+            .items
+            .values()
+            .all(|entry| entry.expires_at_epoch_seconds <= super::unix_timestamp_now()));
+
+        let replacement = std::collections::BTreeMap::from([(
+            "credential".into(),
+            switchboard_core::SecretString::from("fresh-value".to_owned()),
+        )]);
+        super::write_item_cache_entry(Some(&path), &key, Some(&replacement))
+            .expect("another writer refreshes the entry");
+        // Resume the expired reader's cleanup after the second writer committed.
+        super::write_item_cache_entry(Some(&path), &key, None).expect("stale cleanup succeeds");
+
+        let current = super::cached_item_fields_on_disk(Some(&path), &key).expect("fresh entry survives cleanup");
+        assert_eq!(
+            current.get("credential").expect("credential remains").expose(),
+            "fresh-value"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invalid_session_observation_cannot_delete_a_concurrent_replacement() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        let fixture = TempFixtureDir::new();
+        let path = fixture.path.join("onepassword-sessions.json");
+        let observed_path = fixture.path.join("observed");
+        let continue_path = fixture.path.join("continue");
+        let command = fixture.write_executable(
+            "op",
+            r#"#!/bin/sh
+case "$*" in
+  "--session observed-session whoami --account test.1password.com")
+    : > "$(dirname "$0")/observed"
+    while [ ! -e "$(dirname "$0")/continue" ]; do sleep 0.01; done
+    ;;
+esac
+exit 1
+"#,
+        );
+        let _op = EnvVarGuard::set("SWITCHBOARD_OP_BIN", command.into_os_string());
+        let _generic = EnvVarGuard::remove("OP_SESSION");
+        let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
+        let _connect_host = EnvVarGuard::remove("OP_CONNECT_HOST");
+        let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
+        let initial_sessions = Mutex::new(std::collections::BTreeMap::new());
+        super::cache_token_session(&initial_sessions, Some(&path), "test.1password.com", "observed-session");
+        let sessions = std::sync::Arc::new(Mutex::new(std::collections::BTreeMap::new()));
+        let worker_sessions = std::sync::Arc::clone(&sessions);
+        let worker_path = path.clone();
+        let worker = thread::spawn(move || {
+            let secret_ref = switchboard_core::SecretRef::new("secret").expect("secret ref builds");
+            let config = crate::OnePasswordConfig {
+                timeout_seconds: 5,
+                ..crate::OnePasswordConfig::default()
+            };
+            super::ensure_session(
+                &secret_ref,
+                &worker_sessions,
+                Some(&worker_path),
+                "test.1password.com",
+                &config,
+            )
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while !observed_path.exists() && std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let observed = observed_path.exists();
+        super::cache_token_session(&sessions, Some(&path), "test.1password.com", "replacement-session");
+        fs::write(&continue_path, "").expect("release the failed validation subprocess");
+        assert!(worker.join().expect("validation worker completes").is_err());
+        assert!(
+            observed,
+            "the validator must observe the old session before replacement"
+        );
+
+        let replacement = Some(CachedSession::Token("replacement-session".into()));
+        assert_eq!(cached_session_on_disk(Some(&path), "test.1password.com"), replacement);
+        assert_eq!(super::cached_session(&sessions, "test.1password.com"), replacement);
+    }
+
+    #[test]
+    fn invalid_session_is_removed_only_when_it_still_matches_the_observation() {
+        let fixture = TempFixtureDir::new();
+        let path = fixture.path.join("sessions.json");
+        let sessions = Mutex::new(std::collections::BTreeMap::new());
+        super::cache_token_session(&sessions, Some(&path), "account", "invalid-session");
+        super::cache_token_session(&sessions, Some(&path), "other-account", "other-session");
+        super::forget_session(
+            &sessions,
+            Some(&path),
+            "account",
+            &CachedSession::Token("invalid-session".into()),
+        );
+        assert_eq!(super::cached_session(&sessions, "account"), None);
+        assert_eq!(cached_session_on_disk(Some(&path), "account"), None);
+        assert_eq!(
+            cached_session_on_disk(Some(&path), "other-account"),
+            Some(CachedSession::Token("other-session".into()))
+        );
+    }
+
+    #[test]
+    fn item_json_decoder_preserves_labels_ids_and_scalar_values() {
+        let output = r#"{"fields":[
+            {"id":"username","label":"login","value":"alice"},
+            {"label":"number","value":42},
+            {"label":"enabled","value":true},
+            {"label":"ignored","value":[]}
+        ]}"#;
+        let super::ItemLookup::Fields(fields) = super::parse_item_fields(output) else {
+            panic!("valid item JSON must provide fields");
+        };
+        let values = fields
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.expose()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            values,
+            std::collections::BTreeMap::from([
+                ("username", "alice"),
+                ("login", "alice"),
+                ("number", "42"),
+                ("enabled", "true")
+            ])
+        );
+    }
+
+    #[test]
+    fn item_json_decoder_requests_direct_lookup_for_invalid_json_or_field_shape() {
+        for output in ["not JSON", r#"{"fields":"unexpected shape"}"#] {
+            assert!(matches!(super::parse_item_fields(output), super::ItemLookup::ReadField));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn item_process_failure_is_not_treated_as_a_json_decode_fallback() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        let _op = EnvVarGuard::set("SWITCHBOARD_OP_BIN", "/usr/bin/false".into());
+        let secret_ref = switchboard_core::SecretRef::new("secret").expect("secret ref builds");
+        let key = OnePasswordItemKey::new("account", None, "item");
+        assert!(matches!(
+            super::fetch_item_fields(&secret_ref, &key, None, &crate::OnePasswordConfig::default()),
+            Err(switchboard_core::Error::SecretResolution { .. })
+        ));
+    }
 
     #[test]
     fn cache_write_failure_keeps_the_successful_in_memory_session() {
@@ -1780,7 +1951,7 @@ esac
         let first_session = CachedSession::Token("persisted-session".into());
         let second_session = CachedSession::AppIntegration;
 
-        write_session_cache(Some(&cache_path), first_account, Some(&first_session))
+        write_session_cache(Some(&cache_path), first_account, &first_session)
             .expect("first cache write should succeed");
 
         let lock_connection = open_session_cache_lock(&cache_path).expect("lock file should open");
@@ -1789,7 +1960,7 @@ esac
         let worker_cache_path = cache_path.clone();
         let worker = thread::spawn(move || {
             started_tx.send(()).expect("worker should signal start");
-            write_session_cache(Some(&worker_cache_path), second_account, Some(&second_session))
+            write_session_cache(Some(&worker_cache_path), second_account, &second_session)
                 .expect("second cache write should succeed");
         });
 

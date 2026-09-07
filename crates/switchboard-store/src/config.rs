@@ -6,8 +6,8 @@ use std::{
 
 use serde::Deserialize;
 use switchboard_core::{
-    AuthKind, AuthRef, AuthScopeProfile, AuthSecretRefs, AuthStore, Error, ProviderKind, ResolvedAuth,
-    ResolvedNamespace, ResolvedSecret, Result, SecretRef, SecretSource, SecretStore, WritePolicy,
+    AuthRef, AuthScopeProfile, AuthSecretRefs, AuthStore, Error, ProviderKind, ResolvedAuth, ResolvedNamespace,
+    ResolvedSecret, Result, SecretRef, SecretSource, SecretStore, WritePolicy,
 };
 
 use crate::{
@@ -116,7 +116,8 @@ fn build_auth_store(raw_auth: BTreeMap<String, RawAuth>, secrets: &StaticSecretS
                 raw.provider()
             ))
         })?;
-        let kind = raw.kind();
+        let secret_refs = raw.secret_refs()?;
+        let kind = secret_refs.kind();
 
         if kind.provider() != provider {
             return Err(Error::Config(format!(
@@ -125,7 +126,6 @@ fn build_auth_store(raw_auth: BTreeMap<String, RawAuth>, secrets: &StaticSecretS
             )));
         }
 
-        let secret_refs = raw.secret_refs()?;
         for secret_ref in secret_refs.secret_refs() {
             if secrets.get(secret_ref).is_none() {
                 return Err(Error::Config(format!(
@@ -134,13 +134,7 @@ fn build_auth_store(raw_auth: BTreeMap<String, RawAuth>, secrets: &StaticSecretS
             }
         }
 
-        auth_entries.push(ResolvedAuth::new(
-            auth_ref,
-            provider,
-            kind,
-            raw.account().to_owned(),
-            secret_refs,
-        )?);
+        auth_entries.push(ResolvedAuth::new(auth_ref, raw.account().to_owned(), secret_refs)?);
     }
 
     Ok(StaticAuthStore::new(auth_entries))
@@ -191,10 +185,10 @@ fn build_namespace_store(
                         ))
                     })?;
 
-                    if auth_entry.provider != provider {
+                    if auth_entry.provider() != provider {
                         return Err(Error::Config(format!(
                             "namespace.{provider_key}.{alias} uses auth ref {auth_ref}, which belongs to provider {}, not {provider}",
-                            auth_entry.provider
+                            auth_entry.provider()
                         )));
                     }
 
@@ -203,10 +197,10 @@ fn build_namespace_store(
                 None if provider_uses_implicit_cli_auth(&provider) => {
                     let auth_ref = default_cli_auth_ref(&provider, &alias)?;
                     match auth.get(&auth_ref) {
-                        Some(auth_entry) if auth_entry.provider != provider => {
+                        Some(auth_entry) if auth_entry.provider() != provider => {
                             return Err(Error::Config(format!(
                                 "namespace.{provider_key}.{alias} uses implicit auth ref {auth_ref}, which belongs to provider {}, not {provider}",
-                                auth_entry.provider
+                                auth_entry.provider()
                             )));
                         }
                         Some(_) => {}
@@ -288,41 +282,35 @@ fn default_cli_auth_ref(provider: &ProviderKind, alias: &str) -> Result<AuthRef>
 }
 
 fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, account: &str) -> Result<ResolvedAuth> {
-    let (kind, secrets) = match provider {
-        ProviderKind::GoogleWorkspace => (AuthKind::GoogleCli, AuthSecretRefs::GoogleCli),
-        ProviderKind::MyChart => (
-            AuthKind::MyChartCli,
-            AuthSecretRefs::MyChartCli {
-                base_url: None,
-                portal_base_url: None,
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                access_token: None,
-                refresh_token: None,
-                username: None,
-            },
-        ),
-        ProviderKind::Schwab => (
-            AuthKind::SchwabCli,
-            AuthSecretRefs::SchwabCli {
-                base_url: None,
-                market_data_base_url: None,
-                authorize_url: None,
-                token_url: None,
-                client_id: None,
-                client_secret: None,
-                third_party_id: None,
-                client_channel: None,
-                client_app_id: None,
-                client_function_id: None,
-                resource_version: None,
-                rrbus_pilot_rollout: None,
-                redirect_uri: None,
-                access_token: None,
-                refresh_token: None,
-            },
-        ),
+    let secrets = match provider {
+        ProviderKind::GoogleWorkspace => AuthSecretRefs::GoogleCli,
+        ProviderKind::MyChart => AuthSecretRefs::MyChartCli {
+            base_url: None,
+            portal_base_url: None,
+            client_id: None,
+            client_secret: None,
+            redirect_uri: None,
+            access_token: None,
+            refresh_token: None,
+            username: None,
+        },
+        ProviderKind::Schwab => AuthSecretRefs::SchwabCli {
+            base_url: None,
+            market_data_base_url: None,
+            authorize_url: None,
+            token_url: None,
+            client_id: None,
+            client_secret: None,
+            third_party_id: None,
+            client_channel: None,
+            client_app_id: None,
+            client_function_id: None,
+            resource_version: None,
+            rrbus_pilot_rollout: None,
+            redirect_uri: None,
+            access_token: None,
+            refresh_token: None,
+        },
         _ => {
             return Err(Error::Config(format!(
                 "provider {provider} does not support implicit CLI auth"
@@ -330,7 +318,7 @@ fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, account: &str) -
         }
     };
 
-    ResolvedAuth::new(auth_ref.as_str(), provider, kind, account.to_owned(), secrets)
+    ResolvedAuth::new(auth_ref.as_str(), account.to_owned(), secrets)
 }
 
 #[derive(Debug, Deserialize)]
@@ -495,21 +483,9 @@ impl RawAuth {
         }
     }
 
-    fn kind(&self) -> AuthKind {
-        match self {
-            Self::GitHubCli { .. } => AuthKind::GitHubCli,
-            Self::GitHubToken { .. } => AuthKind::GitHubToken,
-            Self::GoogleCli { .. } => AuthKind::GoogleCli,
-            Self::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
-            Self::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
-            Self::MyChartCli { .. } => AuthKind::MyChartCli,
-            Self::SchwabCli { .. } => AuthKind::SchwabCli,
-        }
-    }
-
     fn secret_refs(&self) -> Result<AuthSecretRefs> {
         match self {
-            Self::GitHubCli { .. } => Ok(AuthSecretRefs::None),
+            Self::GitHubCli { .. } => Ok(AuthSecretRefs::GitHubCli),
             Self::GoogleCli { .. } => Ok(AuthSecretRefs::GoogleCli),
             Self::GitHubToken { token, .. } => Ok(AuthSecretRefs::GitHubToken {
                 token: SecretRef::new(token)?,
@@ -740,8 +716,8 @@ account = "personal@example.com"
                 .get(&NamespaceId::new(format!("google.{alias}")).expect("namespace ID should be valid"))
                 .expect("configured namespace should exist");
             let credentials = auth.get(&namespace.auth_ref).expect("implicit auth should exist");
-            assert_eq!(credentials.kind.to_string(), "google_cli");
-            assert_eq!(credentials.account_label, account);
+            assert_eq!(credentials.kind().to_string(), "google_cli");
+            assert_eq!(credentials.account_label(), account);
             assert!(credentials.secret_refs().is_empty());
             let state_dir = namespace.state_dir.expect("Google state directory should be derived");
             assert!(state_dir.ends_with(Path::new("namespaces").join(format!("google.{alias}"))));
@@ -846,31 +822,31 @@ account = "eight@example.com"
         let google_work_auth = auth
             .get(&AuthRef::new("google_work").expect("auth ref should parse"))
             .expect("google work auth should exist");
-        assert_eq!(google_work_auth.kind, AuthKind::GoogleOAuth);
+        assert_eq!(google_work_auth.kind(), AuthKind::GoogleOAuth);
         assert_eq!(google_work_auth.secret_refs().len(), 2);
 
         let google_personal_auth = auth
             .get(&AuthRef::new("google_personal").expect("auth ref should parse"))
             .expect("google personal auth should exist");
-        assert_eq!(google_personal_auth.kind, AuthKind::GoogleOAuthFile);
+        assert_eq!(google_personal_auth.kind(), AuthKind::GoogleOAuthFile);
         assert_eq!(google_personal_auth.secret_refs().len(), 1);
 
         let github_token_auth = auth
             .get(&AuthRef::new("github_personal_token").expect("auth ref should parse"))
             .expect("github token auth should exist");
-        assert_eq!(github_token_auth.kind, AuthKind::GitHubToken);
+        assert_eq!(github_token_auth.kind(), AuthKind::GitHubToken);
         assert_eq!(github_token_auth.secret_refs().len(), 1);
 
         let mychart_auth = auth
             .get(&AuthRef::new("mychart_ucla").expect("auth ref should parse"))
             .expect("mychart auth should exist");
-        assert_eq!(mychart_auth.kind, AuthKind::MyChartCli);
+        assert_eq!(mychart_auth.kind(), AuthKind::MyChartCli);
         assert!(mychart_auth.secret_refs().is_empty());
 
         let schwab_auth = auth
             .get(&AuthRef::new("schwab_personal").expect("auth ref should parse"))
             .expect("schwab auth should exist");
-        assert_eq!(schwab_auth.kind, AuthKind::SchwabCli);
+        assert_eq!(schwab_auth.kind(), AuthKind::SchwabCli);
         assert_eq!(schwab_auth.secret_refs().len(), 2);
 
         assert_eq!(secrets.list().len(), 6);
@@ -936,7 +912,7 @@ account = "eight@example.com"
             .expect("configured namespace should exist");
         let credentials = auth.get(&namespace.auth_ref).expect("matching auth should exist");
         assert_eq!(namespace.auth_ref.as_str(), "google_personal");
-        assert_eq!(credentials.kind, AuthKind::GoogleOAuthFile);
+        assert_eq!(credentials.kind(), AuthKind::GoogleOAuthFile);
         assert_eq!(credentials.secret_refs().len(), 1);
     }
 
@@ -973,7 +949,7 @@ state_dir = "/tmp/existing-gws-login"
             .get(&NamespaceId::new("google.personal").expect("namespace ID should be valid"))
             .expect("configured namespace should exist");
         let credentials = auth.get(&namespace.auth_ref).expect("explicit auth should exist");
-        assert_eq!(credentials.kind, AuthKind::GoogleCli);
+        assert_eq!(credentials.kind(), AuthKind::GoogleCli);
         assert_eq!(namespace.auth_ref.as_str(), "existing_login");
         assert_eq!(namespace.state_dir, Some(PathBuf::from("/tmp/existing-gws-login")));
         assert!(credentials.secret_refs().is_empty());
@@ -1033,8 +1009,8 @@ state_dir = "/tmp/existing-gws-login"
             .expect("mychart_ucla auth should exist");
 
         assert_eq!(namespace.auth_ref.as_str(), "mychart_ucla");
-        assert_eq!(auth_entry.kind, AuthKind::MyChartCli);
-        assert_eq!(auth_entry.account_label, "ucla-overrides");
+        assert_eq!(auth_entry.kind(), AuthKind::MyChartCli);
+        assert_eq!(auth_entry.account_label(), "ucla-overrides");
         assert_eq!(auth_entry.secret_refs().len(), 1);
     }
 
@@ -1051,8 +1027,8 @@ state_dir = "/tmp/existing-gws-login"
             .expect("schwab_personal auth should exist");
 
         assert_eq!(namespace.auth_ref.as_str(), "schwab_personal");
-        assert_eq!(auth_entry.kind, AuthKind::SchwabCli);
-        assert_eq!(auth_entry.account_label, "jessfraz-overrides");
+        assert_eq!(auth_entry.kind(), AuthKind::SchwabCli);
+        assert_eq!(auth_entry.account_label(), "jessfraz-overrides");
         assert_eq!(auth_entry.secret_refs().len(), 1);
     }
 

@@ -11,8 +11,16 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "String")]
 pub struct AuthRef(String);
+
+impl TryFrom<String> for AuthRef {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::new(value)
+    }
+}
 
 impl AuthRef {
     pub fn new(value: impl Into<String>) -> Result<Self> {
@@ -186,7 +194,7 @@ impl ResolvedSecret {
 #[serde(tag = "kind")]
 pub enum AuthSecretRefs {
     #[serde(rename = "none")]
-    None,
+    GitHubCli,
     #[serde(rename = "github_token")]
     GitHubToken { token: SecretRef },
     #[serde(rename = "google_cli")]
@@ -255,22 +263,21 @@ pub enum AuthSecretRefs {
 }
 
 impl AuthSecretRefs {
-    pub fn matches_kind(&self, kind: AuthKind) -> bool {
-        matches!(
-            (kind, self),
-            (AuthKind::GitHubCli, Self::None)
-                | (AuthKind::GitHubToken, Self::GitHubToken { .. })
-                | (AuthKind::GoogleCli, Self::GoogleCli)
-                | (AuthKind::GoogleOAuth, Self::GoogleOAuth { .. })
-                | (AuthKind::GoogleOAuthFile, Self::GoogleOAuthFile { .. })
-                | (AuthKind::MyChartCli, Self::MyChartCli { .. })
-                | (AuthKind::SchwabCli, Self::SchwabCli { .. })
-        )
+    pub fn kind(&self) -> AuthKind {
+        match self {
+            Self::GitHubCli => AuthKind::GitHubCli,
+            Self::GitHubToken { .. } => AuthKind::GitHubToken,
+            Self::GoogleCli => AuthKind::GoogleCli,
+            Self::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
+            Self::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
+            Self::MyChartCli { .. } => AuthKind::MyChartCli,
+            Self::SchwabCli { .. } => AuthKind::SchwabCli,
+        }
     }
 
     pub fn secret_refs(&self) -> Vec<&SecretRef> {
         match self {
-            Self::None | Self::GoogleCli => Vec::new(),
+            Self::GitHubCli | Self::GoogleCli => Vec::new(),
             Self::GitHubToken { token } => vec![token],
             Self::GoogleOAuth {
                 client_id,
@@ -347,45 +354,79 @@ impl AuthSecretRefs {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+/// Authentication whose provider and kind are determined by its credential variant.
+///
+/// Contradictory provider and auth-kind fields cannot be constructed:
+///
+/// ```compile_fail
+/// use switchboard_core::{AuthKind, AuthRef, AuthSecretRefs, ProviderKind, ResolvedAuth};
+///
+/// let auth = ResolvedAuth {
+///     id: AuthRef::new("google_personal").expect("valid auth reference"),
+///     provider: ProviderKind::GitHub,
+///     kind: AuthKind::GoogleCli,
+///     account_label: "personal".into(),
+///     secrets: AuthSecretRefs::GoogleCli,
+/// };
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedAuth {
-    pub id: AuthRef,
-    pub provider: ProviderKind,
-    pub kind: AuthKind,
-    pub account_label: String,
-    pub secrets: AuthSecretRefs,
+    id: AuthRef,
+    account_label: String,
+    secrets: AuthSecretRefs,
 }
 
 impl ResolvedAuth {
-    pub fn new(
-        id: impl Into<String>,
-        provider: ProviderKind,
-        kind: AuthKind,
-        account_label: impl Into<String>,
-        secrets: AuthSecretRefs,
-    ) -> Result<Self> {
+    pub fn new(id: impl Into<String>, account_label: impl Into<String>, secrets: AuthSecretRefs) -> Result<Self> {
         let account_label = account_label.into();
-        if account_label.trim().is_empty() {
-            return Err(Error::InvalidArguments("auth account label cannot be empty".into()));
-        }
-
-        if !secrets.matches_kind(kind) {
-            return Err(Error::InvalidArguments(format!(
-                "auth kind {kind} does not accept the configured secret references"
-            )));
-        }
+        crate::types::validate_non_empty("auth account label", &account_label)?;
 
         Ok(Self {
             id: AuthRef::new(id)?,
-            provider,
-            kind,
             account_label,
             secrets,
         })
     }
 
+    pub fn id(&self) -> &AuthRef {
+        &self.id
+    }
+
+    pub fn provider(&self) -> ProviderKind {
+        self.kind().provider()
+    }
+
+    pub fn kind(&self) -> AuthKind {
+        self.secrets.kind()
+    }
+
+    pub fn account_label(&self) -> &str {
+        &self.account_label
+    }
+
+    pub fn secrets(&self) -> &AuthSecretRefs {
+        &self.secrets
+    }
+
     pub fn secret_refs(&self) -> Vec<&SecretRef> {
         self.secrets.secret_refs()
+    }
+}
+
+impl Serialize for ResolvedAuth {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut state = serializer.serialize_struct("ResolvedAuth", 5)?;
+        state.serialize_field("id", self.id())?;
+        state.serialize_field("provider", &self.provider())?;
+        state.serialize_field("kind", &self.kind())?;
+        state.serialize_field("account_label", self.account_label())?;
+        state.serialize_field("secrets", self.secrets())?;
+        state.end()
     }
 }
 
@@ -456,7 +497,7 @@ pub enum ResolvedCredentials {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AuthKind, AuthSecretRefs, ProviderKind, ResolvedAuth};
+    use crate::{AuthKind, AuthSecretRefs, ProviderKind, ResolvedAuth, SecretRef};
 
     #[test]
     fn google_cli_auth_is_distinct_and_requires_no_secrets() {
@@ -466,17 +507,123 @@ mod tests {
             serde_json::to_string(&AuthKind::GoogleCli).expect("auth kind should serialize"),
             "\"google_cli\""
         );
+        let auth = ResolvedAuth::new("google_personal", "personal@example.com", AuthSecretRefs::GoogleCli)
+            .expect("CLI-managed Google auth should be valid");
+        assert!(auth.secret_refs().is_empty());
+        assert_eq!(auth.kind(), AuthKind::GoogleCli);
+        assert_eq!(auth.provider(), ProviderKind::GoogleWorkspace);
+        assert_eq!(AuthSecretRefs::GitHubCli.kind(), AuthKind::GitHubCli);
+    }
+
+    #[test]
+    fn auth_identity_follows_its_credential_variant() {
+        let cases = [
+            (AuthSecretRefs::GitHubCli, AuthKind::GitHubCli, ProviderKind::GitHub),
+            (
+                AuthSecretRefs::GitHubToken {
+                    token: SecretRef::new("github_token").expect("valid token reference"),
+                },
+                AuthKind::GitHubToken,
+                ProviderKind::GitHub,
+            ),
+            (
+                AuthSecretRefs::GoogleCli,
+                AuthKind::GoogleCli,
+                ProviderKind::GoogleWorkspace,
+            ),
+            (
+                AuthSecretRefs::GoogleOAuth {
+                    client_id: SecretRef::new("client_id").expect("valid client ID reference"),
+                    client_secret: SecretRef::new("client_secret").expect("valid client secret reference"),
+                    refresh_token: None,
+                },
+                AuthKind::GoogleOAuth,
+                ProviderKind::GoogleWorkspace,
+            ),
+            (
+                AuthSecretRefs::GoogleOAuthFile {
+                    credentials: SecretRef::new("credentials").expect("valid credentials reference"),
+                },
+                AuthKind::GoogleOAuthFile,
+                ProviderKind::GoogleWorkspace,
+            ),
+            (
+                AuthSecretRefs::MyChartCli {
+                    base_url: None,
+                    portal_base_url: None,
+                    client_id: None,
+                    client_secret: None,
+                    redirect_uri: None,
+                    access_token: None,
+                    refresh_token: None,
+                    username: None,
+                },
+                AuthKind::MyChartCli,
+                ProviderKind::MyChart,
+            ),
+            (
+                AuthSecretRefs::SchwabCli {
+                    base_url: None,
+                    market_data_base_url: None,
+                    authorize_url: None,
+                    token_url: None,
+                    client_id: None,
+                    client_secret: None,
+                    third_party_id: None,
+                    client_channel: None,
+                    client_app_id: None,
+                    client_function_id: None,
+                    resource_version: None,
+                    rrbus_pilot_rollout: None,
+                    redirect_uri: None,
+                    access_token: None,
+                    refresh_token: None,
+                },
+                AuthKind::SchwabCli,
+                ProviderKind::Schwab,
+            ),
+        ];
+
+        for (secrets, kind, provider) in cases {
+            let auth = ResolvedAuth::new("auth_ref", "account", secrets.clone()).expect("valid auth");
+            assert_eq!(auth.id().as_str(), "auth_ref");
+            assert_eq!(auth.account_label(), "account");
+            assert_eq!(auth.kind(), kind);
+            assert_eq!(auth.provider(), provider);
+            assert_eq!(auth.secrets(), &secrets);
+        }
+    }
+
+    #[test]
+    fn auth_serialization_keeps_existing_fields_and_credential_tags() {
+        let auth =
+            ResolvedAuth::new("github_personal", "personal", AuthSecretRefs::GitHubCli).expect("valid GitHub auth");
+        assert_eq!(
+            serde_json::to_string(&auth).expect("auth should serialize"),
+            r#"{"id":"github_personal","provider":"github","kind":"gh_cli","account_label":"personal","secrets":{"kind":"none"}}"#
+        );
+
         let auth = ResolvedAuth::new(
             "google_personal",
-            ProviderKind::GoogleWorkspace,
-            AuthKind::GoogleCli,
-            "personal@example.com",
-            AuthSecretRefs::GoogleCli,
+            "personal",
+            AuthSecretRefs::GoogleOAuth {
+                client_id: SecretRef::new("client_id").expect("valid client ID reference"),
+                client_secret: SecretRef::new("client_secret").expect("valid client secret reference"),
+                refresh_token: None,
+            },
         )
-        .expect("CLI-managed Google auth should be valid");
-        assert!(auth.secret_refs().is_empty());
-        assert!(!AuthSecretRefs::GoogleCli.matches_kind(AuthKind::GitHubCli));
-        assert!(!AuthSecretRefs::GoogleCli.matches_kind(AuthKind::GoogleOAuth));
-        assert!(!AuthSecretRefs::None.matches_kind(AuthKind::GoogleCli));
+        .expect("valid Google auth");
+        assert_eq!(
+            serde_json::to_string(&auth).expect("auth should serialize"),
+            r#"{"id":"google_personal","provider":"google","kind":"google_oauth","account_label":"personal","secrets":{"kind":"google_oauth","client_id":"client_id","client_secret":"client_secret"}}"#
+        );
+    }
+
+    #[test]
+    fn auth_constructor_preserves_identity_validation() {
+        for invalid in ["", " ", "\n\t"] {
+            assert!(ResolvedAuth::new(invalid, "account", AuthSecretRefs::GoogleCli).is_err());
+            assert!(ResolvedAuth::new("auth_ref", invalid, AuthSecretRefs::GoogleCli).is_err());
+        }
     }
 }

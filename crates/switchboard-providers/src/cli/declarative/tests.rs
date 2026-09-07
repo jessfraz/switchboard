@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use switchboard_core::{
-    AuthKind, AuthSecretRefs, ExecutionMode, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind,
-    ResolvedAuth, ResolvedCredentials, ResolvedNamespace, ToolArgument, ToolKind, ToolOutput, ToolRefKind, ToolRequest,
+    AuthSecretRefs, ExecutionMode, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, ResolvedAuth,
+    ResolvedCredentials, ResolvedNamespace, ToolArgument, ToolKind, ToolOutput, ToolRefKind, ToolRequest,
 };
 
 use crate::cli::{
@@ -686,8 +686,6 @@ fn planning_target() -> PlanningTarget {
         .expect("namespace should build"),
         auth: ResolvedAuth::new(
             "github.personal_auth",
-            ProviderKind::GitHub,
-            AuthKind::GitHubToken,
             "GitHub personal",
             AuthSecretRefs::GitHubToken {
                 token: switchboard_core::SecretRef::new("github.personal.token").expect("secret ref should build"),
@@ -710,8 +708,6 @@ fn execution_target() -> ExecutionTarget {
         .expect("namespace should build"),
         auth: ResolvedAuth::new(
             "github.personal_auth",
-            ProviderKind::GitHub,
-            AuthKind::GitHubToken,
             "GitHub personal",
             AuthSecretRefs::GitHubToken {
                 token: switchboard_core::SecretRef::new("github.personal.token").expect("secret ref should build"),
@@ -737,8 +733,6 @@ fn google_planning_target() -> PlanningTarget {
         .expect("namespace should build"),
         auth: ResolvedAuth::new(
             "google.work_auth",
-            ProviderKind::GoogleWorkspace,
-            AuthKind::GoogleOAuth,
             "Google Workspace work",
             AuthSecretRefs::GoogleOAuth {
                 client_id: switchboard_core::SecretRef::new("google.work.client_id").expect("secret ref should build"),
@@ -764,8 +758,6 @@ fn google_execution_target() -> ExecutionTarget {
         .expect("namespace should build"),
         auth: ResolvedAuth::new(
             "google.work_auth",
-            ProviderKind::GoogleWorkspace,
-            AuthKind::GoogleOAuth,
             "Google Workspace work",
             AuthSecretRefs::GoogleOAuth {
                 client_id: switchboard_core::SecretRef::new("google.work.client_id").expect("secret ref should build"),

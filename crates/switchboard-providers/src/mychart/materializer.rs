@@ -26,7 +26,7 @@ impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
             context.clear_env(CONFIG_ENV);
         }
 
-        context.set_env(ACCOUNT_ENV, target.auth.account_label.clone());
+        context.set_env(ACCOUNT_ENV, target.auth.account_label());
         context.clear_env(DEBUG_AUTH_ENV);
 
         match &target.credentials {
@@ -57,7 +57,7 @@ impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
             | ResolvedCredentials::GoogleOAuthFile { .. }
             | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "mychart cli materializer does not support {} credentials",
-                target.auth.kind
+                target.auth.kind()
             ))),
         }
     }
@@ -79,8 +79,7 @@ mod tests {
     use std::path::PathBuf;
 
     use switchboard_core::{
-        AuthKind, AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace,
-        SecretRef,
+        AuthSecretRefs, ExecutionTarget, ProviderKind, ResolvedAuth, ResolvedCredentials, ResolvedNamespace, SecretRef,
     };
 
     use crate::{
@@ -201,12 +200,12 @@ mod tests {
                 refresh_token: Some(SecretRef::new("mychart.ucla_refresh_token").expect("secret ref should build")),
                 username: Some(SecretRef::new("mychart.ucla_username").expect("secret ref should build")),
             },
-            ResolvedCredentials::GitHubCli => AuthSecretRefs::None,
+            ResolvedCredentials::GitHubCli => AuthSecretRefs::GitHubCli,
             ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
             ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
-            | ResolvedCredentials::SchwabCli { .. } => AuthSecretRefs::None,
+            | ResolvedCredentials::SchwabCli { .. } => AuthSecretRefs::GitHubCli,
         };
 
         ExecutionTarget {
@@ -219,22 +218,7 @@ mod tests {
                 state_dir,
             )
             .expect("namespace should build"),
-            auth: ResolvedAuth::new(
-                "mychart_ucla",
-                ProviderKind::MyChart,
-                match credentials {
-                    ResolvedCredentials::MyChartCli { .. } => AuthKind::MyChartCli,
-                    ResolvedCredentials::GitHubCli => AuthKind::GitHubCli,
-                    ResolvedCredentials::GitHubToken { .. } => AuthKind::GitHubToken,
-                    ResolvedCredentials::GoogleCli => AuthKind::GoogleCli,
-                    ResolvedCredentials::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
-                    ResolvedCredentials::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
-                    ResolvedCredentials::SchwabCli { .. } => AuthKind::SchwabCli,
-                },
-                "ucla",
-                secrets,
-            )
-            .expect("auth should build"),
+            auth: ResolvedAuth::new("mychart_ucla", "ucla", secrets).expect("auth should build"),
             credentials,
         }
     }

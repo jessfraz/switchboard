@@ -63,8 +63,16 @@ impl Display for ProviderKind {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "String")]
 pub struct NamespaceId(String);
+
+impl TryFrom<String> for NamespaceId {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::new(value)
+    }
+}
 
 impl NamespaceId {
     pub fn new(value: impl Into<String>) -> Result<Self> {
@@ -88,8 +96,16 @@ impl Display for NamespaceId {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "String")]
 pub struct ToolName(String);
+
+impl TryFrom<String> for ToolName {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::new(value)
+    }
+}
 
 impl ToolName {
     pub fn new(value: impl Into<String>) -> Result<Self> {
@@ -117,8 +133,16 @@ impl Display for ToolName {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
+#[serde(try_from = "String")]
 pub struct OperationId(String);
+
+impl TryFrom<String> for OperationId {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        Self::new(value)
+    }
+}
 
 impl OperationId {
     pub fn new(value: impl Into<String>) -> Result<Self> {
