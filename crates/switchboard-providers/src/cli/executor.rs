@@ -1,9 +1,10 @@
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
+    time::Duration,
 };
 
-use switchboard_core::{Error, Result};
+use switchboard_core::{process::output_with_timeout, Error, Result};
 
 use crate::process_runtime::ProcessContext;
 
@@ -39,7 +40,8 @@ impl CliExecutor for ProcessCliExecutor {
 
         match invocation.stdio_mode {
             CliStdioMode::Capture => {
-                let output = command.output().map_err(|error| execution_error(&invocation, error))?;
+                let output = output_with_timeout(&mut command, Duration::from_secs(60))
+                    .map_err(|error| execution_error(&invocation, error))?;
 
                 let stdout = String::from_utf8(output.stdout).map_err(|error| {
                     Error::Execution(format!(
@@ -97,6 +99,12 @@ impl CliExecutor for ProcessCliExecutor {
 }
 
 fn execution_error(invocation: &CliInvocation, error: std::io::Error) -> Error {
+    if error.kind() == std::io::ErrorKind::TimedOut {
+        return Error::Execution(format!(
+            "{} timed out after 60 seconds. The remote outcome may be unknown; check the provider before retrying a write",
+            invocation.program.display()
+        ));
+    }
     Error::Execution(format!(
         "failed to run {} {}: {error}",
         invocation.program.display(),

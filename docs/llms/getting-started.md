@@ -10,19 +10,23 @@ This page is for model callers and agent authors, not for people looking for a m
 - Repeat `--ns` only for aggregate reads.
 - Draft writes first. Use `--draft` or the equivalent planning mode before `--apply`.
 - Treat `*.cli.read` and `*.cli.write` as escape hatches, not defaults.
-- Do not assume a CLI is multi-login-safe on its own. Namespace `state_dir` exists because some provider CLIs absolutely are not.
+- Google namespaces get isolated file-backed state automatically. Preserve an
+  explicit `state_dir` when reusing an existing login.
+- Invoke Switchboard without Google credential-storage environment prefixes.
+  It sets the file backend and namespace directory itself.
 
 ## Mental model
 
 - `switchboard` is the stable local contract.
 - Provider CLIs and APIs are the unstable implementation detail.
-- Namespaces pin provider, account label, auth, and optional state separation.
+- Namespaces pin provider, account label, auth, and isolated provider state.
 - Policy decides whether a write is allowed, denied, or needs approval.
 - Audit records what was planned, approved, rejected, applied, or compensated.
 
 ## Discovery loop
 
 ```sh
+switchboard doctor --json
 switchboard tools list --json
 switchboard tools describe github.repository.search --json
 switchboard tools describe google.cli.read --json
@@ -59,6 +63,19 @@ switchboard github.cli.write --ns github.personal --draft -- --repo owner/repo i
 
 ## Failure modes to avoid
 
+- Use `switchboard doctor --ns google.personal --json` for config, binary,
+  cache, and credential-file diagnostics. It does not authenticate or expose
+  secrets. Saved-file presence alone does not establish a valid login.
+- Google defaults to `google_cli` when no matching auth block exists. This mode
+  uses the namespace's saved login without fetching OAuth secrets from
+  1Password. Explicit `google_oauth` and `google_oauth_file` still resolve their
+  configured secrets.
+- For a missing Google login, stage `google.cli.write --ns <namespace> --draft
+  -- auth login`, then approve/apply the operation. Switchboard supplies shared
+  scope defaults and checks the account after login.
+- Do not repeat biometric-unlock prefixes on every call. Switchboard's
+  `[one_password]` configuration controls the default integration mode, while
+  respecting explicit 1Password authentication settings.
 - Do not assume current shell auth equals the right namespace.
 - Do not collapse multiple account contexts into one namespace.
 - Do not skip planning for writes just because the provider CLI supports a direct mutation.

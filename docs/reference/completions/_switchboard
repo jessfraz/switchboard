@@ -56,6 +56,15 @@ _arguments "${_arguments_options[@]}" : \
     ;;
 esac
 ;;
+(doctor)
+_arguments "${_arguments_options[@]}" : \
+'--ns=[Inspect one namespace instead of all configured namespaces]:NAMESPACE:_default' \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (tools)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
@@ -217,6 +226,7 @@ esac
 _switchboard_commands() {
     local commands; commands=(
 'ns:' \
+'doctor:Inspect configuration, saved state, and CLI availability without authenticating' \
 'tools:' \
 'audit:' \
 'op:' \
@@ -240,6 +250,11 @@ _switchboard__subcmd__audit__subcmd__list_commands() {
 _switchboard__subcmd__audit__subcmd__show_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard audit show commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__doctor_commands] )) ||
+_switchboard__subcmd__doctor_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard doctor commands' commands "$@"
 }
 (( $+functions[_switchboard__subcmd__ns_commands] )) ||
 _switchboard__subcmd__ns_commands() {

@@ -21,6 +21,9 @@ Print version
 .TP
 switchboard\-ns(1)
 .TP
+switchboard\-doctor(1)
+Inspect configuration, saved state, and CLI availability without authenticating
+.TP
 switchboard\-tools(1)
 .TP
 switchboard\-audit(1)
@@ -37,6 +40,7 @@ Raw CLI Coverage:
 
 Examples:
   switchboard ns list
+  switchboard doctor \-\-ns google.personal
   switchboard tools list
   switchboard tools describe google.cli.write
   switchboard tools describe github.cli.read

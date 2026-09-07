@@ -1,6 +1,7 @@
 mod engine;
 mod error;
 mod operation;
+pub mod process;
 mod traits;
 mod types;
 

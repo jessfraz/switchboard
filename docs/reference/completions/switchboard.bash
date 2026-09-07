@@ -19,6 +19,9 @@ _switchboard() {
             switchboard,audit)
                 cmd="switchboard__subcmd__audit"
                 ;;
+            switchboard,doctor)
+                cmd="switchboard__subcmd__doctor"
+                ;;
             switchboard,ns)
                 cmd="switchboard__subcmd__ns"
                 ;;
@@ -68,7 +71,7 @@ _switchboard() {
 
     case "${cmd}" in
         switchboard)
-            opts="-h -V --config --help --version ns tools audit op"
+            opts="-h -V --config --help --version ns doctor tools audit op"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -132,6 +135,28 @@ _switchboard() {
                 return 0
             fi
             case "${prev}" in
+                --config)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        switchboard__subcmd__doctor)
+            opts="-h --ns --json --config --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --ns)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --config)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

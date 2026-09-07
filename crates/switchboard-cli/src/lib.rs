@@ -19,6 +19,7 @@ use switchboard_store::{
 pub mod catalog;
 
 mod args;
+mod doctor;
 mod output;
 
 #[cfg(test)]
@@ -45,6 +46,7 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
     let config = SwitchboardConfig::from_file(&config_path).context("failed to load switchboard config")?;
     let policy = config.policy_engine();
+    let one_password = config.one_password.clone();
     let (namespaces, auth, secrets) = config.into_stores();
     let state_db_path = resolve_operation_store_path(&config_path);
     let one_password_session_cache = state_db_path
@@ -59,9 +61,10 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
         Arc::new(namespaces),
         Arc::new(auth),
         Arc::new(secrets),
-        Arc::new(LocalSecretResolver::with_one_password_session_cache(Some(
-            one_password_session_cache,
-        ))),
+        Arc::new(LocalSecretResolver::with_one_password_config(
+            Some(one_password_session_cache),
+            one_password,
+        )),
         Arc::new(policy),
         Arc::new(audit),
         Arc::new(operations),
@@ -126,6 +129,10 @@ where
 fn run(cli: Cli) -> Result<String> {
     let config_path = cli.config.clone();
     let json_requested = cli.json_requested();
+    let command = cli.command.into_runtime_command()?;
+    if let CommandKind::Doctor(arguments) = command {
+        return doctor::run(config_path.as_deref(), arguments);
+    }
     let switchboard = load_switchboard(config_path.as_deref());
     let switchboard = match switchboard {
         Ok(switchboard) => switchboard,
@@ -133,7 +140,8 @@ fn run(cli: Cli) -> Result<String> {
         Err(error) => return Err(error.context("failed to initialize switchboard")),
     };
 
-    match cli.command.into_runtime_command()? {
+    match command {
+        CommandKind::Doctor(arguments) => doctor::run(config_path.as_deref(), arguments),
         CommandKind::NamespaceList => {
             let namespaces = switchboard.list_namespaces();
             if json_requested {

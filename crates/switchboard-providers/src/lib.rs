@@ -15,7 +15,11 @@ use switchboard_core::AdapterRegistry;
 
 use crate::inventory::CliInventory;
 pub use crate::{
-    github::GitHubAdapter, google::GoogleWorkspaceAdapter, mychart::MyChartAdapter, schwab::SchwabAdapter,
+    cli::diagnostics::{diagnose_one_password_cli, diagnose_provider_cli, CliBinaryDiagnostic},
+    github::GitHubAdapter,
+    google::GoogleWorkspaceAdapter,
+    mychart::MyChartAdapter,
+    schwab::SchwabAdapter,
 };
 
 /// Validate one provider manifest against the shared schema and embedded inventory model.

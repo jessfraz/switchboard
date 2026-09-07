@@ -28,6 +28,7 @@ complete -c switchboard -n "__fish_switchboard_needs_command" -l config -r -F
 complete -c switchboard -n "__fish_switchboard_needs_command" -s h -l help -d 'Print help'
 complete -c switchboard -n "__fish_switchboard_needs_command" -s V -l version -d 'Print version'
 complete -c switchboard -n "__fish_switchboard_needs_command" -f -a "ns"
+complete -c switchboard -n "__fish_switchboard_needs_command" -f -a "doctor" -d 'Inspect configuration, saved state, and CLI availability without authenticating'
 complete -c switchboard -n "__fish_switchboard_needs_command" -f -a "tools"
 complete -c switchboard -n "__fish_switchboard_needs_command" -f -a "audit"
 complete -c switchboard -n "__fish_switchboard_needs_command" -f -a "op"
@@ -37,6 +38,10 @@ complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fi
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l config -r -F
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l json
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l ns -d 'Inspect one namespace instead of all configured namespaces' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l config -r -F
+complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l json
+complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -s h -l help -d 'Print help'
 complete -c switchboard -n "__fish_switchboard_using_subcommand tools; and not __fish_seen_subcommand_from list describe" -l config -r -F
 complete -c switchboard -n "__fish_switchboard_using_subcommand tools; and not __fish_seen_subcommand_from list describe" -s h -l help -d 'Print help'
 complete -c switchboard -n "__fish_switchboard_using_subcommand tools; and not __fish_seen_subcommand_from list describe" -f -a "list"

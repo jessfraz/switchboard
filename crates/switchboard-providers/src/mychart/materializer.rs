@@ -52,6 +52,7 @@ impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
             }
             ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
+            | ResolvedCredentials::GoogleCli
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
             | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
@@ -201,6 +202,7 @@ mod tests {
                 username: Some(SecretRef::new("mychart.ucla_username").expect("secret ref should build")),
             },
             ResolvedCredentials::GitHubCli => AuthSecretRefs::None,
+            ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
             ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
@@ -224,6 +226,7 @@ mod tests {
                     ResolvedCredentials::MyChartCli { .. } => AuthKind::MyChartCli,
                     ResolvedCredentials::GitHubCli => AuthKind::GitHubCli,
                     ResolvedCredentials::GitHubToken { .. } => AuthKind::GitHubToken,
+                    ResolvedCredentials::GoogleCli => AuthKind::GoogleCli,
                     ResolvedCredentials::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
                     ResolvedCredentials::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
                     ResolvedCredentials::SchwabCli { .. } => AuthKind::SchwabCli,

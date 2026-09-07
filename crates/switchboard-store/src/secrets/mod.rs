@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 
+use crate::OnePasswordConfig;
+
 mod env_secret;
 mod file_secret;
 mod one_password;
+
+pub use one_password::{one_password_item_cache_expiries, one_password_session_cache_entry_count};
 
 use switchboard_core::{Error, ResolvedSecret, Result, SecretResolver, SecretString};
 
@@ -23,12 +27,20 @@ impl Default for LocalSecretResolver {
 
 impl LocalSecretResolver {
     pub fn with_one_password_session_cache(one_password_session_cache_path: Option<PathBuf>) -> Self {
+        Self::with_one_password_config(one_password_session_cache_path, OnePasswordConfig::default())
+    }
+
+    pub fn with_one_password_config(
+        one_password_session_cache_path: Option<PathBuf>,
+        config: OnePasswordConfig,
+    ) -> Self {
         Self {
             backends: vec![
                 Box::new(env_secret::EnvSecretBackend),
                 Box::new(file_secret::FileSecretBackend),
-                Box::new(one_password::OnePasswordSecretBackend::new(
+                Box::new(one_password::OnePasswordSecretBackend::with_config(
                     one_password_session_cache_path,
+                    config,
                 )),
             ],
         }

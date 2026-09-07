@@ -429,6 +429,7 @@ impl Switchboard {
     fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {
         let credentials = match &target.auth.secrets {
             AuthSecretRefs::None => ResolvedCredentials::GitHubCli,
+            AuthSecretRefs::GoogleCli => ResolvedCredentials::GoogleCli,
             AuthSecretRefs::GitHubToken { token } => ResolvedCredentials::GitHubToken {
                 token: self.resolve_secret(token)?,
             },

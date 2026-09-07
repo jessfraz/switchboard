@@ -68,6 +68,7 @@ impl CliRuntimeMaterializer for DefaultSchwabCliMaterializer {
             }
             ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
+            | ResolvedCredentials::GoogleCli
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
             | ResolvedCredentials::MyChartCli { .. } => Err(Error::UnsupportedOperation(format!(
@@ -286,6 +287,7 @@ mod tests {
                 refresh_token: Some(SecretRef::new("schwab.personal_refresh_token").expect("secret ref should build")),
             },
             ResolvedCredentials::GitHubCli => AuthSecretRefs::None,
+            ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
             ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
@@ -309,6 +311,7 @@ mod tests {
                     ResolvedCredentials::SchwabCli { .. } => AuthKind::SchwabCli,
                     ResolvedCredentials::GitHubCli => AuthKind::GitHubCli,
                     ResolvedCredentials::GitHubToken { .. } => AuthKind::GitHubToken,
+                    ResolvedCredentials::GoogleCli => AuthKind::GoogleCli,
                     ResolvedCredentials::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
                     ResolvedCredentials::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
                     ResolvedCredentials::MyChartCli { .. } => AuthKind::MyChartCli,

@@ -66,6 +66,8 @@ pub enum AuthKind {
     GitHubCli,
     #[serde(rename = "github_token")]
     GitHubToken,
+    #[serde(rename = "google_cli")]
+    GoogleCli,
     #[serde(rename = "google_oauth")]
     GoogleOAuth,
     #[serde(rename = "google_oauth_file")]
@@ -81,6 +83,7 @@ impl AuthKind {
         match value {
             "gh_cli" | "github_cli" => Some(Self::GitHubCli),
             "github_token" => Some(Self::GitHubToken),
+            "google_cli" => Some(Self::GoogleCli),
             "google_oauth" => Some(Self::GoogleOAuth),
             "google_oauth_file" => Some(Self::GoogleOAuthFile),
             "mychart_cli" => Some(Self::MyChartCli),
@@ -92,7 +95,7 @@ impl AuthKind {
     pub fn provider(&self) -> ProviderKind {
         match self {
             Self::GitHubCli | Self::GitHubToken => ProviderKind::GitHub,
-            Self::GoogleOAuth | Self::GoogleOAuthFile => ProviderKind::GoogleWorkspace,
+            Self::GoogleCli | Self::GoogleOAuth | Self::GoogleOAuthFile => ProviderKind::GoogleWorkspace,
             Self::MyChartCli => ProviderKind::MyChart,
             Self::SchwabCli => ProviderKind::Schwab,
         }
@@ -104,6 +107,7 @@ impl Display for AuthKind {
         let value = match self {
             Self::GitHubCli => "gh_cli",
             Self::GitHubToken => "github_token",
+            Self::GoogleCli => "google_cli",
             Self::GoogleOAuth => "google_oauth",
             Self::GoogleOAuthFile => "google_oauth_file",
             Self::MyChartCli => "mychart_cli",
@@ -185,6 +189,8 @@ pub enum AuthSecretRefs {
     None,
     #[serde(rename = "github_token")]
     GitHubToken { token: SecretRef },
+    #[serde(rename = "google_cli")]
+    GoogleCli,
     #[serde(rename = "google_oauth")]
     GoogleOAuth {
         client_id: SecretRef,
@@ -254,6 +260,7 @@ impl AuthSecretRefs {
             (kind, self),
             (AuthKind::GitHubCli, Self::None)
                 | (AuthKind::GitHubToken, Self::GitHubToken { .. })
+                | (AuthKind::GoogleCli, Self::GoogleCli)
                 | (AuthKind::GoogleOAuth, Self::GoogleOAuth { .. })
                 | (AuthKind::GoogleOAuthFile, Self::GoogleOAuthFile { .. })
                 | (AuthKind::MyChartCli, Self::MyChartCli { .. })
@@ -263,7 +270,7 @@ impl AuthSecretRefs {
 
     pub fn secret_refs(&self) -> Vec<&SecretRef> {
         match self {
-            Self::None => Vec::new(),
+            Self::None | Self::GoogleCli => Vec::new(),
             Self::GitHubToken { token } => vec![token],
             Self::GoogleOAuth {
                 client_id,
@@ -409,6 +416,7 @@ pub enum ResolvedCredentials {
     GitHubToken {
         token: SecretString,
     },
+    GoogleCli,
     GoogleOAuth {
         client_id: SecretString,
         client_secret: SecretString,
@@ -444,4 +452,31 @@ pub enum ResolvedCredentials {
         access_token: Option<SecretString>,
         refresh_token: Option<SecretString>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{AuthKind, AuthSecretRefs, ProviderKind, ResolvedAuth};
+
+    #[test]
+    fn google_cli_auth_is_distinct_and_requires_no_secrets() {
+        assert_eq!(AuthKind::from_identifier("google_cli"), Some(AuthKind::GoogleCli));
+        assert_eq!(AuthKind::GoogleCli.provider(), ProviderKind::GoogleWorkspace);
+        assert_eq!(
+            serde_json::to_string(&AuthKind::GoogleCli).expect("auth kind should serialize"),
+            "\"google_cli\""
+        );
+        let auth = ResolvedAuth::new(
+            "google_personal",
+            ProviderKind::GoogleWorkspace,
+            AuthKind::GoogleCli,
+            "personal@example.com",
+            AuthSecretRefs::GoogleCli,
+        )
+        .expect("CLI-managed Google auth should be valid");
+        assert!(auth.secret_refs().is_empty());
+        assert!(!AuthSecretRefs::GoogleCli.matches_kind(AuthKind::GitHubCli));
+        assert!(!AuthSecretRefs::GoogleCli.matches_kind(AuthKind::GoogleOAuth));
+        assert!(!AuthSecretRefs::None.matches_kind(AuthKind::GoogleCli));
+    }
 }

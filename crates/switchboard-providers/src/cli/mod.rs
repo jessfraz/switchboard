@@ -1,5 +1,6 @@
 mod command;
 mod declarative;
+pub(crate) mod diagnostics;
 mod executor;
 mod locator;
 mod manifest;

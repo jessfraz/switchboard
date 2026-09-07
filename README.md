@@ -124,49 +124,102 @@ switchboard tools list
 switchboard github.notifications.list --ns github.personal --json
 ```
 
-If you want Google plus clean multi-login separation, use distinct namespaces and state dirs:
+For Google, declare the accounts you want to use. Switchboard defaults to
+CLI-managed login and creates a separate state path for each namespace:
 
 ```toml
-[secret.google_workspace_cli_client_id]
-kind = "env"
-name = "GOOGLE_WORKSPACE_CLI_CLIENT_ID"
-
-[secret.google_workspace_cli_client_secret]
-kind = "env"
-name = "GOOGLE_WORKSPACE_CLI_CLIENT_SECRET"
-
-[auth.google_work]
-provider = "google"
-kind = "google_oauth"
-account = "jess@company.com"
-client_id = "google_workspace_cli_client_id"
-client_secret = "google_workspace_cli_client_secret"
-
-[auth.google_personal]
-provider = "google"
-kind = "google_oauth"
-account = "jess@example.com"
-client_id = "google_workspace_cli_client_id"
-client_secret = "google_workspace_cli_client_secret"
-
 [namespace.google.work]
 provider = "google"
-account = "jess@company.com"
-auth = "google_work"
+account = "work@example.com"
 default_read = true
 auth_scope_profile = "workspace_admin"
-state_dir = "/Users/jessfraz/.config/gws-work"
 
 [namespace.google.personal]
 provider = "google"
-account = "jess@example.com"
-auth = "google_personal"
+account = "personal@example.com"
 default_read = false
-state_dir = "/Users/jessfraz/.config/gws-personal"
 ```
 
-That `state_dir` split is not decorative. It is how `switchboard` makes multi-login-hostile CLI tooling behave like separate local authority domains instead of one cursed shared cache.
-The optional `workspace_admin` auth scope profile extends bare `gws auth login` with user, organizational-unit, group, membership, and Groups Settings access for that namespace only. Other Google namespaces retain the standard scope set.
+Google credentials always use the file backend. No
+`GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND`, config-directory, or client-secret
+environment prefixes are needed for routine calls. Saved Google credentials
+contain what `gws` needs to renew its login, so CLI-managed namespaces do not
+resolve 1Password secrets before each read.
+
+```sh
+switchboard doctor --ns google.personal
+switchboard google.cli.read --ns google.personal --json -- auth status
+switchboard google.mail.search --ns google.personal --query 'newer_than:1d' --json
+```
+
+Each namespace still needs an initial Google login. Place its downloaded OAuth
+client configuration, `client_secret.json`, in the namespace directory reported
+by `doctor`. Create that directory if it does not exist and keep the file outside
+version control. Then use the normal approval flow for login:
+
+```sh
+switchboard google.cli.write --ns google.personal --draft -- auth login
+switchboard op approve <operation-id> --apply
+```
+
+Existing namespace logins need no new client setup. Bare `auth login` gets
+Switchboard's shared service scopes and verifies the resulting Google account.
+The optional `workspace_admin` profile
+adds user, organizational-unit, group, membership, and Groups Settings access
+for that namespace only.
+
+Default Google state paths live under `namespaces/<namespace>` beside the
+operation database. A local `switchboard.toml` therefore uses
+`.switchboard/namespaces/google.personal`; global config uses its own state
+directory. Explicit `state_dir` paths keep their existing meaning and contents.
+Namespace names are escaped when necessary to keep directory names distinct.
+
+To reuse a login from an existing configuration without resolving its OAuth
+secrets on every call, retain its `state_dir` and select `google_cli` explicitly:
+
+```toml
+[auth.google_personal]
+provider = "google"
+kind = "google_cli"
+account = "personal@example.com"
+
+[namespace.google.personal]
+provider = "google"
+account = "personal@example.com"
+auth = "google_personal"
+state_dir = "~/.config/gws-personal"
+```
+
+Remove the old `client_id`, `client_secret`, and `refresh_token` references from
+that auth block when changing its kind. Existing `google_oauth` and
+`google_oauth_file` configurations remain supported for explicit secret
+injection. When `auth` is omitted, a matching `auth.google_<name>` block takes
+precedence over the implicit CLI-managed default.
+
+### Authentication diagnostics
+
+`switchboard doctor --json` reports the selected config, namespace state,
+credential-file presence, cache health, and provider binary versions. It does
+not resolve secrets, authenticate accounts, or create an operation database.
+File presence is a diagnostic hint, not a claim that a login is valid.
+
+1Password sessions and item lookups are cached automatically. Cache-write
+failures produce a warning instead of silently causing repeated lookups. On a
+local Mac with 1Password installed, app integration is selected automatically;
+explicit 1Password environment settings and external authentication take
+precedence. Servers retain the CLI's own defaults. You can configure a different
+mode once in Switchboard:
+
+```toml
+[one_password]
+auth_mode = "auto" # auto, desktop, session, or service_account
+timeout_seconds = 60
+```
+
+Noninteractive 1Password calls and captured provider commands have bounded
+waits. Interactive provider login keeps its terminal attached so you can
+complete browser consent. Use `doctor` to inspect the effective setup before
+adding environment overrides.
 
 MyChart works the same way, except the upstream CLI wants a config file instead of a config dir. `switchboard` still treats the namespace state as isolated local authority, it just materializes `MYCHART_CONFIG` as a file path inside the namespace state directory and pins `MYCHART_ACCOUNT` so Epic does not wander off into the wrong patient account. For the normal case, `state_dir` is enough. You only need an explicit auth block if you want `switchboard` to inject extra `MYCHART_*` overrides from env, files, or 1Password. If you do add one, `switchboard` will pick up the default `mychart_<namespace>` auth ref automatically, so `namespace.mychart.ucla` naturally pairs with `auth.mychart_ucla`.
 

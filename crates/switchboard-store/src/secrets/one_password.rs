@@ -11,13 +11,19 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
 
-use crate::secrets::{env_secret::normalize_secret, SecretBackend};
+use crate::{
+    one_password_config::{has_environment_session, has_external_auth},
+    secrets::{env_secret::normalize_secret, SecretBackend},
+    OnePasswordAuthMode, OnePasswordConfig,
+};
+use switchboard_core::process::output_with_timeout;
 
 pub(super) struct OnePasswordSecretBackend {
     sessions: Mutex<BTreeMap<String, CachedSession>>,
     items: Mutex<BTreeMap<OnePasswordItemKey, BTreeMap<String, SecretString>>>,
     session_cache_path: Option<PathBuf>,
     item_cache_path: Option<PathBuf>,
+    config: OnePasswordConfig,
 }
 
 impl Default for OnePasswordSecretBackend {
@@ -28,12 +34,17 @@ impl Default for OnePasswordSecretBackend {
 
 impl OnePasswordSecretBackend {
     pub(super) fn new(session_cache_path: Option<PathBuf>) -> Self {
+        Self::with_config(session_cache_path, OnePasswordConfig::default())
+    }
+
+    pub(super) fn with_config(session_cache_path: Option<PathBuf>, config: OnePasswordConfig) -> Self {
         let item_cache_path = item_cache_path(session_cache_path.as_deref());
         Self {
             sessions: Mutex::new(BTreeMap::new()),
             items: Mutex::new(BTreeMap::new()),
             session_cache_path,
             item_cache_path,
+            config,
         }
     }
 }
@@ -69,17 +80,21 @@ impl SecretBackend for OnePasswordSecretBackend {
             }
         }
 
-        let mut session = ensure_session(&secret.id, &self.sessions, self.session_cache_path.as_deref(), account)?;
-        match fetch_item_fields_with_retry(
+        let session = ensure_session(
             &secret.id,
-            &item_key,
-            &mut session,
             &self.sessions,
             self.session_cache_path.as_deref(),
-        ) {
+            account,
+            &self.config,
+        )?;
+        let config = session.command_config(&self.config);
+        match fetch_item_fields(&secret.id, &item_key, session.token(), &config) {
             Ok(fields) => {
                 cache_item_fields(&self.items, &item_key, &fields);
-                let _ = write_item_cache_entry(self.item_cache_path.as_deref(), &item_key, Some(&fields));
+                warn_cache_write(
+                    "item",
+                    write_item_cache_entry(self.item_cache_path.as_deref(), &item_key, Some(&fields)),
+                );
                 if let Some(value) = fields.get(field) {
                     return Ok(value.clone());
                 }
@@ -93,19 +108,15 @@ impl SecretBackend for OnePasswordSecretBackend {
         }
 
         let args = item_args(account, vault.as_deref(), item, field);
-        let output = run_with_retry(
-            &secret.id,
-            account,
-            &args,
-            &mut session,
-            &self.sessions,
-            self.session_cache_path.as_deref(),
-        )?;
+        let output = run(&secret.id, &args, session.token(), &config)?;
         let value = normalize_secret(&secret.id, output)?;
         cache_item_field(&self.items, &item_key, field, &value);
         let mut fields = BTreeMap::new();
         fields.insert(field.to_owned(), value.clone());
-        let _ = write_item_cache_entry(self.item_cache_path.as_deref(), &item_key, Some(&fields));
+        warn_cache_write(
+            "item",
+            write_item_cache_entry(self.item_cache_path.as_deref(), &item_key, Some(&fields)),
+        );
         Ok(value)
     }
 }
@@ -292,18 +303,27 @@ enum PersistedSessionKind {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct SessionHandle {
-    token: Option<String>,
-    optimistic_app_integration: bool,
+enum SessionHandle {
+    Token(String),
+    NativeSession,
+    #[default]
+    CliDefault,
 }
 
 impl SessionHandle {
     fn token(&self) -> Option<&str> {
-        self.token.as_deref()
+        match self {
+            Self::Token(token) => Some(token),
+            Self::NativeSession | Self::CliDefault => None,
+        }
     }
 
-    fn optimistic_app_integration(&self) -> bool {
-        self.optimistic_app_integration
+    fn command_config(&self, configured: &OnePasswordConfig) -> OnePasswordConfig {
+        let mut config = configured.clone();
+        if *self == Self::NativeSession {
+            config.auth_mode = OnePasswordAuthMode::Session;
+        }
+        config
     }
 }
 
@@ -311,9 +331,10 @@ fn fetch_item_fields(
     secret_ref: &SecretRef,
     item_key: &OnePasswordItemKey,
     session: Option<&str>,
+    config: &OnePasswordConfig,
 ) -> Result<BTreeMap<String, SecretString>> {
     let args = item_json_args(&item_key.account, item_key.vault.as_deref(), &item_key.item);
-    let output = run(secret_ref, &args, session)?;
+    let output = run(secret_ref, &args, session, config)?;
     parse_item_fields(secret_ref, &output)
 }
 
@@ -346,47 +367,62 @@ fn ensure_session(
     sessions: &Mutex<BTreeMap<String, CachedSession>>,
     session_cache_path: Option<&Path>,
     account: &str,
+    config: &OnePasswordConfig,
 ) -> Result<SessionHandle> {
+    if has_external_auth() {
+        return Ok(SessionHandle::default());
+    }
+    if let Some(token) = env_session() {
+        if cached_session(sessions, account) == Some(CachedSession::Token(token.clone())) {
+            return Ok(SessionHandle::Token(token));
+        }
+        if whoami(account, Some(&token), config)? {
+            cache_token_session(sessions, session_cache_path, account, &token);
+            return Ok(SessionHandle::Token(token));
+        }
+        return Err(Error::SecretResolution {
+            secret_ref: secret_ref.to_string(),
+            reason: "OP_SESSION was supplied but is no longer valid; sign in again and refresh the session".into(),
+        });
+    }
+    // Account-specific OP_SESSION_* names belong to op's registry. Probe the
+    // requested account before preferring them over that account's cached login.
+    if has_environment_session() {
+        let native_config = SessionHandle::NativeSession.command_config(config);
+        if whoami(account, None, &native_config)? {
+            return Ok(SessionHandle::NativeSession);
+        }
+    }
+    if config.auth_mode == OnePasswordAuthMode::ServiceAccount {
+        return Err(Error::Config(
+            "one_password.auth_mode = service_account requires OP_SERVICE_ACCOUNT_TOKEN".into(),
+        ));
+    }
     if let Some(session) = cached_session(sessions, account) {
         return match session {
-            CachedSession::Token(token) => Ok(SessionHandle {
-                token: Some(token),
-                optimistic_app_integration: false,
-            }),
-            CachedSession::AppIntegration => Ok(SessionHandle {
-                token: None,
-                optimistic_app_integration: false,
-            }),
+            CachedSession::Token(token) => Ok(SessionHandle::Token(token)),
+            CachedSession::AppIntegration => Ok(SessionHandle::CliDefault),
         };
     }
 
     if let Some(session) = cached_session_on_disk(session_cache_path, account) {
         match session {
             CachedSession::Token(token) => {
-                if whoami(account, Some(&token))? {
+                if whoami(account, Some(&token), config)? {
                     cache_token_session(sessions, session_cache_path, account, &token);
-                    return Ok(SessionHandle {
-                        token: Some(token),
-                        optimistic_app_integration: false,
-                    });
+                    return Ok(SessionHandle::Token(token));
                 }
                 forget_session(sessions, session_cache_path, account);
             }
             CachedSession::AppIntegration => {
-                if let Some(token) = sign_in(secret_ref, account)? {
+                if let Some(token) = sign_in(secret_ref, account, config)? {
                     cache_token_session(sessions, session_cache_path, account, &token);
-                    return Ok(SessionHandle {
-                        token: Some(token),
-                        optimistic_app_integration: false,
-                    });
+                    return Ok(SessionHandle::Token(token));
                 }
 
-                if whoami(account, None)? {
+                if whoami(account, None, config)? {
                     cache_app_session(sessions, session_cache_path, account);
-                    return Ok(SessionHandle {
-                        token: None,
-                        optimistic_app_integration: false,
-                    });
+                    return Ok(SessionHandle::CliDefault);
                 }
 
                 forget_session(sessions, session_cache_path, account);
@@ -394,39 +430,20 @@ fn ensure_session(
         }
     }
 
-    if let Some(token) = env_session() {
-        if whoami(account, Some(&token))? {
-            cache_token_session(sessions, session_cache_path, account, &token);
-            return Ok(SessionHandle {
-                token: Some(token),
-                optimistic_app_integration: false,
-            });
-        }
-    }
-
-    if whoami(account, None)? {
+    if whoami(account, None, config)? {
         cache_app_session(sessions, session_cache_path, account);
-        return Ok(SessionHandle {
-            token: None,
-            optimistic_app_integration: false,
-        });
+        return Ok(SessionHandle::CliDefault);
     }
 
-    let token = sign_in(secret_ref, account)?;
+    let token = sign_in(secret_ref, account, config)?;
     if let Some(token) = token {
         cache_token_session(sessions, session_cache_path, account, &token);
-        return Ok(SessionHandle {
-            token: Some(token),
-            optimistic_app_integration: false,
-        });
+        return Ok(SessionHandle::Token(token));
     }
 
-    if whoami(account, None)? {
+    if whoami(account, None, config)? {
         cache_app_session(sessions, session_cache_path, account);
-        return Ok(SessionHandle {
-            token: None,
-            optimistic_app_integration: false,
-        });
+        return Ok(SessionHandle::CliDefault);
     }
 
     Err(Error::SecretResolution {
@@ -437,14 +454,13 @@ fn ensure_session(
     })
 }
 
-fn sign_in(secret_ref: &SecretRef, account: &str) -> Result<Option<String>> {
-    let output = op_command()
-        .args(["signin", "--account", account, "--raw"])
-        .output()
-        .map_err(|error| Error::SecretResolution {
-            secret_ref: secret_ref.to_string(),
-            reason: format!("failed to run `op signin --account {account} --raw`: {error}"),
-        })?;
+fn sign_in(secret_ref: &SecretRef, account: &str, config: &OnePasswordConfig) -> Result<Option<String>> {
+    let mut command = op_command(config);
+    command.args(["signin", "--account", account, "--raw"]);
+    let output = capture_op(&mut command, config).map_err(|error| Error::SecretResolution {
+        secret_ref: secret_ref.to_string(),
+        reason: format!("failed to run `op signin --account {account} --raw`: {error}"),
+    })?;
 
     if !output.status.success() {
         return Err(Error::SecretResolution {
@@ -469,28 +485,27 @@ fn sign_in(secret_ref: &SecretRef, account: &str) -> Result<Option<String>> {
     Ok(Some(token.expose().to_owned()))
 }
 
-fn whoami(account: &str, session: Option<&str>) -> Result<bool> {
-    let mut command = op_command();
+fn whoami(account: &str, session: Option<&str>, config: &OnePasswordConfig) -> Result<bool> {
+    let mut command = op_command(config);
     if let Some(session) = session {
         command.args(["--session", session]);
     }
     command.args(["whoami", "--account", account]);
 
-    let output = command
-        .output()
+    let output = capture_op(&mut command, config)
         .map_err(|error| Error::Config(format!("failed to run `op whoami --account {account}`: {error}")))?;
 
     Ok(output.status.success())
 }
 
-fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>) -> Result<String> {
-    let mut command = op_command();
+fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>, config: &OnePasswordConfig) -> Result<String> {
+    let mut command = op_command(config);
     if let Some(session) = session {
         command.args(["--session", session]);
     }
     command.args(args);
 
-    let output = command.output().map_err(|error| Error::SecretResolution {
+    let output = capture_op(&mut command, config).map_err(|error| Error::SecretResolution {
         secret_ref: secret_ref.to_string(),
         reason: format!("failed to run `op {}`: {error}", args.join(" ")),
     })?;
@@ -512,59 +527,36 @@ fn run(secret_ref: &SecretRef, args: &[String], session: Option<&str>) -> Result
     })
 }
 
-fn fetch_item_fields_with_retry(
-    secret_ref: &SecretRef,
-    item_key: &OnePasswordItemKey,
-    session: &mut SessionHandle,
-    sessions: &Mutex<BTreeMap<String, CachedSession>>,
-    session_cache_path: Option<&Path>,
-) -> Result<BTreeMap<String, SecretString>> {
-    match fetch_item_fields(secret_ref, item_key, session.token()) {
-        Ok(fields) => Ok(fields),
-        Err(_) if session.optimistic_app_integration() => {
-            *session = refresh_session(secret_ref, sessions, session_cache_path, &item_key.account)?;
-            fetch_item_fields(secret_ref, item_key, session.token())
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn run_with_retry(
-    secret_ref: &SecretRef,
-    account: &str,
-    args: &[String],
-    session: &mut SessionHandle,
-    sessions: &Mutex<BTreeMap<String, CachedSession>>,
-    session_cache_path: Option<&Path>,
-) -> Result<String> {
-    match run(secret_ref, args, session.token()) {
-        Ok(output) => Ok(output),
-        Err(_) if session.optimistic_app_integration() => {
-            *session = refresh_session(secret_ref, sessions, session_cache_path, account)?;
-            run(secret_ref, args, session.token())
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn refresh_session(
-    secret_ref: &SecretRef,
-    sessions: &Mutex<BTreeMap<String, CachedSession>>,
-    session_cache_path: Option<&Path>,
-    account: &str,
-) -> Result<SessionHandle> {
-    forget_session(sessions, session_cache_path, account);
-    ensure_session(secret_ref, sessions, session_cache_path, account)
-}
-
-fn op_command() -> Command {
+fn op_command(config: &OnePasswordConfig) -> Command {
     let mut command = match env::var_os("SWITCHBOARD_OP_BIN") {
         Some(path) => Command::new(path),
         None => Command::new("op"),
     };
     command.env_remove("OP_ACCOUNT");
     command.env_remove("OP_SESSION");
+    if let Some(enabled) = config.desktop_integration() {
+        command.env("OP_BIOMETRIC_UNLOCK_ENABLED", if enabled { "true" } else { "false" });
+    }
     command
+}
+
+fn capture_op(command: &mut Command, config: &OnePasswordConfig) -> std::io::Result<std::process::Output> {
+    output_with_timeout(command, config.timeout()).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            std::io::Error::new(error.kind(), format!(
+                "1Password timed out after {} seconds; unlock the 1Password app and enable Settings > Developer > Integrate with 1Password CLI, or sign in to op in a terminal. Configure one_password.auth_mode and one_password.timeout_seconds for this environment",
+                config.timeout_seconds
+            ))
+        } else {
+            error
+        }
+    })
+}
+
+fn warn_cache_write(kind: &str, result: std::io::Result<()>) {
+    if let Err(error) = result {
+        eprintln!("warning: could not save 1Password {kind} cache ({:?}); authentication may repeat. Check the Switchboard state directory permissions with switchboard doctor", error.kind());
+    }
 }
 
 fn env_session() -> Option<String> {
@@ -596,7 +588,10 @@ fn cache_token_session(
     }
 
     let session = CachedSession::Token(token.to_owned());
-    let _ = write_session_cache(session_cache_path, account, Some(&session));
+    warn_cache_write(
+        "session",
+        write_session_cache(session_cache_path, account, Some(&session)),
+    );
 }
 
 fn cache_app_session(
@@ -616,7 +611,10 @@ fn cache_app_session(
     }
 
     let session = CachedSession::AppIntegration;
-    let _ = write_session_cache(session_cache_path, account, Some(&session));
+    warn_cache_write(
+        "session",
+        write_session_cache(session_cache_path, account, Some(&session)),
+    );
 }
 
 fn forget_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, session_cache_path: Option<&Path>, account: &str) {
@@ -629,7 +627,7 @@ fn forget_session(sessions: &Mutex<BTreeMap<String, CachedSession>>, session_cac
         }
     }
 
-    let _ = write_session_cache(session_cache_path, account, None);
+    warn_cache_write("session", write_session_cache(session_cache_path, account, None));
 }
 
 fn cached_session_on_disk(session_cache_path: Option<&Path>, account: &str) -> Option<CachedSession> {
@@ -645,7 +643,7 @@ fn cached_item_fields_on_disk(
     let cache = read_item_cache(item_cache_path)?;
     let entry = cache.items.get(&item_key.cache_key())?;
     if entry.expires_at_epoch_seconds <= unix_timestamp_now() {
-        let _ = write_item_cache_entry(Some(item_cache_path), item_key, None);
+        warn_cache_write("item", write_item_cache_entry(Some(item_cache_path), item_key, None));
         return None;
     }
 
@@ -661,6 +659,24 @@ fn cached_item_fields_on_disk(
 fn read_session_cache(path: &Path) -> Option<SessionCacheFile> {
     let contents = fs::read_to_string(path).ok()?;
     serde_json::from_str(&contents).ok()
+}
+
+/// Validate the persisted session format and return only its entry count.
+pub fn one_password_session_cache_entry_count(contents: &str) -> Option<usize> {
+    serde_json::from_str::<SessionCacheFile>(contents)
+        .ok()
+        .map(|cache| cache.sessions.len())
+}
+
+/// Validate the persisted item format and return only expiration timestamps.
+pub fn one_password_item_cache_expiries(contents: &str) -> Option<Vec<u64>> {
+    serde_json::from_str::<ItemCacheFile>(contents).ok().map(|cache| {
+        cache
+            .items
+            .into_values()
+            .map(|entry| entry.expires_at_epoch_seconds)
+            .collect()
+    })
 }
 
 fn read_item_cache(path: &Path) -> Option<ItemCacheFile> {
@@ -890,6 +906,85 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
     static TEMP_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn cache_write_failure_keeps_the_successful_in_memory_session() {
+        let fixture = TempFixtureDir::new();
+        let blocked_parent = fixture.path.join("not-a-directory");
+        fs::write(&blocked_parent, "occupied").expect("create file blocking cache directory");
+        let sessions = Mutex::new(std::collections::BTreeMap::new());
+        super::cache_token_session(
+            &sessions,
+            Some(&blocked_parent.join("sessions.json")),
+            "account",
+            "session-value",
+        );
+        assert_eq!(
+            super::cached_session(&sessions, "account"),
+            Some(CachedSession::Token("session-value".into()))
+        );
+        assert!(!blocked_parent.join("sessions.json").exists());
+    }
+
+    #[test]
+    fn unrelated_account_environment_session_preserves_target_cached_session() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        let _generic = EnvVarGuard::remove("OP_SESSION");
+        let _personal = EnvVarGuard::set("OP_SESSION_PERSONAL", "personal-session".into());
+        let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
+        let _connect_host = EnvVarGuard::remove("OP_CONNECT_HOST");
+        let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
+        // A failed native-account probe must not displace a valid target session.
+        let _op = EnvVarGuard::set("SWITCHBOARD_OP_BIN", "/usr/bin/false".into());
+        let sessions = Mutex::new(std::collections::BTreeMap::from([(
+            "work.1password.com".into(),
+            CachedSession::Token("work-session".into()),
+        )]));
+        let secret_ref = switchboard_core::SecretRef::new("secret").expect("secret ref builds");
+        let session = super::ensure_session(
+            &secret_ref,
+            &sessions,
+            None,
+            "work.1password.com",
+            &crate::OnePasswordConfig::default(),
+        )
+        .expect("cached target session remains usable");
+        assert_eq!(session.token(), Some("work-session"));
+    }
+
+    #[test]
+    fn external_authentication_uses_the_callers_environment_without_cached_sessions() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        let _service_account = EnvVarGuard::set("OP_SERVICE_ACCOUNT_TOKEN", "service-account-placeholder".into());
+        let sessions = Mutex::new(std::collections::BTreeMap::from([(
+            "account".into(),
+            CachedSession::Token("old-session".into()),
+        )]));
+        let secret_ref = switchboard_core::SecretRef::new("secret").expect("secret ref builds");
+        let session = super::ensure_session(
+            &secret_ref,
+            &sessions,
+            None,
+            "account",
+            &crate::OnePasswordConfig::default(),
+        )
+        .expect("external authentication bypasses cached personal session");
+        assert_eq!(session.token(), None);
+    }
+
+    #[test]
+    fn explicit_desktop_environment_is_preserved_in_child_command() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        let _desktop = EnvVarGuard::set("OP_BIOMETRIC_UNLOCK_ENABLED", "false".into());
+        let config = crate::OnePasswordConfig {
+            auth_mode: crate::OnePasswordAuthMode::Desktop,
+            ..crate::OnePasswordConfig::default()
+        };
+        let command = super::op_command(&config);
+        assert!(!command
+            .get_envs()
+            .any(|(name, _)| name == "OP_BIOMETRIC_UNLOCK_ENABLED"));
+    }
 
     #[test]
     fn item_args_include_optional_vault_and_label_selector() {

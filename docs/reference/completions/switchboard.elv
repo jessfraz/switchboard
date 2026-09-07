@@ -24,6 +24,7 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand -V 'Print version'
             cand --version 'Print version'
             cand ns 'ns'
+            cand doctor 'Inspect configuration, saved state, and CLI availability without authenticating'
             cand tools 'tools'
             cand audit 'audit'
             cand op 'op'
@@ -35,6 +36,13 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand list 'list'
         }
         &'switchboard;ns;list'= {
+            cand --config 'config'
+            cand --json 'json'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'switchboard;doctor'= {
+            cand --ns 'Inspect one namespace instead of all configured namespaces'
             cand --config 'config'
             cand --json 'json'
             cand -h 'Print help'

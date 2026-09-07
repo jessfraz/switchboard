@@ -8,10 +8,12 @@ pub(crate) const CONFIG_DIR_ENV: &str = "GOOGLE_WORKSPACE_CLI_CONFIG_DIR";
 pub(crate) const CREDENTIALS_FILE_ENV: &str = "GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE";
 pub(crate) const CREDENTIAL_STORAGE_BACKEND_ENV: &str = "GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND";
 pub(crate) const TOKEN_ENV: &str = "GOOGLE_WORKSPACE_CLI_TOKEN";
+const APPLICATION_CREDENTIALS_ENV: &str = "GOOGLE_APPLICATION_CREDENTIALS";
 
 pub(crate) struct DefaultGoogleWorkspaceCliMaterializer;
 
 pub(crate) enum GoogleWorkspaceCliCredentials<'a> {
+    CliManaged,
     ClientSecrets { client_id: &'a str, client_secret: &'a str },
     CredentialsFile { credentials: &'a str },
 }
@@ -19,6 +21,7 @@ pub(crate) enum GoogleWorkspaceCliCredentials<'a> {
 impl<'a> GoogleWorkspaceCliCredentials<'a> {
     fn from_target(target: &'a ExecutionTarget) -> Result<Self> {
         match &target.credentials {
+            ResolvedCredentials::GoogleCli => Ok(Self::CliManaged),
             ResolvedCredentials::GoogleOAuth {
                 client_id,
                 client_secret,
@@ -54,6 +57,19 @@ impl CliRuntimeMaterializer for DefaultGoogleWorkspaceCliMaterializer {
         context.set_env(CONFIG_DIR_ENV, state_dir.display().to_string());
 
         match GoogleWorkspaceCliCredentials::from_target(target)? {
+            GoogleWorkspaceCliCredentials::CliManaged => {
+                context.clear_env(TOKEN_ENV);
+                context.clear_env(CREDENTIALS_FILE_ENV);
+                context.clear_env(CLIENT_ID_ENV);
+                context.clear_env(CLIENT_SECRET_ENV);
+                // gws tries namespace credentials first, then ADC. Pin that fallback too,
+                // so missing or corrupt namespace credentials cannot use a global login.
+                context.set_env(
+                    APPLICATION_CREDENTIALS_ENV,
+                    state_dir.join("credentials.json").display().to_string(),
+                );
+                Ok(context)
+            }
             GoogleWorkspaceCliCredentials::ClientSecrets {
                 client_id,
                 client_secret,
@@ -88,8 +104,8 @@ mod tests {
     use crate::{
         cli::CliRuntimeMaterializer,
         google::materializer::{
-            DefaultGoogleWorkspaceCliMaterializer, CLIENT_ID_ENV, CLIENT_SECRET_ENV, CONFIG_DIR_ENV,
-            CREDENTIALS_FILE_ENV, CREDENTIAL_STORAGE_BACKEND_ENV, TOKEN_ENV,
+            DefaultGoogleWorkspaceCliMaterializer, APPLICATION_CREDENTIALS_ENV, CLIENT_ID_ENV, CLIENT_SECRET_ENV,
+            CONFIG_DIR_ENV, CREDENTIALS_FILE_ENV, CREDENTIAL_STORAGE_BACKEND_ENV, TOKEN_ENV,
         },
     };
 
@@ -97,6 +113,31 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/secrets/google-personal-oauth.json"
     ));
+
+    #[test]
+    fn cli_managed_credentials_scope_local_login_and_clear_ambient_credentials() {
+        let target = execution_target(ResolvedCredentials::GoogleCli, Some(PathBuf::from("/tmp/gws-work")));
+        let process = DefaultGoogleWorkspaceCliMaterializer
+            .prepare(&target)
+            .expect("local Google credentials should materialize");
+
+        assert_eq!(
+            process.env().get(CONFIG_DIR_ENV).map(String::as_str),
+            Some("/tmp/gws-work")
+        );
+        assert_eq!(
+            process.env().get(CREDENTIAL_STORAGE_BACKEND_ENV).map(String::as_str),
+            Some("file")
+        );
+        assert_eq!(
+            process.env().get(APPLICATION_CREDENTIALS_ENV).map(String::as_str),
+            Some("/tmp/gws-work/credentials.json")
+        );
+        for key in [TOKEN_ENV, CREDENTIALS_FILE_ENV, CLIENT_ID_ENV, CLIENT_SECRET_ENV] {
+            assert!(process.cleared_env().contains(key));
+            assert!(!process.env().contains_key(key));
+        }
+    }
 
     #[test]
     fn oauth_client_credentials_set_env_and_clear_conflicts() {
@@ -225,6 +266,7 @@ mod tests {
 
     fn execution_target(credentials: ResolvedCredentials, state_dir: Option<PathBuf>) -> ExecutionTarget {
         let (kind, secrets) = match credentials {
+            ResolvedCredentials::GoogleCli => (AuthKind::GoogleCli, AuthSecretRefs::GoogleCli),
             ResolvedCredentials::GoogleOAuth { .. } => (
                 AuthKind::GoogleOAuth,
                 AuthSecretRefs::GoogleOAuth {

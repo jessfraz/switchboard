@@ -18,6 +18,7 @@ const AFTER_HELP: &str = concat!(
     "\n",
     "Examples:\n",
     "  switchboard ns list\n",
+    "  switchboard doctor --ns google.personal\n",
     "  switchboard tools list\n",
     "  switchboard tools describe google.cli.write\n",
     "  switchboard tools describe github.cli.read\n",
@@ -57,6 +58,7 @@ impl Cli {
     pub(crate) fn json_requested(&self) -> bool {
         match &self.command {
             Commands::Ns(namespace) => namespace.json_requested(),
+            Commands::Doctor(doctor) => doctor.json,
             Commands::Tools(tools) => tools.json_requested(),
             Commands::Audit(audit) => audit.json_requested(),
             Commands::Op(operation) => operation.json_requested(),
@@ -68,6 +70,8 @@ impl Cli {
 #[derive(Debug, Subcommand)]
 pub(crate) enum Commands {
     Ns(NamespaceCommand),
+    /// Inspect configuration, saved state, and CLI availability without authenticating.
+    Doctor(DoctorCommand),
     Tools(ToolCatalogCommand),
     Audit(AuditCommand),
     Op(OperationCommand),
@@ -79,12 +83,22 @@ impl Commands {
     pub(crate) fn into_runtime_command(self) -> Result<CommandKind> {
         match self {
             Self::Ns(namespace) => Ok(namespace.into_runtime_command()),
+            Self::Doctor(doctor) => Ok(CommandKind::Doctor(doctor)),
             Self::Tools(tools) => tools.into_runtime_command(),
             Self::Audit(audit) => audit.into_runtime_command(),
             Self::Op(operation) => operation.into_runtime_command(),
             Self::Tool(tokens) => parse_external_tool_invocation(tokens).map(CommandKind::Operation),
         }
     }
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct DoctorCommand {
+    /// Inspect one namespace instead of all configured namespaces.
+    #[arg(long = "ns")]
+    pub(crate) namespace: Option<String>,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -339,6 +353,7 @@ struct ListNamespaceArgs {
 #[derive(Debug)]
 pub(crate) enum CommandKind {
     NamespaceList,
+    Doctor(DoctorCommand),
     ToolCatalog(ToolCatalogRuntimeCommand),
     Audit(AuditRuntimeCommand),
     Operation(OperationRequest),

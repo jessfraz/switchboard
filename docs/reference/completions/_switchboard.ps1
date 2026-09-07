@@ -27,6 +27,7 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             [CompletionResult]::new('-V', '-V ', [CompletionResultType]::ParameterName, 'Print version')
             [CompletionResult]::new('--version', '--version', [CompletionResultType]::ParameterName, 'Print version')
             [CompletionResult]::new('ns', 'ns', [CompletionResultType]::ParameterValue, 'ns')
+            [CompletionResult]::new('doctor', 'doctor', [CompletionResultType]::ParameterValue, 'Inspect configuration, saved state, and CLI availability without authenticating')
             [CompletionResult]::new('tools', 'tools', [CompletionResultType]::ParameterValue, 'tools')
             [CompletionResult]::new('audit', 'audit', [CompletionResultType]::ParameterValue, 'audit')
             [CompletionResult]::new('op', 'op', [CompletionResultType]::ParameterValue, 'op')
@@ -40,6 +41,14 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             break
         }
         'switchboard;ns;list' {
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'switchboard;doctor' {
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'Inspect one namespace instead of all configured namespaces')
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')

@@ -10,10 +10,14 @@ use switchboard_core::{
     ResolvedNamespace, ResolvedSecret, Result, SecretRef, SecretSource, SecretStore, WritePolicy,
 };
 
-use crate::{ConfiguredPolicyEngine, StaticAuthStore, StaticNamespaceStore, StaticSecretStore};
+use crate::{
+    resolve_operation_store_path, ConfiguredPolicyEngine, OnePasswordConfig, StaticAuthStore, StaticNamespaceStore,
+    StaticSecretStore,
+};
 
 #[derive(Clone, Debug)]
 pub struct SwitchboardConfig {
+    pub one_password: OnePasswordConfig,
     namespaces: StaticNamespaceStore,
     auth: StaticAuthStore,
     secrets: StaticSecretStore,
@@ -30,15 +34,15 @@ impl SwitchboardConfig {
             ))
         })?;
 
-        Self::from_source_with_base(
+        Self::from_source(
             &source,
             &format!("switchboard config at {}", path.display()),
-            path.parent(),
+            Some(path),
         )
     }
 
     pub fn from_toml_str(source: &str) -> Result<Self> {
-        Self::from_source_with_base(source, "switchboard config", None)
+        Self::from_source(source, "switchboard config", None)
     }
 
     pub fn into_stores(self) -> (StaticNamespaceStore, StaticAuthStore, StaticSecretStore) {
@@ -49,17 +53,25 @@ impl SwitchboardConfig {
         ConfiguredPolicyEngine::new(self.write_policy)
     }
 
-    fn from_source_with_base(source: &str, source_label: &str, base_dir: Option<&Path>) -> Result<Self> {
+    fn from_source(source: &str, source_label: &str, config_path: Option<&Path>) -> Result<Self> {
         let mut config: RawConfig = toml::from_str(source)
             .map_err(|error| Error::Config(format!("failed to parse {source_label}: {error}")))?;
-        config.resolve_paths(base_dir, config_home_dir().as_deref());
+        if config.one_password.timeout_seconds == 0 {
+            return Err(Error::Config(
+                "one_password.timeout_seconds must be greater than zero".into(),
+            ));
+        }
+        config.resolve_paths(config_path.and_then(Path::parent), config_home_dir().as_deref());
+        let state_db = resolve_operation_store_path(config_path.unwrap_or_else(|| Path::new("switchboard.toml")));
+        let state_root = state_db.parent().unwrap_or_else(|| Path::new("."));
         let secrets = build_secret_store(config.secret)?;
         let explicit_auth = build_auth_store(config.auth, &secrets)?;
-        let (namespaces, implicit_auth) = build_namespace_store(config.namespace, &explicit_auth)?;
+        let (namespaces, implicit_auth) = build_namespace_store(config.namespace, &explicit_auth, state_root)?;
         let auth = StaticAuthStore::new(explicit_auth.list().into_iter().chain(implicit_auth));
         let write_policy = config.policy.write;
 
         Ok(Self {
+            one_password: config.one_password,
             namespaces,
             auth,
             secrets,
@@ -137,6 +149,7 @@ fn build_auth_store(raw_auth: BTreeMap<String, RawAuth>, secrets: &StaticSecretS
 fn build_namespace_store(
     raw_namespaces: BTreeMap<String, BTreeMap<String, RawNamespace>>,
     auth: &StaticAuthStore,
+    state_root: &Path,
 ) -> Result<(StaticNamespaceStore, Vec<ResolvedAuth>)> {
     let mut namespaces = Vec::new();
     let mut implicit_auth = Vec::new();
@@ -198,7 +211,12 @@ fn build_namespace_store(
                         }
                         Some(_) => {}
                         None => {
-                            implicit_auth.push(default_cli_auth(provider.clone(), &auth_ref, &alias)?);
+                            let account = if provider == ProviderKind::GoogleWorkspace {
+                                &namespace.account
+                            } else {
+                                &alias
+                            };
+                            implicit_auth.push(default_cli_auth(provider.clone(), &auth_ref, account)?);
                         }
                     }
 
@@ -211,6 +229,13 @@ fn build_namespace_store(
                 }
             };
 
+            let state_dir = namespace.state_dir.or_else(|| {
+                (provider == ProviderKind::GoogleWorkspace).then(|| {
+                    state_root
+                        .join("namespaces")
+                        .join(namespace_state_name(&provider, &alias))
+                })
+            });
             namespaces.push(
                 ResolvedNamespace::new(
                     format!("{provider_key}.{alias}"),
@@ -218,7 +243,7 @@ fn build_namespace_store(
                     namespace.account,
                     auth_ref.as_str(),
                     namespace.default_read,
-                    namespace.state_dir,
+                    state_dir,
                 )?
                 .with_auth_scope_profile(auth_scope_profile)?,
             );
@@ -235,15 +260,36 @@ fn build_namespace_store(
 }
 
 fn provider_uses_implicit_cli_auth(provider: &ProviderKind) -> bool {
-    matches!(provider, ProviderKind::MyChart | ProviderKind::Schwab)
+    matches!(
+        provider,
+        ProviderKind::GoogleWorkspace | ProviderKind::MyChart | ProviderKind::Schwab
+    )
+}
+
+fn namespace_state_name(provider: &ProviderKind, alias: &str) -> String {
+    let mut name = format!("{provider}.");
+    // Escape bytes outside lowercase ASCII so aliases stay distinct on case-insensitive
+    // filesystems, cannot introduce path components, and cannot end with a dot or space.
+    for byte in alias.bytes() {
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_') {
+            name.push(char::from(byte));
+        } else {
+            name.push('%');
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            name.push(char::from(HEX[usize::from(byte >> 4)]));
+            name.push(char::from(HEX[usize::from(byte & 15)]));
+        }
+    }
+    name
 }
 
 fn default_cli_auth_ref(provider: &ProviderKind, alias: &str) -> Result<AuthRef> {
     AuthRef::new(format!("{provider}_{alias}"))
 }
 
-fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, alias: &str) -> Result<ResolvedAuth> {
+fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, account: &str) -> Result<ResolvedAuth> {
     let (kind, secrets) = match provider {
+        ProviderKind::GoogleWorkspace => (AuthKind::GoogleCli, AuthSecretRefs::GoogleCli),
         ProviderKind::MyChart => (
             AuthKind::MyChartCli,
             AuthSecretRefs::MyChartCli {
@@ -284,12 +330,14 @@ fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, alias: &str) -> 
         }
     };
 
-    ResolvedAuth::new(auth_ref.as_str(), provider, kind, alias.to_owned(), secrets)
+    ResolvedAuth::new(auth_ref.as_str(), provider, kind, account.to_owned(), secrets)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawConfig {
+    #[serde(default)]
+    one_password: OnePasswordConfig,
     #[serde(default)]
     secret: BTreeMap<String, RawSecret>,
     #[serde(default)]
@@ -347,6 +395,8 @@ enum RawAuth {
         account: String,
         token: String,
     },
+    #[serde(rename = "google_cli")]
+    GoogleCli { provider: String, account: String },
     #[serde(rename = "google_oauth")]
     GoogleOAuth {
         provider: String,
@@ -425,6 +475,7 @@ impl RawAuth {
         match self {
             Self::GitHubCli { provider, .. }
             | Self::GitHubToken { provider, .. }
+            | Self::GoogleCli { provider, .. }
             | Self::GoogleOAuth { provider, .. }
             | Self::GoogleOAuthFile { provider, .. }
             | Self::MyChartCli { provider, .. }
@@ -436,6 +487,7 @@ impl RawAuth {
         match self {
             Self::GitHubCli { account, .. }
             | Self::GitHubToken { account, .. }
+            | Self::GoogleCli { account, .. }
             | Self::GoogleOAuth { account, .. }
             | Self::GoogleOAuthFile { account, .. }
             | Self::MyChartCli { account, .. }
@@ -447,6 +499,7 @@ impl RawAuth {
         match self {
             Self::GitHubCli { .. } => AuthKind::GitHubCli,
             Self::GitHubToken { .. } => AuthKind::GitHubToken,
+            Self::GoogleCli { .. } => AuthKind::GoogleCli,
             Self::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
             Self::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
             Self::MyChartCli { .. } => AuthKind::MyChartCli,
@@ -457,6 +510,7 @@ impl RawAuth {
     fn secret_refs(&self) -> Result<AuthSecretRefs> {
         match self {
             Self::GitHubCli { .. } => Ok(AuthSecretRefs::None),
+            Self::GoogleCli { .. } => Ok(AuthSecretRefs::GoogleCli),
             Self::GitHubToken { token, .. } => Ok(AuthSecretRefs::GitHubToken {
                 token: SecretRef::new(token)?,
             }),
@@ -666,6 +720,91 @@ mod tests {
     ));
 
     #[test]
+    fn google_namespaces_without_auth_get_isolated_local_credentials() {
+        let config = SwitchboardConfig::from_toml_str(
+            r#"
+[namespace.google.work]
+provider = "google"
+account = "work@example.com"
+
+[namespace.google.personal]
+provider = "google"
+account = "personal@example.com"
+"#,
+        )
+        .expect("Google namespaces should work without secret configuration");
+        let (namespaces, auth, secrets) = config.into_stores();
+        let mut paths = Vec::new();
+        for (alias, account) in [("work", "work@example.com"), ("personal", "personal@example.com")] {
+            let namespace = namespaces
+                .get(&NamespaceId::new(format!("google.{alias}")).expect("namespace ID should be valid"))
+                .expect("configured namespace should exist");
+            let credentials = auth.get(&namespace.auth_ref).expect("implicit auth should exist");
+            assert_eq!(credentials.kind.to_string(), "google_cli");
+            assert_eq!(credentials.account_label, account);
+            assert!(credentials.secret_refs().is_empty());
+            let state_dir = namespace.state_dir.expect("Google state directory should be derived");
+            assert!(state_dir.ends_with(Path::new("namespaces").join(format!("google.{alias}"))));
+            paths.push(state_dir);
+        }
+        assert_ne!(paths[0], paths[1]);
+        assert!(secrets.list().is_empty());
+    }
+
+    #[test]
+    fn google_namespace_default_state_stays_inside_root_for_unusual_aliases() {
+        let config = SwitchboardConfig::from_toml_str(
+            r#"
+[namespace.google."../personal"]
+provider = "google"
+account = "one@example.com"
+[namespace.google."%2e%2e%2fpersonal"]
+provider = "google"
+account = "two@example.com"
+[namespace.google."Personal"]
+provider = "google"
+account = "three@example.com"
+[namespace.google."personal"]
+provider = "google"
+account = "four@example.com"
+[namespace.google."trailing."]
+provider = "google"
+account = "five@example.com"
+[namespace.google.'C:\personal']
+provider = "google"
+account = "six@example.com"
+[namespace.google."é"]
+provider = "google"
+account = "seven@example.com"
+[namespace.google."e\u0301"]
+provider = "google"
+account = "eight@example.com"
+"#,
+        )
+        .expect("unusual namespace aliases should be encoded safely");
+        let (namespaces, _, _) = config.into_stores();
+        let mut directory_names = std::collections::BTreeSet::new();
+        for namespace in namespaces.list() {
+            let path = namespace.state_dir.expect("Google state directory should be derived");
+            assert_eq!(
+                path.parent()
+                    .expect("state path should have a parent")
+                    .file_name()
+                    .expect("parent should have a name"),
+                "namespaces"
+            );
+            let name = path
+                .file_name()
+                .expect("state path should have a name")
+                .to_str()
+                .expect("encoded state name should be ASCII");
+            assert!(!name.ends_with('.'));
+            assert!(!name.contains(['/', '\\']));
+            assert!(directory_names.insert(name.to_ascii_lowercase()));
+        }
+    }
+
+    #[test]
     fn parses_readme_shape_config_into_namespace_auth_and_secret_stores() {
         let config = SwitchboardConfig::from_toml_str(&render_basic_config("/tmp/google-personal-oauth.json"))
             .expect("config should parse");
@@ -788,14 +927,86 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_required_namespace_auth() {
-        let error = SwitchboardConfig::from_toml_str(MISSING_NAMESPACE_AUTH_CONFIG)
-            .expect_err("non-mychart namespaces should still require auth");
+    fn google_namespace_without_auth_uses_matching_explicit_default_auth_when_present() {
+        let config = SwitchboardConfig::from_toml_str(MISSING_NAMESPACE_AUTH_CONFIG)
+            .expect("matching explicit Google auth should load");
+        let (namespaces, auth, _) = config.into_stores();
+        let namespace = namespaces
+            .get(&NamespaceId::new("google.personal").expect("namespace ID should be valid"))
+            .expect("configured namespace should exist");
+        let credentials = auth.get(&namespace.auth_ref).expect("matching auth should exist");
+        assert_eq!(namespace.auth_ref.as_str(), "google_personal");
+        assert_eq!(credentials.kind, AuthKind::GoogleOAuthFile);
+        assert_eq!(credentials.secret_refs().len(), 1);
+    }
 
+    #[test]
+    fn github_namespace_still_requires_auth() {
+        let error = SwitchboardConfig::from_toml_str(
+            "[namespace.github.personal]\nprovider = \"github\"\naccount = \"example\"",
+        )
+        .expect_err("GitHub namespace should require explicit auth");
         assert_eq!(
             error,
-            Error::Config("namespace.google.personal must declare auth = \"...\"".into())
+            Error::Config("namespace.github.personal must declare auth = \"...\"".into())
         );
+    }
+
+    #[test]
+    fn explicit_google_cli_auth_preserves_configured_namespace_state() {
+        let config = SwitchboardConfig::from_toml_str(
+            r#"
+[auth.existing_login]
+provider = "google"
+kind = "google_cli"
+account = "personal@example.com"
+[namespace.google.personal]
+provider = "google"
+account = "personal@example.com"
+auth = "existing_login"
+state_dir = "/tmp/existing-gws-login"
+"#,
+        )
+        .expect("explicit Google CLI auth should load");
+        let (namespaces, auth, _) = config.into_stores();
+        let namespace = namespaces
+            .get(&NamespaceId::new("google.personal").expect("namespace ID should be valid"))
+            .expect("configured namespace should exist");
+        let credentials = auth.get(&namespace.auth_ref).expect("explicit auth should exist");
+        assert_eq!(credentials.kind, AuthKind::GoogleCli);
+        assert_eq!(namespace.auth_ref.as_str(), "existing_login");
+        assert_eq!(namespace.state_dir, Some(PathBuf::from("/tmp/existing-gws-login")));
+        assert!(credentials.secret_refs().is_empty());
+    }
+
+    #[test]
+    fn google_default_state_uses_the_config_operation_store_root() {
+        let directory = temp_fixture_directory();
+        fs::create_dir_all(&directory).expect("test directory should be created");
+        for name in ["config.toml", "switchboard.toml"] {
+            let config_path = directory.join(name);
+            fs::write(
+                &config_path,
+                "[namespace.google.personal]\nprovider = \"google\"\naccount = \"personal@example.com\"",
+            )
+            .expect("test config should be written");
+            let config = SwitchboardConfig::from_file(&config_path).expect("Google config should load from disk");
+            let (namespaces, _, _) = config.into_stores();
+            let namespace = namespaces
+                .get(&NamespaceId::new("google.personal").expect("namespace ID should be valid"))
+                .expect("configured namespace should exist");
+            let state_db = crate::resolve_operation_store_path(&config_path);
+            assert_eq!(
+                namespace.state_dir,
+                Some(
+                    state_db
+                        .parent()
+                        .expect("operation store should have a parent")
+                        .join("namespaces/google.personal")
+                )
+            );
+        }
+        fs::remove_dir_all(directory).expect("test directory should be removed");
     }
 
     #[test]
