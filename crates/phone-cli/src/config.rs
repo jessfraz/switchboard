@@ -25,10 +25,58 @@ pub struct Config {
 pub struct LiveKitConfig {
     pub url: Option<String>,
     pub sip_trunk_id: Option<String>,
+    #[serde(default)]
+    pub voice_engine: VoiceEngine,
     pub stt_model: Option<String>,
     pub llm_model: Option<String>,
     pub tts_model: Option<String>,
     pub voice: Option<String>,
+    pub realtime_model: Option<String>,
+    pub backend_model: Option<String>,
+    pub backend_reasoning_effort: Option<ReasoningEffort>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl ReasoningEffort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceEngine {
+    #[default]
+    Pipeline,
+    GptLive,
+}
+
+impl VoiceEngine {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pipeline => "pipeline",
+            Self::GptLive => "gpt_live",
+        }
+    }
 }
 
 #[derive(Default, Deserialize)]

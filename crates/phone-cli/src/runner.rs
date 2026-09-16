@@ -4,7 +4,9 @@ use crate::domain::{AuthorizedCall, CallBackend, CallEvent, CallOutcome, Termina
 use crate::error::CallError;
 use crate::journal::{Journal, Record};
 
-pub const CANCELLATION_GRACE: Duration = Duration::from_secs(45);
+// Leave room for the worker's in-flight dial RPC and bounded model, transcript,
+// room, and client cleanup (47 seconds total), including GPT-Live finalization.
+pub const CANCELLATION_GRACE: Duration = Duration::from_secs(60);
 
 enum Phase {
     Starting,

@@ -11,19 +11,17 @@ from google.protobuf.duration_pb2 import Duration
 from livekit import api, rtc
 from livekit.agents import (
     AMD,
-    AgentSession,
     AMDCategory,
     CloseEvent,
     ConversationItemAddedEvent,
-    TurnHandlingOptions,
-    inference,
     room_io,
 )
 from livekit.agents.voice import TranscriptSynchronizer
 
-from livekit_phone.agent import PhoneAgent
-from livekit_phone.config import Config, ConfigurationError
+from livekit_phone.agent import PhoneAgent, call_instructions
+from livekit_phone.config import Config, ConfigurationError, VoiceEngine
 from livekit_phone.control import Stop, transcript_event
+from livekit_phone.models import create_models
 from livekit_phone.protocol import (
     Completed,
     CompletionReason,
@@ -32,59 +30,6 @@ from livekit_phone.protocol import (
     Lifecycle,
     Start,
 )
-
-
-def create_session(
-    config: Config, http_session: aiohttp.ClientSession
-) -> AgentSession[None]:
-    """Construct SDK objects without connecting, also used by the offline check."""
-    # Pin the gateway rather than honoring unrelated ambient provider endpoint
-    # overrides. All inference is billed and authenticated through LiveKit.
-    gateway = "https://agent-gateway.livekit.cloud/v1"
-    return AgentSession(
-        stt=inference.STT(
-            model=config.stt_model,
-            language="en",
-            base_url=gateway,
-            api_key=config.api_key,
-            api_secret=config.api_secret,
-            http_session=http_session,
-        ),
-        llm=inference.LLM(
-            model=config.llm_model,
-            base_url=gateway,
-            api_key=config.api_key,
-            api_secret=config.api_secret,
-        ),
-        tts=inference.TTS(
-            model=config.tts_model,
-            voice=config.voice,
-            base_url=gateway,
-            api_key=config.api_key,
-            api_secret=config.api_secret,
-            http_session=http_session,
-        ),
-        turn_handling=TurnHandlingOptions(
-            turn_detection=inference.TurnDetector(
-                version="v1",
-                base_url=gateway,
-                api_key=config.api_key,
-                api_secret=config.api_secret,
-                local_fallback=False,
-                http_session=http_session,
-            ),
-        ),
-        user_away_timeout=None,
-        use_tts_aligned_transcript=True,
-    )
-
-
-async def close_models(session: AgentSession[None]) -> None:
-    # AgentSession closes streams, but model clients are caller-owned and may be
-    # reused between sessions. This one-call process owns them outright.
-    for model in (session.stt, session.llm, session.tts):
-        if model is not None:
-            await model.aclose()
 
 
 class Call:
@@ -103,7 +48,23 @@ class Call:
         self.room_name = f"phone-{request.call_id}"
         self.recipient_identity = f"recipient-{request.call_id}"
         self.room = rtc.Room()
-        self.session = create_session(config, http_session)
+        self.models = create_models(
+            config,
+            http_session,
+            backend_instructions=(
+                call_instructions(request)
+                + "\nYou are the backend handling delegated work for the voice model. "
+                "Use require_approval immediately for any objection to consent or "
+                "need for extra authorization. Use finish_call when the voice model "
+                "has said goodbye and delegates ending the call. Return concise "
+                "answers or instructions for a professional executive assistant, "
+                "never start another task. Carefully check reasoning and calculations. "
+                "Resolve ambiguity only within the authorized task; otherwise "
+                "request clarification. Provide conclusions and relevant uncertainty, "
+                "never internal deliberation or a spoken reasoning monologue."
+            ),
+        )
+        self.session = self.models.session
         self.transcript_sync: TranscriptSynchronizer | None = None
         self.client = api.LiveKitAPI(
             config.url,
@@ -117,6 +78,7 @@ class Call:
         self.recipient_gone = False
         self.room_created = False
         self.answered = asyncio.Event()
+        self.first_agent_utterance = asyncio.Event()
         self._register_events()
 
     def _register_events(self) -> None:
@@ -125,6 +87,8 @@ class Call:
             transcript = transcript_event(event)
             if transcript:
                 self.output.emit(transcript)
+                if transcript.speaker == "agent":
+                    self.first_agent_utterance.set()
             if self.output.closed:
                 self.stop.request("cancelled")
 
@@ -210,7 +174,9 @@ class Call:
         if self.stop.event.is_set():
             return
         await self.session.start(
-            agent=PhoneAgent(self.request, self.stop, self.output),
+            agent=PhoneAgent(
+                self.request, self.stop, self.output, self.config.voice_engine
+            ),
             room=self.room,
             room_options=room_io.RoomOptions(
                 participant_identity=self.recipient_identity,
@@ -234,12 +200,9 @@ class Call:
         self.session.output.transcription = self.transcript_sync.text_output
         if self.stop.event.is_set():
             return
-        language_model = self.session.llm
-        if not isinstance(language_model, inference.LLM):
-            raise RuntimeError("an inference language model is required")
         async with AMD(
             self.session,
-            llm=language_model,
+            llm=self.models.classifier,
             stt=None,
             participant_identity=self.recipient_identity,
             ivr_detection=True,
@@ -284,19 +247,30 @@ class Call:
                 self.stop.request("failed", "No person reached; no message was left.")
                 return
             if prediction.category in (AMDCategory.HUMAN, AMDCategory.UNCERTAIN):
-                await self.session.say(
-                    f"Hello, I'm an AI assistant calling on behalf of "
-                    f"{self.request.caller_name}. I'll transcribe this call for notes. "
-                    "Is that okay?",
-                )
+                await self._open_conversation()
             await self.stop.event.wait()
+
+    async def _open_conversation(self) -> None:
+        if self.config.voice_engine == VoiceEngine.GPT_LIVE:
+            # AMD gates playout, not GPT-Live generation. A native opening may
+            # already be queued or committed. Sending generate_reply here adds
+            # another greeting instruction and restarts the introduction.
+            # Observe the same conversation events we retain for transcripts;
+            # they can arrive after the audio or before AMD returns.
+            async with asyncio.timeout(20):
+                await self.first_agent_utterance.wait()
+        else:
+            await self.session.say(
+                f"Hi, I'm {self.request.caller_name}'s assistant, calling on their "
+                "behalf. I'll transcribe this call for notes. Is that okay?"
+            )
 
     async def cleanup(self) -> bool:
         confirmed = not self.dial_started or self.recipient_gone
         # Stop speech and flush final committed transcript events before the
         # terminal event. The server-side cap remains if cleanup cannot connect.
         with contextlib.suppress(Exception):
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(10):
                 await self.session.aclose()
         if self.transcript_sync is not None:
             with contextlib.suppress(Exception):
@@ -319,7 +293,7 @@ class Call:
                 await self.room.disconnect()
         with contextlib.suppress(Exception):
             async with asyncio.timeout(5):
-                await close_models(self.session)
+                await self.models.aclose()
         await self.client.aclose()
         return confirmed
 

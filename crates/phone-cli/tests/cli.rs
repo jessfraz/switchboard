@@ -51,6 +51,10 @@ impl Fixture {
             .env_remove("PHONE_CONFIG")
             .env_remove("PHONE_STATE_DIR")
             .env_remove("PHONE_SUPERVISOR_PID")
+            .env("PHONE_MODEL_API_KEY", "test-model-key")
+            .env("LIVEKIT_PHONE_BACKEND_REASONING_EFFORT", "low")
+            .env("OPENAI_API_KEY", "unrelated-ambient-key")
+            .env("PHONE_TRANSCRIPT_IDENTITY", "private-identity-must-not-reach-worker")
             .args(["--json", "--config"])
             .arg(&self.config)
             .args(["run", "--request-stdin"])
@@ -74,6 +78,9 @@ fn completed_call_keeps_sensitive_text_encrypted_and_refuses_duplicate_id() {
     let fixture = Fixture::new(
         r#"
 read request
+[ -z "${OPENAI_API_KEY+x}" ] || exit 20
+[ -z "${PHONE_MODEL_API_KEY+x}" ] || exit 21
+[ -z "${PHONE_TRANSCRIPT_IDENTITY+x}" ] || exit 22
 printf '%s\n' '{"protocol_version":1,"type":"ready"}'
 printf '%s\n' '{"protocol_version":1,"type":"dialing"}'
 printf '%s\n' '{"protocol_version":1,"type":"connected"}'
@@ -99,6 +106,39 @@ printf '%s\n' '{"protocol_version":1,"type":"completed","reason":"completed","re
     let second = fixture.run(&id, true);
     assert!(!second.status.success());
     assert!(String::from_utf8_lossy(&second.stderr).contains("refusing to dial again"));
+}
+
+#[test]
+fn gpt_live_worker_receives_selected_models_and_only_its_model_credential() {
+    let fixture = Fixture::new(
+        r#"
+read request
+[ "$LIVEKIT_PHONE_VOICE_ENGINE" = gpt_live ] || exit 20
+[ "$LIVEKIT_PHONE_REALTIME_MODEL" = gpt-live-1 ] || exit 21
+[ "$LIVEKIT_PHONE_BACKEND_MODEL" = gpt-6-astra ] || exit 22
+[ "$OPENAI_API_KEY" = test-model-key ] || exit 23
+[ -z "${PHONE_MODEL_API_KEY+x}" ] || exit 24
+[ -z "${PHONE_TRANSCRIPT_IDENTITY+x}" ] || exit 25
+[ "$LIVEKIT_PHONE_BACKEND_REASONING_EFFORT" = xhigh ] || exit 26
+[ "$LIVEKIT_PHONE_VOICE" = cedar ] || exit 27
+printf '%s\n' '{"protocol_version":1,"type":"ready"}'
+printf '%s\n' '{"protocol_version":1,"type":"dialing"}'
+printf '%s\n' '{"protocol_version":1,"type":"connected"}'
+printf '%s\n' '{"protocol_version":1,"type":"completed","reason":"completed","remote_hangup_confirmed":true}'
+"#,
+    );
+    let mut config = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&fixture.config)
+        .expect("fixture config");
+    writeln!(
+        config,
+        "voice_engine = 'gpt_live'\nrealtime_model = 'gpt-live-1'\nbackend_model = 'gpt-6-astra'\nbackend_reasoning_effort = 'xhigh'\nvoice = 'cedar'"
+    )
+    .expect("voice configuration");
+    let output = fixture.run(&CallId::new(), true);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("test-model-key"));
 }
 
 #[test]

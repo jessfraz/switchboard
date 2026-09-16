@@ -204,6 +204,8 @@ pub enum AuthSecretRefs {
         api_key: Option<SecretRef>,
         #[serde(skip_serializing_if = "Option::is_none")]
         api_secret: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model_api_key: Option<SecretRef>,
     },
     #[serde(rename = "none")]
     GitHubCli,
@@ -290,9 +292,14 @@ impl AuthSecretRefs {
 
     pub fn secret_refs(&self) -> Vec<&SecretRef> {
         match self {
-            Self::PhoneCli { api_key, api_secret } => {
-                [api_key.as_ref(), api_secret.as_ref()].into_iter().flatten().collect()
-            }
+            Self::PhoneCli {
+                api_key,
+                api_secret,
+                model_api_key,
+            } => [api_key.as_ref(), api_secret.as_ref(), model_api_key.as_ref()]
+                .into_iter()
+                .flatten()
+                .collect(),
             Self::GitHubCli | Self::GoogleCli => Vec::new(),
             Self::GitHubToken { token } => vec![token],
             Self::GoogleOAuth {
@@ -472,6 +479,7 @@ pub enum ResolvedCredentials {
     PhoneCli {
         api_key: Option<SecretString>,
         api_secret: Option<SecretString>,
+        model_api_key: Option<SecretString>,
     },
     GitHubCli,
     GitHubToken {

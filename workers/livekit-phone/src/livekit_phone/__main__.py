@@ -99,19 +99,24 @@ async def serve(output: EventSink) -> int:
 async def check(output: EventSink) -> int:
     from livekit.agents.utils import http_context
 
-    from livekit_phone.config import Config
-    from livekit_phone.runtime import close_models, create_session
+    from livekit_phone.config import Config, VoiceEngine
+    from livekit_phone.models import create_models
 
-    config = Config(
-        url="wss://offline-check.livekit.cloud",
-        api_key="offline-check",
-        api_secret="offline-check-not-a-secret-at-least-32-characters",
-        trunk_id="offline-check",
-    )
     async with http_context.open() as http_session:
-        session = create_session(config, http_session)
-        await session.aclose()
-        await close_models(session)
+        for engine in VoiceEngine:
+            config = Config(
+                url="wss://offline-check.livekit.cloud",
+                api_key="offline-check",
+                api_secret="offline-check-not-a-secret-at-least-32-characters",
+                trunk_id="offline-check",
+                voice_engine=engine,
+                openai_api_key="offline-check-not-a-secret",
+            )
+            models = create_models(
+                config, http_session, backend_instructions="Offline construction only."
+            )
+            await models.session.aclose()
+            await models.aclose()
     output.emit(
         Completed(
             reason="completed",
@@ -130,6 +135,7 @@ def main() -> None:
     os.environ["OTEL_TRACES_EXPORTER"] = "none"
     os.environ["OTEL_METRICS_EXPORTER"] = "none"
     os.environ["OTEL_LOGS_EXPORTER"] = "none"
+    os.environ["LK_OPENAI_DEBUG"] = "0"
     output = EventSink(sys.stdout)
     if sys.argv[1:] not in ([], ["check"]):
         output.emit(Error(code="usage", message="Usage: livekit-phone-worker [check]"))

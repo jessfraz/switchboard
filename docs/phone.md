@@ -3,12 +3,13 @@
 `phone` is a separate Rust binary in this workspace. It runs one approved call
 from your computer and saves an encrypted local transcript. LiveKit Cloud
 provides the media service and SIP bridge; a local Python subprocess runs
-LiveKit Agents and uses LiveKit Inference for speech and reasoning. No VM,
+LiveKit Agents with either LiveKit Inference or OpenAI GPT-Live. No VM,
 public webhook, or always-running agent is required. Your computer must stay
 awake and connected for the call.
 
-This implementation has offline validation. Phone routing, voice quality, IVR
-navigation, and carrier hangup behavior still need an authorized live test.
+Offline checks and controlled calls cover routing, encrypted transcripts, and
+confirmed hangup. Voice quality, interruptions, and IVR navigation need
+validation for the selected model and destination before business use.
 The current agent gathers information from businesses. It is instructed to
 stop if someone objects to AI or transcription, or if the task would require
 a booking, purchase, cancellation, payment, account change, or new authority.
@@ -174,6 +175,57 @@ Calls cannot be undone.
 Switchboard executes the binary on `PATH`, or `SWITCHBOARD_PHONE_BIN`. A custom
 wrapper must `exec` the actual binary so parent-process supervision can detect
 Switchboard exiting. Phone integration currently targets macOS and Linux.
+
+## GPT-Live voice engine
+
+The default voice engine remains the LiveKit Inference pipeline. To use
+OpenAI GPT-Live, set these fields in the namespace's phone configuration:
+
+```toml
+[livekit]
+url = "wss://your-project.livekit.cloud"
+sip_trunk_id = "your-outbound-trunk"
+voice_engine = "gpt_live"
+realtime_model = "gpt-live-1"
+backend_model = "gpt-6-astra"
+backend_reasoning_effort = "xhigh"
+voice = "cedar"
+```
+
+GPT-Live handles speech and delegates reasoning and tool calls to the backend
+model. The worker uses the OpenAI plugin directly, requiring an OpenAI API key
+with access to both models. LiveKit still handles media, telephony, and the
+separate answering-machine classifier. The worker runs locally for the call.
+
+The example selects Astra for delegated reasoning and tool calls, with extra-high
+reasoning effort. Voice and backend model are independent. Higher reasoning
+effort can increase response time and cost when delegated work is needed. If
+omitted, the backend model defaults to `gpt-5.6-luna`, the voice to `marin`, and
+reasoning effort to the API's model default. `backend_reasoning_effort` accepts
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; the chosen backend
+must support the selected level (Astra supports `low` through `max`).
+
+The GPT-Live speaking instructions use a measured, concise executive-assistant
+style. They delegate careful reasoning and tools before stating a result, while
+handling ordinary conversation directly. Voice choice changes the sound;
+instructions control delivery and do not guarantee a particular perceived age
+or gender.
+
+Configure `model_api_key` on the Switchboard `phone_cli` auth entry to reference
+a secret, alongside `api_key` and `api_secret` for LiveKit. For an ephemeral
+credential supplied by your secret manager, that secret can use `kind = "env"`
+and `name = "PHONE_MODEL_API_KEY"`. Never store the key itself in TOML. The
+standalone phone CLI also accepts `PHONE_MODEL_API_KEY`, with `OPENAI_API_KEY`
+as a fallback. Only the GPT-Live worker receives this credential; pipeline
+workers receive neither it nor the transcript decryption identity.
+
+GPT-Live uses model-controlled turns and interruptions. Its greeting is
+model-generated, and transcripts can arrive after their audio. Validate consent
+disclosure, overlapping speech, final transcript capture, and hangup with a
+controlled call before using it for business calls. The pinned OpenAI plugin
+uses the service default of `store = false`; LiveKit recording remains off,
+and local transcript records remain encrypted. These settings do not imply
+zero retention across the providers processing the call.
 
 ## Transcripts and outcomes
 

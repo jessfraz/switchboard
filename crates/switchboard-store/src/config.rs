@@ -383,6 +383,8 @@ enum RawAuth {
         api_key: Option<String>,
         #[serde(default)]
         api_secret: Option<String>,
+        #[serde(default)]
+        model_api_key: Option<String>,
     },
     #[serde(rename = "gh_cli")]
     GitHubCli { provider: String, account: String },
@@ -497,10 +499,14 @@ impl RawAuth {
     fn secret_refs(&self) -> Result<AuthSecretRefs> {
         match self {
             Self::PhoneCli {
-                api_key, api_secret, ..
+                api_key,
+                api_secret,
+                model_api_key,
+                ..
             } => Ok(AuthSecretRefs::PhoneCli {
                 api_key: option_secret_ref(api_key.as_deref())?,
                 api_secret: option_secret_ref(api_secret.as_deref())?,
+                model_api_key: option_secret_ref(model_api_key.as_deref())?,
             }),
             Self::GitHubCli { .. } => Ok(AuthSecretRefs::GitHubCli),
             Self::GoogleCli { .. } => Ok(AuthSecretRefs::GoogleCli),
@@ -722,12 +728,16 @@ name = "PHONE_TEST_API_KEY"
 [secret.phone_secret]
 kind = "env"
 name = "PHONE_TEST_API_SECRET"
+[secret.phone_model_key]
+kind = "env"
+name = "PHONE_TEST_MODEL_API_KEY"
 [auth.phone_personal]
 provider = "phone"
 kind = "phone_cli"
 account = "personal"
 api_key = "phone_key"
 api_secret = "phone_secret"
+model_api_key = "phone_model_key"
 [namespace.phone.personal]
 provider = "phone"
 account = "personal"
@@ -746,7 +756,14 @@ state_dir = "/tmp/phone-personal"
         );
         let credentials = auth.get(&namespace.auth_ref).expect("auth");
         assert_eq!(credentials.kind(), AuthKind::PhoneCli);
-        assert_eq!(credentials.secret_refs().len(), 2);
+        assert_eq!(
+            credentials.secrets(),
+            &switchboard_core::AuthSecretRefs::PhoneCli {
+                api_key: Some(SecretRef::new("phone_key").expect("key reference")),
+                api_secret: Some(SecretRef::new("phone_secret").expect("secret reference")),
+                model_api_key: Some(SecretRef::new("phone_model_key").expect("model reference")),
+            }
+        );
     }
 
     #[test]

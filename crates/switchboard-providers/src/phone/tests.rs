@@ -24,6 +24,7 @@ fn target() -> PlanningTarget {
             AuthSecretRefs::PhoneCli {
                 api_key: None,
                 api_secret: None,
+                model_api_key: None,
             },
         )
         .expect("auth"),

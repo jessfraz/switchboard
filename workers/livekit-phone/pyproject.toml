@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Local supervised voice worker for phoneCLI"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "livekit-agents==1.8.2",
+  "livekit-agents[openai]==1.8.2",
   "pydantic>=2.11,<3",
 ]
 

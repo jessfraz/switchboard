@@ -428,9 +428,17 @@ impl Switchboard {
 
     fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {
         let credentials = match target.auth.secrets() {
-            AuthSecretRefs::PhoneCli { api_key, api_secret } => ResolvedCredentials::PhoneCli {
+            AuthSecretRefs::PhoneCli {
+                api_key,
+                api_secret,
+                model_api_key,
+            } => ResolvedCredentials::PhoneCli {
                 api_key: api_key.as_ref().map(|secret| self.resolve_secret(secret)).transpose()?,
                 api_secret: api_secret
+                    .as_ref()
+                    .map(|secret| self.resolve_secret(secret))
+                    .transpose()?,
+                model_api_key: model_api_key
                     .as_ref()
                     .map(|secret| self.resolve_secret(secret))
                     .transpose()?,

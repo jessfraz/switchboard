@@ -47,7 +47,12 @@ pub(crate) fn command(target: &ExecutionTarget) -> Result<Command> {
     command.env("PHONE_CONFIG", state.join("config.toml"));
     command.env("PHONE_STATE_DIR", state.join("calls"));
     command.env("PHONE_SUPERVISOR_PID", std::process::id().to_string());
-    let ResolvedCredentials::PhoneCli { api_key, api_secret } = &target.credentials else {
+    let ResolvedCredentials::PhoneCli {
+        api_key,
+        api_secret,
+        model_api_key,
+    } = &target.credentials
+    else {
         return Err(Error::UnsupportedOperation(
             "phone requires phone_cli credentials".into(),
         ));
@@ -57,6 +62,9 @@ pub(crate) fn command(target: &ExecutionTarget) -> Result<Command> {
     }
     if let Some(value) = api_secret {
         command.env("PHONE_API_SECRET", value.expose());
+    }
+    if let Some(value) = model_api_key {
+        command.env("PHONE_MODEL_API_KEY", value.expose());
     }
     command.arg("--json");
     Ok(command)

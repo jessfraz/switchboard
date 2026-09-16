@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::config::{Config, VoiceEngine};
 use crate::domain::{ActiveCall, AuthorizedCall, CallBackend, CallEvent, CallRequest};
 use crate::error::CallError;
 
@@ -18,26 +18,37 @@ pub struct LiveKitBackend {
     command: std::path::PathBuf,
     arguments: Vec<std::ffi::OsString>,
     settings: Vec<(&'static str, String)>,
+    voice_engine: VoiceEngine,
 }
 
 impl LiveKitBackend {
     pub fn new(config: &Config) -> Self {
-        let settings = [
+        let mut settings: Vec<_> = [
             ("LIVEKIT_URL", &config.livekit.url),
             ("LIVEKIT_SIP_TRUNK_ID", &config.livekit.sip_trunk_id),
             ("LIVEKIT_PHONE_STT_MODEL", &config.livekit.stt_model),
             ("LIVEKIT_PHONE_LLM_MODEL", &config.livekit.llm_model),
             ("LIVEKIT_PHONE_TTS_MODEL", &config.livekit.tts_model),
             ("LIVEKIT_PHONE_VOICE", &config.livekit.voice),
+            ("LIVEKIT_PHONE_REALTIME_MODEL", &config.livekit.realtime_model),
+            ("LIVEKIT_PHONE_BACKEND_MODEL", &config.livekit.backend_model),
         ]
         .into_iter()
         .filter_map(|(name, value)| value.as_ref().map(|value| (name, value.clone())))
         .collect();
+        settings.push((
+            "LIVEKIT_PHONE_VOICE_ENGINE",
+            config.livekit.voice_engine.as_str().into(),
+        ));
+        if let Some(effort) = config.livekit.backend_reasoning_effort {
+            settings.push(("LIVEKIT_PHONE_BACKEND_REASONING_EFFORT", effort.as_str().into()));
+        }
         if let Some(command) = &config.worker_command {
             Self {
                 command: command.clone(),
                 arguments: config.worker_args.iter().map(Into::into).collect(),
                 settings,
+                voice_engine: config.livekit.voice_engine,
             }
         } else {
             Self {
@@ -51,6 +62,7 @@ impl LiveKitBackend {
                     "livekit-phone-worker".into(),
                 ],
                 settings,
+                voice_engine: config.livekit.voice_engine,
             }
         }
     }
@@ -97,6 +109,9 @@ impl CallBackend for LiveKitBackend {
             "LIVEKIT_PHONE_LLM_MODEL",
             "LIVEKIT_PHONE_TTS_MODEL",
             "LIVEKIT_PHONE_VOICE",
+            "LIVEKIT_PHONE_REALTIME_MODEL",
+            "LIVEKIT_PHONE_BACKEND_MODEL",
+            "LIVEKIT_PHONE_BACKEND_REASONING_EFFORT",
         ] {
             if let Some(value) = std::env::var_os(name) {
                 command.env(name, value);
@@ -111,6 +126,14 @@ impl CallBackend for LiveKitBackend {
         ] {
             if let Some(value) = std::env::var_os(generic).or_else(|| std::env::var_os(backend)) {
                 command.env(backend, value);
+            }
+        }
+        // A model-provider key belongs only to the selected voice engine.
+        // Pipeline calls must never receive an unrelated ambient OpenAI key.
+        if self.voice_engine == VoiceEngine::GptLive {
+            if let Some(value) = std::env::var_os("PHONE_MODEL_API_KEY").or_else(|| std::env::var_os("OPENAI_API_KEY"))
+            {
+                command.env("OPENAI_API_KEY", value);
             }
         }
         command
@@ -248,6 +271,7 @@ printf '%s\n' '{"protocol_version":1,"type":"completed","reason":"cancelled","re
             command: "/bin/sh".into(),
             arguments: vec!["-c".into(), script.into()],
             settings: Vec::new(),
+            voice_engine: crate::config::VoiceEngine::Pipeline,
         };
         let authorized = CallRequest {
             call_id: CallId::new(),
