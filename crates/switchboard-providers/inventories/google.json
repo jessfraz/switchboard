@@ -12617,7 +12617,8 @@
         "create",
         "endActiveConference",
         "get",
-        "patch"
+        "patch",
+        "members"
       ]
     },
     {
@@ -12681,6 +12682,179 @@
       "operation_kind": "read",
       "undo_support": {
         "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members"
+      ],
+      "command": "gws meet spaces members",
+      "summary": "Operations on the 'members' resource",
+      "usage": "gws spaces members [OPTIONS] <COMMAND>",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "--help"
+      ],
+      "node_kind": "group",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "unknown"
+      },
+      "subcommands": [
+        "batchUpdate",
+        "create",
+        "delete",
+        "get",
+        "list",
+        "patch"
+      ]
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members",
+        "batchUpdate"
+      ],
+      "command": "gws meet spaces members batchUpdate",
+      "summary": "Updates members of one space within a batch.",
+      "usage": "gws spaces members batchUpdate [OPTIONS]",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "batchUpdate",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "unknown",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members",
+        "create"
+      ],
+      "command": "gws meet spaces members create",
+      "summary": "Creates a member. This API supports the `fields` parameter in SystemParameterContext. When the `fields` parameter is omitted, this API response will default to \"name,email,role,user\".",
+      "usage": "gws spaces members create [OPTIONS]",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "create",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "candidate_command",
+        "path": [
+          "meet",
+          "spaces",
+          "members",
+          "delete"
+        ]
+      }
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members",
+        "delete"
+      ],
+      "command": "gws meet spaces members delete",
+      "summary": "Deletes the member who was previously assigned roles in the space.",
+      "usage": "gws spaces members delete [OPTIONS]",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "delete",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members",
+        "get"
+      ],
+      "command": "gws meet spaces members get",
+      "summary": "Gets a member. This API supports the `fields` parameter in SystemParameterContext. When the `fields` parameter is omitted, this API response will default to \"name,email,role,user\".",
+      "usage": "gws spaces members get [OPTIONS]",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "get",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members",
+        "list"
+      ],
+      "command": "gws meet spaces members list",
+      "summary": "Lists members. This API supports the `fields` parameter in SystemParameterContext. When the `fields` parameter is omitted this API response will default to \"name,email,role,user\".",
+      "usage": "gws spaces members list [OPTIONS]",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "list",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "read",
+      "undo_support": {
+        "kind": "none"
+      }
+    },
+    {
+      "path": [
+        "meet",
+        "spaces",
+        "members",
+        "patch"
+      ],
+      "command": "gws meet spaces members patch",
+      "summary": "Updates a member.",
+      "usage": "gws spaces members patch [OPTIONS]",
+      "help_args": [
+        "meet",
+        "spaces",
+        "members",
+        "patch",
+        "--help"
+      ],
+      "node_kind": "operation",
+      "operation_kind": "write",
+      "undo_support": {
+        "kind": "unknown"
       }
     },
     {

@@ -89,6 +89,14 @@
         fetchurl = fetchCrateFromStaticCdn;
         rustc = pkgs.rustToolchain;
       };
+      phoneWorkerSource = pkgs.lib.fileset.toSource {
+        root = ./workers/livekit-phone;
+        fileset = pkgs.lib.fileset.unions [
+          ./workers/livekit-phone/pyproject.toml
+          ./workers/livekit-phone/uv.lock
+          ./workers/livekit-phone/src
+        ];
+      };
       buildCli = {
         cargoPackage,
         pname,
@@ -125,10 +133,26 @@
         cargoPackage = "plaid-cli";
         pname = "plaid";
       };
-      phone = buildCli {
-        cargoPackage = "phone-cli";
-        pname = "phone";
-      };
+      phone =
+        (buildCli {
+          cargoPackage = "phone-cli";
+          pname = "phone";
+        })
+        .overrideAttrs (old: {
+          postInstall = ''
+            mkdir -p "$out/share/phone"
+            ln -s ${phoneWorkerSource} "$out/share/phone/livekit-worker"
+            ln -s ${pkgs.python313}/bin/python3.13 "$out/share/phone/python"
+          '';
+          # The SDK environment is explicitly synced with uv in writable user
+          # storage. Calls never install dependencies or depend on a checkout.
+          passthru =
+            (old.passthru or {})
+            // {
+              workerSource = phoneWorkerSource;
+              workerPython = pkgs.python313;
+            };
+        });
       schwab = buildCli {
         cargoPackage = "schwab-cli";
         pname = "schwab";

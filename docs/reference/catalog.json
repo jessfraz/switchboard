@@ -1,8 +1,8 @@
 {
   "stats": {
-    "tool_count": 774,
+    "tool_count": 780,
     "curated_count": 18,
-    "raw_count": 756,
+    "raw_count": 762,
     "stable_count": 14,
     "planning_only_count": 4,
     "undoable_count": 1
@@ -20,9 +20,9 @@
     },
     {
       "provider": "google",
-      "tool_count": 509,
+      "tool_count": 515,
       "curated_count": 8,
-      "raw_count": 501,
+      "raw_count": 507,
       "stable_count": 6,
       "planning_only_count": 2,
       "undoable_count": 1,
@@ -21178,6 +21178,210 @@
         "# fixed CLI path: meet spaces get"
       ],
       "doc_path": "reference/#tool=google.cli.meet.spaces.get"
+    },
+    {
+      "name": "google.cli.meet.spaces.members.batchUpdate",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws meet spaces members batchUpdate",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.meet.spaces.members.batchUpdate --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.meet.spaces.members.batchUpdate --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: meet spaces members batchUpdate"
+      ],
+      "doc_path": "reference/#tool=google.cli.meet.spaces.members.batchUpdate"
+    },
+    {
+      "name": "google.cli.meet.spaces.members.create",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws meet spaces members create",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.meet.spaces.members.create --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.meet.spaces.members.create --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: meet spaces members create"
+      ],
+      "doc_path": "reference/#tool=google.cli.meet.spaces.members.create"
+    },
+    {
+      "name": "google.cli.meet.spaces.members.delete",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws meet spaces members delete",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.meet.spaces.members.delete --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.meet.spaces.members.delete --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: meet spaces members delete"
+      ],
+      "doc_path": "reference/#tool=google.cli.meet.spaces.members.delete"
+    },
+    {
+      "name": "google.cli.meet.spaces.members.get",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gws command gws meet spaces members get",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.meet.spaces.members.get --ns google.default --json -- --format json",
+        "switchboard google.cli.meet.spaces.members.get --ns google.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: meet spaces members get"
+      ],
+      "doc_path": "reference/#tool=google.cli.meet.spaces.members.get"
+    },
+    {
+      "name": "google.cli.meet.spaces.members.list",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Run raw gws command gws meet spaces members list",
+      "surface": "raw",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.meet.spaces.members.list --ns google.default --json -- --format json",
+        "switchboard google.cli.meet.spaces.members.list --ns google.default --argv-json '[\"--format\",\"json\"]' --json",
+        "# fixed CLI path: meet spaces members list"
+      ],
+      "doc_path": "reference/#tool=google.cli.meet.spaces.members.list"
+    },
+    {
+      "name": "google.cli.meet.spaces.members.patch",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Run raw gws command gws meet spaces members patch",
+      "surface": "raw",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "raw",
+      "arguments": [
+        {
+          "name": "argv",
+          "transport": "passthrough_argv",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged",
+        "for scripted calls, --argv-json accepts one JSON array of argv tokens"
+      ],
+      "examples": [
+        "switchboard google.cli.meet.spaces.members.patch --ns google.default --draft -- --format json ...",
+        "switchboard google.cli.meet.spaces.members.patch --ns google.default --argv-json '[\"--format\",\"json\",...]' --apply --json",
+        "# fixed CLI path: meet spaces members patch"
+      ],
+      "doc_path": "reference/#tool=google.cli.meet.spaces.members.patch"
     },
     {
       "name": "google.cli.meet.spaces.patch",

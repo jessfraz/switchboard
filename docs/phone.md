@@ -48,10 +48,37 @@ uv run --locked --no-sync --project workers/livekit-phone livekit-phone-worker c
 ```
 
 The final command constructs and closes the actual SDK clients without making
-any network requests. The Nix development shell includes `uv` and Python 3.13;
-`nix build .#phone` builds the Rust binary. Both installation paths still need
-the worker checkout and its `uv sync` setup. Set `worker_project` explicitly so
-the installed binary does not depend on the original build directory.
+any network requests. For this development installation, set `worker_project`
+explicitly to the worker checkout. The Nix development shell includes `uv` and
+Python 3.13.
+
+The Nix package includes the Rust binary, immutable worker source with its lock
+file, and a Python 3.13 interpreter. Install `packages.<system>.phone` through
+your Nix configuration. Then explicitly create a private worker environment
+from that package, without depending on a checkout:
+
+```sh
+phone_package=$(nix build .#phone --no-link --print-out-paths)
+worker_source=$(readlink "$phone_package/share/phone/livekit-worker")
+phone_env="${XDG_DATA_HOME:-$HOME/.local/share}/phone/workers/$(basename "$phone_package")"
+umask 077
+UV_PROJECT_ENVIRONMENT="$phone_env" uv sync \
+  --locked --no-dev --no-editable \
+  --project "$worker_source" \
+  --python "$phone_package/share/phone/python"
+"$phone_env/bin/livekit-phone-worker" check
+```
+
+For this installation, configure `worker_command` with the absolute path to
+`$phone_env/bin/livekit-phone-worker`, instead of `worker_project`. Setup
+downloads the locked Python packages once. Calling uses that executable
+directly and never installs dependencies. When the packaged worker source
+or interpreter changes, run setup again and update `worker_command` to the new
+environment. Use the package installed by your Nix configuration, including
+its input pins, when preparing that environment.
+The installed Nix package retains its Python interpreter across garbage
+collection; avoid deleting older package generations while their worker
+environments remain configured.
 
 Before dialing, provision a LiveKit Cloud project, inference access/credits,
 and an outbound SIP trunk with its caller ID. Configure the carrier and trunk

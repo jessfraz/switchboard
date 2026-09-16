@@ -20,6 +20,11 @@ No separate model-weight download command is needed. Silero VAD ships with the
 SDK dependency, and the turn detector uses LiveKit Inference without a local
 fallback model. Setup downloads the locked Python packages.
 
+The Nix `phone` package also contains this source, its lock file, and Python
+3.13. Its [installation instructions](../../docs/phone.md#install-and-configure)
+use a private, versioned uv environment and an explicit `worker_command`, so
+the installed CLI does not require a source checkout.
+
 ## Runtime configuration
 
 The supervisor injects `LIVEKIT_URL`, `LIVEKIT_API_KEY`,
