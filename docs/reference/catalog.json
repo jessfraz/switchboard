@@ -1,9 +1,9 @@
 {
   "stats": {
-    "tool_count": 771,
-    "curated_count": 15,
+    "tool_count": 774,
+    "curated_count": 18,
     "raw_count": 756,
-    "stable_count": 11,
+    "stable_count": 14,
     "planning_only_count": 4,
     "undoable_count": 1
   },
@@ -47,6 +47,16 @@
       "planning_only_count": 0,
       "undoable_count": 0,
       "doc_path": "docs/reference/providers/schwab.md"
+    },
+    {
+      "provider": "phone",
+      "tool_count": 3,
+      "curated_count": 3,
+      "raw_count": 0,
+      "stable_count": 3,
+      "planning_only_count": 0,
+      "undoable_count": 0,
+      "doc_path": "docs/reference/providers/phone.md"
     }
   ],
   "tools": [
@@ -25548,6 +25558,102 @@
         "switchboard mychart.cli.write --ns mychart.ucla --draft -- finish '<auth-code>'"
       ],
       "doc_path": "reference/#tool=mychart.cli.write"
+    },
+    {
+      "name": "phone.call.run",
+      "provider": "phone",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Make one approved information-only business call and save its encrypted transcript",
+      "surface": "curated",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "destination",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false
+        },
+        {
+          "name": "task",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false
+        },
+        {
+          "name": "caller-name",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false
+        },
+        {
+          "name": "max-duration-seconds",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace"
+      ],
+      "examples": [
+        "switchboard phone.call.run --ns phone.default --draft --destination +12125550100 --caller-name Example --task 'Ask for opening hours' --max-duration-seconds 300",
+        "switchboard op approve <operation-id> --apply"
+      ],
+      "doc_path": "reference/#tool=phone.call.run"
+    },
+    {
+      "name": "phone.doctor",
+      "provider": "phone",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Check local phone configuration without contacting a provider",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace"
+      ],
+      "examples": [
+        "switchboard phone.doctor --ns phone.default --json"
+      ],
+      "doc_path": "reference/#tool=phone.doctor"
+    },
+    {
+      "name": "phone.transcripts.list",
+      "provider": "phone",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "List local encrypted call records without decrypting them",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace"
+      ],
+      "examples": [
+        "switchboard phone.transcripts.list --ns phone.default --json"
+      ],
+      "doc_path": "reference/#tool=phone.transcripts.list"
     },
     {
       "name": "schwab.cli.accounts.get",

@@ -666,6 +666,7 @@ fn render_reference_html(snapshot: &CatalogSnapshot) -> String {
                 <option value="github">GitHub</option>
                 <option value="google">Google</option>
                 <option value="mychart">MyChart</option>
+                <option value="phone">Phone</option>
                 <option value="schwab">Schwab</option>
               </select>
             </label>

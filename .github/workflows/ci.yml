@@ -8,6 +8,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  phone-worker:
+    name: Phone Worker Checks (offline)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/livekit-phone
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.13'
+      - run: uv sync --locked
+      - run: uv run --locked --no-sync ruff check .
+      - run: uv run --locked --no-sync ruff format --check .
+      - run: uv run --locked --no-sync mypy src tests
+      - run: uv run --locked --no-sync pytest -q
+      - run: uv run --locked --no-sync livekit-phone-worker check
+
   windows-process:
     name: Windows Process Checks
     runs-on: windows-latest
@@ -57,6 +75,9 @@ jobs:
       - name: Build Schwab CLI
         run: cargo build -p schwab-cli
 
+      - name: Build Phone CLI
+        run: cargo build -p phone-cli
+
       - name: Expose workspace binaries on PATH
         run: echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
 
@@ -66,6 +87,7 @@ jobs:
           gws --version
           mychart --version
           schwab --version
+          phone --version
 
       - name: Check Generated CLI Inventories
         run: cargo run -p switchboard-providers --bin switchboard-catalog-gen -- check

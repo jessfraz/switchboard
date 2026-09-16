@@ -84,6 +84,8 @@ pub enum AuthKind {
     MyChartCli,
     #[serde(rename = "schwab_cli")]
     SchwabCli,
+    #[serde(rename = "phone_cli")]
+    PhoneCli,
 }
 
 impl AuthKind {
@@ -96,6 +98,7 @@ impl AuthKind {
             "google_oauth_file" => Some(Self::GoogleOAuthFile),
             "mychart_cli" => Some(Self::MyChartCli),
             "schwab_cli" => Some(Self::SchwabCli),
+            "phone_cli" => Some(Self::PhoneCli),
             _ => None,
         }
     }
@@ -106,6 +109,7 @@ impl AuthKind {
             Self::GoogleCli | Self::GoogleOAuth | Self::GoogleOAuthFile => ProviderKind::GoogleWorkspace,
             Self::MyChartCli => ProviderKind::MyChart,
             Self::SchwabCli => ProviderKind::Schwab,
+            Self::PhoneCli => ProviderKind::Phone,
         }
     }
 }
@@ -120,6 +124,7 @@ impl Display for AuthKind {
             Self::GoogleOAuthFile => "google_oauth_file",
             Self::MyChartCli => "mychart_cli",
             Self::SchwabCli => "schwab_cli",
+            Self::PhoneCli => "phone_cli",
         };
 
         write!(f, "{value}")
@@ -193,6 +198,13 @@ impl ResolvedSecret {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum AuthSecretRefs {
+    #[serde(rename = "phone_cli")]
+    PhoneCli {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        api_key: Option<SecretRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        api_secret: Option<SecretRef>,
+    },
     #[serde(rename = "none")]
     GitHubCli,
     #[serde(rename = "github_token")]
@@ -265,6 +277,7 @@ pub enum AuthSecretRefs {
 impl AuthSecretRefs {
     pub fn kind(&self) -> AuthKind {
         match self {
+            Self::PhoneCli { .. } => AuthKind::PhoneCli,
             Self::GitHubCli => AuthKind::GitHubCli,
             Self::GitHubToken { .. } => AuthKind::GitHubToken,
             Self::GoogleCli => AuthKind::GoogleCli,
@@ -277,6 +290,9 @@ impl AuthSecretRefs {
 
     pub fn secret_refs(&self) -> Vec<&SecretRef> {
         match self {
+            Self::PhoneCli { api_key, api_secret } => {
+                [api_key.as_ref(), api_secret.as_ref()].into_iter().flatten().collect()
+            }
             Self::GitHubCli | Self::GoogleCli => Vec::new(),
             Self::GitHubToken { token } => vec![token],
             Self::GoogleOAuth {
@@ -453,6 +469,10 @@ impl Debug for SecretString {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolvedCredentials {
+    PhoneCli {
+        api_key: Option<SecretString>,
+        api_secret: Option<SecretString>,
+    },
     GitHubCli,
     GitHubToken {
         token: SecretString,

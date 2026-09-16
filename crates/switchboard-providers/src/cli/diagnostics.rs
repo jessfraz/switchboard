@@ -29,6 +29,9 @@ pub struct CliBinaryDiagnostic {
 
 /// Resolve the same CLI binary used by provider commands and run only its version probe.
 pub fn diagnose_provider_cli(provider: ProviderKind) -> Result<CliBinaryDiagnostic> {
+    if provider == ProviderKind::Phone {
+        return Ok(inspect_binary(&crate::phone::runtime::binary(), false));
+    }
     let manifest = match provider {
         ProviderKind::GitHub => include_str!("../../manifests/github.json"),
         ProviderKind::GoogleWorkspace => include_str!("../../manifests/google.json"),

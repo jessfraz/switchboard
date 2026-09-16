@@ -20,5 +20,8 @@ serde.workspace = true
 serde_json.workspace = true
 switchboard-core = { path = "../switchboard-core" }
 
+[dev-dependencies]
+phone-cli = { path = "../phone-cli" }
+
 [lints]
 workspace = true

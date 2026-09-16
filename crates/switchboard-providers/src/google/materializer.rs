@@ -33,7 +33,8 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
             ResolvedCredentials::GoogleOAuthFile { credentials } => Ok(Self::CredentialsFile {
                 credentials: credentials.expose(),
             }),
-            ResolvedCredentials::GitHubCli
+            ResolvedCredentials::PhoneCli { .. }
+            | ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::MyChartCli { .. }
             | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
@@ -277,6 +278,10 @@ mod tests {
             },
             ResolvedCredentials::GitHubToken { .. } => AuthSecretRefs::GitHubToken {
                 token: SecretRef::new("github.personal_token").expect("secret ref should build"),
+            },
+            ResolvedCredentials::PhoneCli { .. } => AuthSecretRefs::PhoneCli {
+                api_key: None,
+                api_secret: None,
             },
             ResolvedCredentials::GitHubCli => AuthSecretRefs::GitHubCli,
             ResolvedCredentials::MyChartCli { .. } => AuthSecretRefs::MyChartCli {

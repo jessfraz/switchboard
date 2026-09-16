@@ -1,0 +1,33 @@
+[project]
+name = "livekit-phone-worker"
+version = "0.1.0"
+description = "Local supervised voice worker for phoneCLI"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "livekit-agents==1.8.2",
+  "pydantic>=2.11,<3",
+]
+
+[project.scripts]
+livekit-phone-worker = "livekit_phone.__main__:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.4,<9", "ruff>=0.12,<1", "mypy>=1.16,<2"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/livekit_phone"]

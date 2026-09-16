@@ -56,6 +56,8 @@
             openssl
             postgresql
             pkg-config
+            uv
+            python313
           ])
           ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin (with pkgs; [
             ]);
@@ -122,6 +124,10 @@
       plaid = buildCli {
         cargoPackage = "plaid-cli";
         pname = "plaid";
+      };
+      phone = buildCli {
+        cargoPackage = "phone-cli";
+        pname = "phone";
       };
       schwab = buildCli {
         cargoPackage = "schwab-cli";

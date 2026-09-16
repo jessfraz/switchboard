@@ -20,6 +20,15 @@ mod capture;
 /// failure. On Windows only the direct child is terminated. Output handles held
 /// by descendants cannot keep capture alive after the child exits.
 pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Output> {
+    output_with_stdin_timeout(command, Stdio::null(), timeout)
+}
+
+/// Capture a child with caller-owned stdin and a finite deadline.
+///
+/// The input must already be readable without a producer that depends on this
+/// function returning. This preserves the process-group cleanup and output
+/// deadlines of [`output_with_timeout`] while keeping sensitive input off argv.
+pub fn output_with_stdin_timeout(command: &mut Command, stdin: Stdio, timeout: Duration) -> io::Result<Output> {
     if timeout.is_zero() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -29,7 +38,7 @@ pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Resu
     let started = Instant::now();
     let (mut stdout, child_stdout) = capture::Capture::new()?;
     let (mut stderr, child_stderr) = capture::Capture::new()?;
-    command.stdin(Stdio::null()).stdout(child_stdout).stderr(child_stderr);
+    command.stdin(stdin).stdout(child_stdout).stderr(child_stderr);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -41,7 +50,7 @@ pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Resu
         process: command.spawn()?,
         reaped: false,
     };
-    command.stdout(Stdio::null()).stderr(Stdio::null());
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let mut stdout_bytes = Vec::new();
     let mut stderr_bytes = Vec::new();
     loop {

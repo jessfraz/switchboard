@@ -69,6 +69,7 @@ This repo is real, but still in the "tighten the public surface" phase.
 | Google curated reads | Mixed | Mail search/read and calendar list execute, drive search is planning-only |
 | Google curated writes | Mixed | Mail draft and calendar create/delete execute, mail send is planning-only |
 | MyChart raw CLI tools | Executable | Namespace-scoped `mychart-cli` passthrough, including inventory-backed raw leaf commands |
+| Phone calls | Implemented, live validation pending | Local Rust CLI, replaceable LiveKit worker, encrypted transcripts; see [setup](docs/phone.md) |
 | Raw provider CLI tools | Executable | Namespace, policy, approval, and audit still apply |
 
 This workspace also contains adjacent CLIs. The public polish and open-source hardening work is focused on `switchboard` first.

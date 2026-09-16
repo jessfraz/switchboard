@@ -37,6 +37,7 @@ impl CliRuntimeMaterializer for DefaultGitHubCliMaterializer {
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
             | ResolvedCredentials::MyChartCli { .. }
+            | ResolvedCredentials::PhoneCli { .. }
             | ResolvedCredentials::SchwabCli { .. } => Err(Error::UnsupportedOperation(format!(
                 "github cli materializer does not support {} credentials",
                 target.auth.kind()

@@ -4,6 +4,7 @@ mod google;
 pub mod inventory;
 pub mod inventory_generator;
 mod mychart;
+mod phone;
 mod process_runtime;
 mod schwab;
 #[cfg(test)]
@@ -19,6 +20,7 @@ pub use crate::{
     github::GitHubAdapter,
     google::GoogleWorkspaceAdapter,
     mychart::MyChartAdapter,
+    phone::PhoneAdapter,
     schwab::SchwabAdapter,
 };
 
@@ -33,6 +35,7 @@ pub fn default_registry() -> switchboard_core::Result<AdapterRegistry> {
     adapters.register(Arc::new(GitHubAdapter::new()?));
     adapters.register(Arc::new(GoogleWorkspaceAdapter::new()?));
     adapters.register(Arc::new(MyChartAdapter::new()?));
+    adapters.register(Arc::new(PhoneAdapter::new()?));
     adapters.register(Arc::new(SchwabAdapter::new()?));
     Ok(adapters)
 }

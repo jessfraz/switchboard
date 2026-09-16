@@ -1,8 +1,8 @@
-mod command;
+pub(crate) mod command;
 mod declarative;
 pub(crate) mod diagnostics;
 mod executor;
-mod locator;
+pub(crate) mod locator;
 mod manifest;
 pub(crate) mod passthrough;
 mod probe;

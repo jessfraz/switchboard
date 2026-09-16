@@ -6,6 +6,7 @@
 | `google` | 6 | 2 | 501 | 1 |
 | `mychart` | 0 | 0 | 32 | 0 |
 | `schwab` | 0 | 0 | 32 | 0 |
+| `phone` | 3 | 0 | 0 | 0 |
 
 ## Status meanings
 

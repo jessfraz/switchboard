@@ -375,6 +375,15 @@ enum RawSecret {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 enum RawAuth {
+    #[serde(rename = "phone_cli")]
+    PhoneCli {
+        provider: String,
+        account: String,
+        #[serde(default)]
+        api_key: Option<String>,
+        #[serde(default)]
+        api_secret: Option<String>,
+    },
     #[serde(rename = "gh_cli")]
     GitHubCli { provider: String, account: String },
     #[serde(rename = "github_token")]
@@ -461,6 +470,7 @@ enum RawAuth {
 impl RawAuth {
     fn provider(&self) -> &str {
         match self {
+            Self::PhoneCli { provider, .. } => provider,
             Self::GitHubCli { provider, .. }
             | Self::GitHubToken { provider, .. }
             | Self::GoogleCli { provider, .. }
@@ -473,6 +483,7 @@ impl RawAuth {
 
     fn account(&self) -> &str {
         match self {
+            Self::PhoneCli { account, .. } => account,
             Self::GitHubCli { account, .. }
             | Self::GitHubToken { account, .. }
             | Self::GoogleCli { account, .. }
@@ -485,6 +496,12 @@ impl RawAuth {
 
     fn secret_refs(&self) -> Result<AuthSecretRefs> {
         match self {
+            Self::PhoneCli {
+                api_key, api_secret, ..
+            } => Ok(AuthSecretRefs::PhoneCli {
+                api_key: option_secret_ref(api_key.as_deref())?,
+                api_secret: option_secret_ref(api_secret.as_deref())?,
+            }),
             Self::GitHubCli { .. } => Ok(AuthSecretRefs::GitHubCli),
             Self::GoogleCli { .. } => Ok(AuthSecretRefs::GoogleCli),
             Self::GitHubToken { token, .. } => Ok(AuthSecretRefs::GitHubToken {
@@ -694,6 +711,43 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/config/schwab-explicit-default-auth.toml"
     ));
+
+    #[test]
+    fn phone_namespace_resolves_explicit_auth_and_scoped_state() {
+        let config = SwitchboardConfig::from_toml_str(
+            r#"
+[secret.phone_key]
+kind = "env"
+name = "PHONE_TEST_API_KEY"
+[secret.phone_secret]
+kind = "env"
+name = "PHONE_TEST_API_SECRET"
+[auth.phone_personal]
+provider = "phone"
+kind = "phone_cli"
+account = "personal"
+api_key = "phone_key"
+api_secret = "phone_secret"
+[namespace.phone.personal]
+provider = "phone"
+account = "personal"
+auth = "phone_personal"
+state_dir = "/tmp/phone-personal"
+"#,
+        )
+        .expect("phone configuration parses");
+        let (namespaces, auth, _) = config.into_stores();
+        let namespace = namespaces
+            .get(&NamespaceId::new("phone.personal").expect("namespace ID"))
+            .expect("namespace");
+        assert_eq!(
+            namespace.state_dir,
+            Some(std::path::PathBuf::from("/tmp/phone-personal"))
+        );
+        let credentials = auth.get(&namespace.auth_ref).expect("auth");
+        assert_eq!(credentials.kind(), AuthKind::PhoneCli);
+        assert_eq!(credentials.secret_refs().len(), 2);
+    }
 
     #[test]
     fn google_namespaces_without_auth_get_isolated_local_credentials() {

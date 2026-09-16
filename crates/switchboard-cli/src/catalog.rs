@@ -131,6 +131,12 @@ impl ToolCatalogDetail {
 }
 
 fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
+    if tool.name.as_str() == "phone.call.run" {
+        return vec![format!("switchboard phone.call.run --ns {namespace} --draft --destination +12125550100 --caller-name Example --task 'Ask for opening hours' --max-duration-seconds 300"), "switchboard op approve <operation-id> --apply".into()];
+    }
+    if tool.provider == ProviderKind::Phone {
+        return vec![format!("switchboard {} --ns {namespace} --json", tool.name)];
+    }
     let mode_flag = match tool.kind {
         ToolKind::Read => "--json",
         ToolKind::Write => "--draft",

@@ -66,7 +66,8 @@ impl CliRuntimeMaterializer for DefaultSchwabCliMaterializer {
                 apply_optional_secret(&mut context, REFRESH_TOKEN_ENV, refresh_token.as_ref());
                 Ok(context)
             }
-            ResolvedCredentials::GitHubCli
+            ResolvedCredentials::PhoneCli { .. }
+            | ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleCli
             | ResolvedCredentials::GoogleOAuth { .. }
@@ -284,6 +285,10 @@ mod tests {
                 redirect_uri: Some(SecretRef::new("schwab.personal_redirect_uri").expect("secret ref should build")),
                 access_token: None,
                 refresh_token: Some(SecretRef::new("schwab.personal_refresh_token").expect("secret ref should build")),
+            },
+            ResolvedCredentials::PhoneCli { .. } => AuthSecretRefs::PhoneCli {
+                api_key: None,
+                api_secret: None,
             },
             ResolvedCredentials::GitHubCli => AuthSecretRefs::GitHubCli,
             ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
