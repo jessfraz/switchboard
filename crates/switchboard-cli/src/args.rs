@@ -15,6 +15,7 @@ const AFTER_HELP: &str = concat!(
     "    <provider>.cli.write  for write commands\n",
     "  Namespace auth, policy, approval, audit, and undo metadata still apply.\n",
     "  Put switchboard flags before --, then pass native CLI argv after --.\n",
+    "  --approve-and-apply plans, records any required approval, and applies one write in one command.\n",
     "\n",
     "Examples:\n",
     "  switchboard ns list\n",
@@ -87,7 +88,7 @@ impl Commands {
             Self::Tools(tools) => tools.into_runtime_command(),
             Self::Audit(audit) => audit.into_runtime_command(),
             Self::Op(operation) => operation.into_runtime_command(),
-            Self::Tool(tokens) => parse_external_tool_invocation(tokens).map(CommandKind::Operation),
+            Self::Tool(tokens) => parse_external_tool_invocation(tokens),
         }
     }
 }
@@ -357,6 +358,7 @@ pub(crate) enum CommandKind {
     ToolCatalog(ToolCatalogRuntimeCommand),
     Audit(AuditRuntimeCommand),
     Operation(OperationRequest),
+    ApproveAndApply(ToolRequest),
     StoredOperation(StoredOperationCommand),
 }
 
@@ -443,7 +445,7 @@ fn parse_audit_selector(value: &str) -> Result<AuditSelector> {
     bail!("audit selector must be an audit_* event id or op_* operation id");
 }
 
-pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<OperationRequest> {
+pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<CommandKind> {
     let mut positionals = tokens.into_iter().map(os_string_to_string).collect::<Vec<_>>();
     let tool = positionals
         .first()
@@ -453,6 +455,7 @@ pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<Op
     let mut namespaces = Vec::new();
     let mut arguments = Vec::new();
     let mut mode = ExecutionMode::Auto;
+    let mut approve = false;
     let mut passthrough_tail = None;
     let mut index = 0;
 
@@ -464,6 +467,10 @@ pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<Op
                 break;
             }
             "--json" => index += 1,
+            "--approve-and-apply" => {
+                approve = true;
+                index += 1;
+            }
             "--plan" => {
                 mode = ExecutionMode::Plan;
                 index += 1;
@@ -537,15 +544,26 @@ pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<Op
         bail!("tool commands require at least one --ns <namespace>");
     }
 
+    if approve {
+        if mode != ExecutionMode::Auto || arguments.iter().any(|argument| argument.name() == "dry-run") {
+            bail!("--approve-and-apply cannot be combined with --plan, --draft, --apply, or --dry-run");
+        }
+        if namespaces.len() != 1 {
+            bail!("--approve-and-apply requires exactly one --ns <namespace>");
+        }
+        let request = ToolRequest::new(tool, namespaces.remove(0), ExecutionMode::Draft, arguments)?;
+        return Ok(CommandKind::ApproveAndApply(request));
+    }
+
     if namespaces.len() == 1 {
         let request = ToolRequest::new(tool, namespaces.remove(0), mode, arguments.clone())?;
 
-        return Ok(OperationRequest::single(request));
+        return Ok(CommandKind::Operation(OperationRequest::single(request)));
     }
 
     let request = AggregateReadRequest::new(tool, namespaces, mode, arguments)?;
 
-    Ok(OperationRequest::aggregate_read(request))
+    Ok(CommandKind::Operation(OperationRequest::aggregate_read(request)))
 }
 
 fn split_inline_argument(argument: &str) -> Option<(&str, &str)> {

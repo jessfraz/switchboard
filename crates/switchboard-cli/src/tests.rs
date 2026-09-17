@@ -1562,6 +1562,25 @@ fn generated_raw_mychart_notes_search_tool_supports_double_dash_passthrough() {
 }
 
 #[test]
+fn native_approve_flag_does_not_authorize_a_switchboard_write() {
+    let command = crate::args::parse_external_tool_invocation(
+        ["github.cli.pr.review", "--ns", "github.personal", "--approve"]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+    )
+    .expect("native review flag should parse");
+    let crate::args::CommandKind::Operation(OperationRequest::Single(request)) = command else {
+        panic!("native --approve must not become Switchboard authorization");
+    };
+    assert_eq!(request.mode, ExecutionMode::Auto);
+    assert!(request
+        .args
+        .iter()
+        .any(|argument| { matches!(argument, switchboard_core::ToolArgument::Flag { name } if name == "approve") }));
+}
+
+#[test]
 fn repeated_argv_accepts_dash_prefixed_passthrough_tokens() {
     let request = crate::args::parse_external_tool_invocation(
         [
@@ -1586,11 +1605,11 @@ fn repeated_argv_accepts_dash_prefixed_passthrough_tokens() {
     .expect("external tool invocation should parse");
 
     match request {
-        OperationRequest::Single(request) => {
+        crate::args::CommandKind::Operation(OperationRequest::Single(request)) => {
             let argv = request.args.values("argv").collect::<Vec<_>>();
             assert_eq!(argv, vec!["calendar", "+agenda", "--format", "json", "--today"]);
         }
-        OperationRequest::AggregateRead(_) => panic!("expected single operation request"),
+        _ => panic!("expected single operation request"),
     }
 }
 

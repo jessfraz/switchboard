@@ -61,6 +61,8 @@ must be absolute, without `~` expansion. Keep the state directory private
 
 ```toml
 backend = "livekit"
+caller_name = "Alex"
+max_duration_seconds = 600
 transcript_recipient = "age1...your-complete-public-recipient"
 state_dir = "/absolute/path/to/private/phone/calls"
 worker_project = "/absolute/path/to/switchboard/workers/livekit-phone"
@@ -151,33 +153,57 @@ op run --env-file "$HOME/.config/phone/runtime.env" -- \
   switchboard phone.doctor --ns phone.personal --json
 ```
 
-## Make an explicitly approved test call
+## Make a call
 
 Use a number you control. Replace the fictional number below, review the
-brief and duration, and authorize only that call. Standalone `--approve` dials:
+brief and duration, then call it:
 
 ```sh
 op run --env-file "$HOME/.config/phone/runtime.env" -- \
-  phone --json run --approve \
+  phone call +12125550101 'Do a short audio check, then finish.'
+```
+
+The `call` command authorizes and starts that call without another approval
+flag. Your configured `caller_name` supplies whose assistant is calling;
+`--caller-name` overrides it for one call. `max_duration_seconds` defaults to
+600 and includes hold time, with an allowed range of 30 to 3600 seconds.
+`--max-duration-seconds` overrides that setting for one call. Model, voice,
+trunk, worker, and transcript settings come from the same phone configuration.
+
+With credentials already supplied in the environment, the command is simply
+`phone call NUMBER 'PROMPT'`. Standalone `phone` does not resolve Switchboard's
+1Password references or automatically select its namespace configuration. Use
+the credential injection above for standalone calls, or continue through
+Switchboard with its existing configuration and authentication.
+
+With Switchboard, use `--approve-and-apply` to plan, record your approval, and
+apply the exact operation in one command. It uses the namespace's existing
+credentials:
+
+```sh
+switchboard phone.call.run --ns phone.personal --approve-and-apply \
   --destination +12125550101 --caller-name Example \
   --task 'Do a short audio check, then finish.' --max-duration-seconds 180
 ```
 
-With Switchboard, create a draft, review it, then approve its returned ID:
+For an `env` credential configuration, wrap this command in `op run` as above.
+For `onepassword_item` references, Switchboard resolves the configured vault
+fields itself. No separate credential export is needed.
 
-```sh
-op run --env-file "$HOME/.config/phone/runtime.env" -- \
-  switchboard phone.call.run --ns phone.personal --draft \
-  --destination +12125550101 --caller-name Example \
-  --task 'Do a short audio check, then finish.' --max-duration-seconds 180
-op run --env-file "$HOME/.config/phone/runtime.env" -- \
-  switchboard op approve 'replace-with-operation-id' --apply
-```
+Omit `--approve-and-apply` to save a pending operation for review, then use
+`switchboard op approve OPERATION_ID --apply` when ready. `--approve-and-apply`
+is an explicit authorization for that command's exact destination, brief, caller,
+and duration. It cannot be combined with planning/draft/apply/dry-run modes or
+multiple namespaces, and it does not override a policy that denies writes.
+The result retains the operation ID and its plan, approval, and execution audit
+events. `--apply` by itself still cannot bypass required approval.
 
 Check the opening, audio, interruptions, transcript completeness, and actual
-hangup. Confirm `remote_hangup_confirmed`; false means unknown. Calls always
-require approval, cannot be undone, and never automatically redial. Another
-attempt needs a new call/operation ID. For sensitive standalone briefs, use
+hangup. Confirm `remote_hangup_confirmed`; false means unknown. Calls cannot be
+undone and never automatically redial. Another attempt needs a new
+call/operation ID. The supervised `phone run` command still requires
+`--approve` and explicit request values; it does not use the new caller or
+duration defaults. For sensitive standalone briefs, use
 `phone run --approve --request-stdin` to avoid process arguments.
 
 ## Transcripts and privacy

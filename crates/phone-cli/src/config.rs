@@ -9,6 +9,8 @@ use crate::error::CallError;
 pub struct Config {
     #[serde(default)]
     pub backend: Backend,
+    pub caller_name: Option<String>,
+    pub max_duration_seconds: Option<u64>,
     pub transcript_recipient: String,
     #[serde(default)]
     pub state_dir: PathBuf,

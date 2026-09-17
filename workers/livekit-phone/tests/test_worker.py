@@ -11,7 +11,13 @@ import sys
 
 import aiohttp
 import pytest
-from livekit.agents import CloseEvent, ConversationItemAddedEvent, ErrorEvent, inference
+from livekit.agents import (
+    APIStatusError,
+    CloseEvent,
+    ConversationItemAddedEvent,
+    ErrorEvent,
+    inference,
+)
 from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
 from livekit.agents.tts import TTSError
 from livekit.agents.voice.events import CloseReason
@@ -337,8 +343,10 @@ def test_events_are_valid_ndjson_without_null_summary() -> None:
 
 
 @pytest.mark.parametrize("recoverable", [False, True])
+@pytest.mark.parametrize("status_code", [None, 400])
 def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
     recoverable: bool,
+    status_code: int | None,
 ) -> None:
     async def report_error() -> None:
         config = Config(
@@ -357,7 +365,16 @@ def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
                 error = TTSError(
                     timestamp=0.0,
                     label="private-model-sentinel",
-                    error=RuntimeError("private-credential-sentinel"),
+                    error=(
+                        RuntimeError("private-credential-sentinel")
+                        if status_code is None
+                        else APIStatusError(
+                            "private-credential-sentinel",
+                            status_code=status_code,
+                            request_id="private-request-sentinel",
+                            body="private-body-sentinel",
+                        )
+                    ),
                     recoverable=recoverable,
                 )
                 call.session.emit(
@@ -370,15 +387,21 @@ def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
                     call.session.emit(
                         "close", CloseEvent(error=error, reason=CloseReason.ERROR)
                     )
+                    detail = (
+                        "tts_error"
+                        if status_code is None
+                        else f"tts_error, HTTP {status_code}"
+                    )
+                    summary = f"The voice session ended ({detail})."
                     assert json.loads(output.getvalue()) == {
                         "protocol_version": 1,
                         "type": "error",
                         "code": "tts_error",
-                        "message": "The voice session ended after model errors.",
+                        "message": summary,
                     }
                     assert stop.event.is_set()
                     assert stop.reason == "failed"
-                    assert stop.summary == "The voice session ended (tts_error)."
+                    assert stop.summary == summary
             finally:
                 assert await call.cleanup()
 

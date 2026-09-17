@@ -12,6 +12,9 @@ from livekit import api, rtc
 from livekit.agents import (
     AMD,
     AMDCategory,
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
     CloseEvent,
     ConversationItemAddedEvent,
     room_io,
@@ -100,15 +103,22 @@ class Call:
                     # retries and its error budget. Our supervisor treats Error
                     # as fatal, so emit only once the session actually closes.
                     # The typed category is safe; provider exception text is not.
+                    failure = event.error.error
+                    detail: str = event.error.type
+                    if isinstance(failure, APIStatusError):
+                        detail += f", HTTP {failure.status_code}"
+                    elif isinstance(failure, APITimeoutError):
+                        detail += ", request timed out"
+                    elif isinstance(failure, APIConnectionError):
+                        detail += ", connection failed"
+                    summary = f"The voice session ended ({detail})."
                     self.output.emit(
                         Error(
                             code=event.error.type,
-                            message="The voice session ended after model errors.",
+                            message=summary,
                         )
                     )
-                    self.stop.request(
-                        "failed", f"The voice session ended ({event.error.type})."
-                    )
+                    self.stop.request("failed", summary)
                 else:
                     self.stop.request("completed")
 

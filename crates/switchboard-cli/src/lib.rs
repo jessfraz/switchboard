@@ -6,10 +6,11 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{CommandFactory, Parser};
 use switchboard_core::{
     AuthStore, DispatchOutcome, NamespaceStore, SecretResolver, SecretStore, Switchboard, SwitchboardServices,
+    ToolKind, ToolRequest,
 };
 use switchboard_providers::default_registry;
 use switchboard_store::{
@@ -161,8 +162,41 @@ fn run(cli: Cli) -> Result<String> {
                 Ok(render_operation_human(&outcome))
             }
         }
+        CommandKind::ApproveAndApply(request) => {
+            let output = approve_and_apply(&switchboard, request)?;
+            if json_requested {
+                render_json_dispatch(&DispatchOutcome::Executed(output))
+            } else {
+                Ok(render_output_human(&output))
+            }
+        }
         CommandKind::StoredOperation(command) => run_stored_operation_command(&switchboard, command),
     }
+}
+
+fn approve_and_apply(switchboard: &Switchboard, request: ToolRequest) -> Result<switchboard_core::ToolOutput> {
+    let descriptor = switchboard
+        .describe_tool(&request.tool)?
+        .ok_or_else(|| anyhow!("unknown tool: {}", request.tool))?;
+    if descriptor.kind != ToolKind::Write {
+        bail!("--approve-and-apply requires a write tool");
+    }
+    // The parser forces Draft, so policy and persistence finish before the
+    // exact resulting operation is approved or any provider write can run.
+    let DispatchOutcome::Planned(plan) = switchboard.dispatch(request)? else {
+        bail!("--approve-and-apply expected a persisted write plan");
+    };
+    let id = plan
+        .operation_id
+        .ok_or_else(|| anyhow!("write plan has no operation ID"))?;
+    if plan.approval_required {
+        switchboard
+            .approve_operation(&id, &args::default_actor(), None)
+            .map_err(|error| anyhow!("failed to approve operation {id}: {error}"))?;
+    }
+    switchboard
+        .apply_operation(&id)
+        .map_err(|error| anyhow!("failed to apply operation {id}: {error}; inspect it before retrying"))
 }
 
 fn run_audit_command(switchboard: &Switchboard, command: AuditRuntimeCommand) -> Result<String> {

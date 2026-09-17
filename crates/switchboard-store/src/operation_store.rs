@@ -313,11 +313,19 @@ impl OperationStore for SqliteOperationStore {
 }
 
 pub fn resolve_operation_store_path(config_path: &Path) -> PathBuf {
-    if let Some(path) = env::var_os("SWITCHBOARD_STATE_DB").map(PathBuf::from) {
+    operation_store_path(
+        config_path,
+        env::var_os("SWITCHBOARD_STATE_DB").map(PathBuf::from),
+        env::var_os("SWITCHBOARD_STATE_DIR").map(PathBuf::from),
+    )
+}
+
+fn operation_store_path(config_path: &Path, database: Option<PathBuf>, directory: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = database {
         return path;
     }
 
-    if let Some(directory) = env::var_os("SWITCHBOARD_STATE_DIR").map(PathBuf::from) {
+    if let Some(directory) = directory {
         return directory.join(DEFAULT_DB_FILE);
     }
 
@@ -516,7 +524,6 @@ fn operation_columns(connection: &Connection) -> Result<Vec<String>> {
 mod tests {
     use std::{
         path::{Path, PathBuf},
-        sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -526,9 +533,7 @@ mod tests {
         ToolRef, ToolRefKind, ToolRequest,
     };
 
-    use super::{resolve_operation_store_path, SqliteOperationStore};
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use super::{operation_store_path, SqliteOperationStore};
 
     #[test]
     fn sqlite_operation_store_persists_operations_across_reopen() {
@@ -548,30 +553,27 @@ mod tests {
 
     #[test]
     fn state_path_defaults_under_project_dot_switchboard_for_local_config() {
-        let path = resolve_operation_store_path(Path::new("/tmp/project/switchboard.toml"));
+        let path = operation_store_path(Path::new("/tmp/project/switchboard.toml"), None, None);
         assert_eq!(path, PathBuf::from("/tmp/project/.switchboard/operations.sqlite3"));
     }
 
     #[test]
     fn state_path_defaults_next_to_profile_config_for_named_config_dir() {
-        let path = resolve_operation_store_path(Path::new("/tmp/home/.config/switchboard/config.toml"));
+        let path = operation_store_path(Path::new("/tmp/home/.config/switchboard/config.toml"), None, None);
         assert_eq!(path, PathBuf::from("/tmp/home/.config/switchboard/operations.sqlite3"));
     }
 
     #[test]
     fn state_path_prefers_env_overrides() {
-        let _guard = match ENV_LOCK.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        std::env::set_var("SWITCHBOARD_STATE_DIR", "/tmp/override-state");
-        std::env::remove_var("SWITCHBOARD_STATE_DB");
-
-        let path = resolve_operation_store_path(Path::new("/tmp/project/switchboard.toml"));
-
+        let config = Path::new("/tmp/project/switchboard.toml");
+        let directory = Some(PathBuf::from("/tmp/override-state"));
+        let path = operation_store_path(config, None, directory.clone());
         assert_eq!(path, PathBuf::from("/tmp/override-state/operations.sqlite3"));
-
-        std::env::remove_var("SWITCHBOARD_STATE_DIR");
+        let database = PathBuf::from("/tmp/explicit.sqlite3");
+        assert_eq!(
+            operation_store_path(config, Some(database.clone()), directory),
+            database
+        );
     }
 
     fn temp_db_path(label: &str) -> PathBuf {

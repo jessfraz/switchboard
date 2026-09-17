@@ -9,7 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
 use crate::config::Config;
-use crate::domain::{CallId, CallRequest, TerminationReason};
+use crate::domain::{AuthorizedCall, CallId, CallRequest, TerminationReason};
 use crate::error::CallError;
 use crate::journal::{Journal, Record};
 use crate::livekit::LiveKitBackend;
@@ -31,6 +31,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Call a number with a task. This command authorizes the call and provider charges.
+    Call(CallArgs),
     /// Make one call. This can contact a third party and incur provider charges.
     Run(RunArgs),
     /// Check local configuration without contacting a provider or placing a call.
@@ -40,6 +42,22 @@ enum Command {
         #[command(subcommand)]
         command: TranscriptCommand,
     },
+}
+
+#[derive(Args)]
+struct CallArgs {
+    /// Destination in E.164 format, including its country code.
+    #[arg(value_name = "NUMBER")]
+    destination: String,
+    /// What the assistant should accomplish, including any constraints.
+    #[arg(value_name = "PROMPT")]
+    task: String,
+    /// Whose assistant is calling; defaults to caller_name in the configuration.
+    #[arg(long)]
+    caller_name: Option<String>,
+    /// Whole-call limit, including holds; defaults to config or 600 seconds.
+    #[arg(long)]
+    max_duration_seconds: Option<u64>,
 }
 
 #[derive(Args)]
@@ -91,6 +109,20 @@ struct DoctorOutput {
 #[derive(Serialize)]
 struct CallsOutput {
     calls: Vec<CallId>,
+}
+
+impl CallArgs {
+    fn request(self, config: &Config) -> Result<CallRequest, CallError> {
+        Ok(CallRequest {
+            call_id: CallId::new(),
+            destination: self.destination,
+            task: self.task,
+            caller_name: self.caller_name.or_else(|| config.caller_name.clone()).ok_or_else(|| {
+                CallError::Configuration("set caller_name in the configuration or pass --caller-name".into())
+            })?,
+            max_duration_seconds: self.max_duration_seconds.or(config.max_duration_seconds).unwrap_or(600),
+        })
+    }
 }
 
 impl RunArgs {
@@ -165,6 +197,9 @@ fn execute(cli: Cli) -> Result<bool, CallError> {
     }
     let config = Config::load(cli.config.as_deref())?;
     match cli.command {
+        // Choosing the standalone `call` command is the user's authorization.
+        // The supervised `run` path retains its separate approval requirement.
+        Command::Call(args) => run(&config, args.request(&config)?.authorize(true)?, cli.json),
         Command::Doctor => {
             config.validate_runtime()?;
             crate::journal::check_encryption(&config.transcript_recipient)?;
@@ -195,28 +230,7 @@ fn execute(cli: Cli) -> Result<bool, CallError> {
         }
         Command::Run(args) => {
             let authorized = args.request()?.authorize(args.approve)?;
-            config.validate_runtime()?;
-            let supervisor = supervisor_pid()?;
-            let mut journal = Journal::create(
-                &config.state_dir,
-                &config.transcript_recipient,
-                authorized.request().call_id.clone(),
-            )?;
-            journal.append(Record::Intent(authorized.request().clone()))?;
-            let cancelled = Arc::new(AtomicBool::new(false));
-            let signal = Arc::clone(&cancelled);
-            ctrlc::set_handler(move || signal.store(true, Ordering::Relaxed)).map_err(|_| CallError::SignalHandler)?;
-            let outcome = crate::runner::run(&authorized, &LiveKitBackend::new(&config), &mut journal, || {
-                cancelled.load(Ordering::Relaxed) || supervisor_disconnected(supervisor)
-            })?;
-            let output = RunOutput {
-                call_id: authorized.request().call_id.clone(),
-                status: outcome.reason,
-                transcript_path: journal.path().to_path_buf(),
-                remote_hangup_confirmed: outcome.remote_hangup_confirmed,
-            };
-            print_json(&output, !cli.json)?;
-            Ok(outcome.reason == TerminationReason::Completed && outcome.remote_hangup_confirmed)
+            run(&config, authorized, cli.json)
         }
         Command::Transcripts {
             command: TranscriptCommand::List,
@@ -243,6 +257,31 @@ fn execute(cli: Cli) -> Result<bool, CallError> {
             Ok(true)
         }
     }
+}
+
+fn run(config: &Config, authorized: AuthorizedCall, json: bool) -> Result<bool, CallError> {
+    config.validate_runtime()?;
+    let supervisor = supervisor_pid()?;
+    let mut journal = Journal::create(
+        &config.state_dir,
+        &config.transcript_recipient,
+        authorized.request().call_id.clone(),
+    )?;
+    journal.append(Record::Intent(authorized.request().clone()))?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let signal = Arc::clone(&cancelled);
+    ctrlc::set_handler(move || signal.store(true, Ordering::Relaxed)).map_err(|_| CallError::SignalHandler)?;
+    let outcome = crate::runner::run(&authorized, &LiveKitBackend::new(config), &mut journal, || {
+        cancelled.load(Ordering::Relaxed) || supervisor_disconnected(supervisor)
+    })?;
+    let output = RunOutput {
+        call_id: authorized.request().call_id.clone(),
+        status: outcome.reason,
+        transcript_path: journal.path().to_path_buf(),
+        remote_hangup_confirmed: outcome.remote_hangup_confirmed,
+    };
+    print_json(&output, !json)?;
+    Ok(outcome.reason == TerminationReason::Completed && outcome.remote_hangup_confirmed)
 }
 
 fn supervisor_pid() -> Result<Option<i32>, CallError> {
