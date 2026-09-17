@@ -54,8 +54,9 @@ class Call:
             backend_instructions=(
                 call_instructions(request)
                 + "\nYou are the backend handling delegated work for the voice model. "
-                "Use require_approval immediately for any objection to consent or "
-                "need for extra authorization. Use finish_call when the voice model "
+                "Use require_approval immediately for any objection to AI or "
+                "transcription or need for extra authorization. "
+                "Use finish_call when the voice model "
                 "has said goodbye and delegates ending the call. Return concise "
                 "answers or instructions for a professional executive assistant, "
                 "never start another task. Carefully check reasoning and calculations. "
@@ -261,8 +262,8 @@ class Call:
                 await self.first_agent_utterance.wait()
         else:
             await self.session.say(
-                f"Hi, I'm {self.request.caller_name}'s assistant, calling on their "
-                "behalf. I'll transcribe this call for notes. Is that okay?"
+                f"Hi, I'm {self.request.caller_name}'s AI assistant, calling on their "
+                "behalf. I'll transcribe this call for notes."
             )
 
     async def cleanup(self) -> bool:

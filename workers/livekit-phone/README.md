@@ -5,6 +5,10 @@ connects to LiveKit Cloud only for one explicitly authorized call, then exits.
 The Rust CLI owns authorization, credentials, encrypted storage, and rendering.
 The worker pins `livekit-agents==1.8.2`; `uv.lock` pins the transitive packages.
 
+See the [phone quickstart](../../docs/phone.md) for prerequisites, credentials,
+and calls. This README documents the worker contract; run calls through `phone`
+or Switchboard for authorization, encrypted storage, and supervision.
+
 ## Local setup
 
 Requires Python 3.12 or 3.13 and `uv`. From this directory:
@@ -21,10 +25,30 @@ No separate model-weight download command is needed. Silero VAD ships with the
 SDK dependency, and the turn detector uses LiveKit Inference without a local
 fallback model. Setup downloads the locked Python packages.
 
-The Nix `phone` package also contains this source, its lock file, and Python
-3.13. Its [installation instructions](../../docs/phone.md#install-and-configure)
-use a private, versioned uv environment and an explicit `worker_command`, so
-the installed CLI does not require a source checkout.
+### Nix installation
+
+Install `packages.<system>.phone` through your Nix configuration. The package
+contains immutable worker source, its lock file, and Python 3.13. From the
+repository root, prepare a private environment using that same package pin:
+
+```sh
+phone_package=$(nix build .#phone --no-link --print-out-paths)
+worker_source=$(readlink "$phone_package/share/phone/livekit-worker")
+phone_env="${XDG_DATA_HOME:-$HOME/.local/share}/phone/workers/$(basename "$phone_package")"
+umask 077
+UV_PROJECT_ENVIRONMENT="$phone_env" uv sync \
+  --locked --no-dev --no-editable \
+  --project "$worker_source" \
+  --python "$phone_package/share/phone/python"
+"$phone_env/bin/livekit-phone-worker" check
+```
+
+Set `worker_command` in the phone TOML to the absolute path of
+`$phone_env/bin/livekit-phone-worker`, instead of `worker_project`. Calls use
+that executable without a checkout or dependency installation. When the source
+or interpreter changes, repeat setup and update the path. Keep the corresponding
+Nix package generation installed so garbage collection retains the interpreter;
+`nix build --no-link` alone does not retain it.
 
 ## Runtime configuration
 
@@ -52,9 +76,18 @@ with `xhigh` for deeper delegated reasoning, and `cedar` for a different voice.
 GPT-Live handles audio and transcripts directly through the official OpenAI
 endpoint, with the backend model handling delegated reasoning and local tools.
 A separate LiveKit inference LLM, selected by `LIVEKIT_PHONE_LLM_MODEL`, still
-classifies answering machines. The worker never reads an OpenAI key in pipeline
+classifies answering machines, so GPT-Live also requires working LiveKit
+Inference access and credits. The worker never reads an OpenAI key in pipeline
 mode. Keys belong in 1Password and must be supplied by the supervising process,
 not written to this source directory.
+
+The public CLI takes these model settings from `[livekit]` in its phone TOML.
+It maps `PHONE_MODEL_API_KEY` (or standalone `OPENAI_API_KEY`) into the worker's
+`OPENAI_API_KEY` only for GPT-Live. With Switchboard, configure the `phone_cli`
+auth entry's `model_api_key` reference as well; inherited OpenAI environment
+variables are not implicitly accepted. See the guide's [credential
+injection](../../docs/phone.md#inject-credentials-from-1password) and
+[Switchboard setup](../../docs/phone.md#through-switchboard).
 
 The stored SIP trunk must already use TLS. The worker reads its configuration
 and requires SRTP for each call; it never changes the trunk. Ordinary telephone
@@ -104,16 +137,17 @@ Live API's documented `store: false` default. The plugin does not expose that
 option publicly. This disables stored session recordings and forks; it does
 not imply zero provider retention. See [GPT-Live session storage].
 
-The agent introduces itself as the caller's assistant, discloses transcription,
-and asks permission before continuing with a person. It answers honestly about
-being AI if asked and stops on an objection or a need for additional authority.
+The agent introduces itself as the caller's AI assistant and discloses
+transcription without asking a consent question. It stops on objections or a
+need for additional authority. The caller must establish the applicable legal
+basis for transcription and retention before dialing.
 It has no account, payment, booking, messaging, filesystem, or shell tools.
 The voice conversation and menu choices are model-driven and require real-call
 evaluation before relying on their behavior. GPT-Live produces its opening
 natively. The worker observes that opening instead of issuing another greeting
 after answering-machine detection releases queued audio. If no agent transcript
 arrives within 20 seconds after detection, the worker stops. Its spoken wording
-and consent handling are still model-driven.
+and objection handling are still model-driven.
 
 The worker sets a server-side maximum call duration, deletes its unique room
 on every normal exit path, and distinguishes confirmed termination from an
@@ -135,9 +169,12 @@ uv run --frozen --no-sync pytest -q
 
 Tests exercise the real process protocol, bounded inputs, cancellation state,
 SDK transcript types, secret-safe errors, model selection, and real client
-construction and cleanup. They do
-not claim to prove phone routing, speech quality, prompt adherence, or carrier
-termination. Those require an explicitly authorized live test.
+construction and cleanup. They do not claim to prove credentials, model access,
+phone routing, speech quality, prompt adherence, or carrier termination. The
+public CLI's `doctor` is also offline and does not execute `worker_command`;
+run the exact configured executable with `check`. Follow the onboarding guide's
+[owned-number test](../../docs/phone.md#make-an-explicitly-approved-test-call)
+for live validation with explicit authorization.
 
 The implementation follows the official [Agents quickstart], [AMD guide], and
 [recording controls]. Local source inspection additionally verified standalone

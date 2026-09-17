@@ -1,46 +1,33 @@
 # Phone calls
 
-`phone` is a separate Rust binary in this workspace. It runs one approved call
-from your computer and saves an encrypted local transcript. LiveKit Cloud
-provides the media service and SIP bridge; a local Python subprocess runs
-LiveKit Agents with either LiveKit Inference or OpenAI GPT-Live. No VM,
-public webhook, or always-running agent is required. Your computer must stay
-awake and connected for the call.
+`phone` makes approved calls through LiveKit Cloud and saves encrypted local
+transcripts. Keep your computer awake and online; no hosted agent or webhook is
+needed. Rust's `CallBackend` / `ActiveCall` traits isolate the provider SDK.
 
-Offline checks and controlled calls cover routing, encrypted transcripts, and
-confirmed hangup. Voice quality, interruptions, and IVR navigation need
-validation for the selected model and destination before business use.
-The current agent gathers information from businesses. It is instructed to
-stop if someone objects to AI or transcription, or if the task would require
-a booking, purchase, cancellation, payment, account change, or new authority.
-Those conversational restrictions are model instructions, not a guarantee
-that a model cannot say something incorrect.
+## What you need
 
-## Architecture
+- macOS or Linux, Rust, `uv`, Python 3.12 or 3.13, `age`, and [1Password CLI].
+- A [LiveKit project][LiveKit credentials], URL, API key/secret, and [Inference]
+  credits. GPT-Live also needs Inference for answering-machine detection.
+- An [outbound SIP trunk] and authorized caller ID. For Twilio, follow its
+  [Elastic SIP Trunking setup][Twilio setup], enable Secure Trunking, and
+  require TLS/SRTP in LiveKit using [secure trunking]. Use the LiveKit `ST_`
+  trunk ID. Carrier billing is separate.
+- An age X25519 public recipient, with its private identity backed up securely.
+- For `gpt_live`, an [OpenAI API key] with access to `gpt-live-1` and the chosen
+  backend. The [GPT-Live plugin] currently requires alpha access; funding an
+  account alone does not grant it. OpenAI billing is separate too.
 
-```text
-Switchboard: namespace, exact approval, audit, stable operation ID
-    |
-phone: validated request, call lifetime, encrypted transcript journal
-    |
-CallBackend / ActiveCall: provider-independent Rust traits and events
-    |
-LiveKitBackend: private, versioned NDJSON subprocess protocol
-    |
-local Python worker: LiveKit Agents, speech, interruption handling, IVR
-    |
-LiveKit Cloud + configured SIP carrier -> telephone
-```
+| Engine | Defaults | Runtime credentials |
+| --- | --- | --- |
+| `pipeline` | Deepgram Nova-3, Gemini 3.1 Flash Lite, Inworld TTS-2 / Ashley | LiveKit API key and secret; no separate model-provider keys |
+| `gpt_live` | GPT-Live 1, delegated GPT-5.6 Luna, Marin voice | LiveKit credentials plus an OpenAI API key |
 
-Replacing LiveKit means implementing `CallBackend` and `ActiveCall`. The core
-call types, transcript storage, and Switchboard interface do not import its
-SDK. The worker has no shell, filesystem, account, or payment tools. It receives
-the call brief and scoped provider credentials, never the transcript decryption
-identity or credentials from other Switchboard namespaces.
+Replace example values; keep config and secrets outside the repository.
 
 ## Install and configure
 
-From the repository root, install the Rust binary and the locked Python worker:
+From the repository root:
 
 ```sh
 cargo install --locked --path crates/phone-cli
@@ -48,143 +35,50 @@ uv sync --locked --project workers/livekit-phone --python 3.13
 uv run --locked --no-sync --project workers/livekit-phone livekit-phone-worker check
 ```
 
-The final command constructs and closes the actual SDK clients without making
-any network requests. For this development installation, set `worker_project`
-explicitly to the worker checkout. The Nix development shell includes `uv` and
-Python 3.13.
+For Nix, use the [packaged worker setup](../workers/livekit-phone/README.md#nix-installation).
+The worker's `check` is offline. It verifies SDK construction and cleanup,
+not credentials, balances, model access, or phone routing.
 
-The Nix package includes the Rust binary, immutable worker source with its lock
-file, and a Python 3.13 interpreter. Install `packages.<system>.phone` through
-your Nix configuration. Then explicitly create a private worker environment
-from that package, without depending on a checkout:
+Generate an X25519 identity with [age-keygen] (not `-pq`) and back it up:
 
 ```sh
-phone_package=$(nix build .#phone --no-link --print-out-paths)
-worker_source=$(readlink "$phone_package/share/phone/livekit-worker")
-phone_env="${XDG_DATA_HOME:-$HOME/.local/share}/phone/workers/$(basename "$phone_package")"
 umask 077
-UV_PROJECT_ENVIRONMENT="$phone_env" uv sync \
-  --locked --no-dev --no-editable \
-  --project "$worker_source" \
-  --python "$phone_package/share/phone/python"
-"$phone_env/bin/livekit-phone-worker" check
+phone_key_dir=$(mktemp -d)
+age-keygen -o "$phone_key_dir/identity.txt"
+age-keygen -y "$phone_key_dir/identity.txt"
+op document create "$phone_key_dir/identity.txt" \
+  --vault Private --title 'Phone Transcript Identity'
+op document get 'Phone Transcript Identity' --vault Private | age-keygen -y
 ```
 
-For this installation, configure `worker_command` with the absolute path to
-`$phone_env/bin/livekit-phone-worker`, instead of `worker_project`. Setup
-downloads the locked Python packages once. Calling uses that executable
-directly and never installs dependencies. When the packaged worker source
-or interpreter changes, run setup again and update `worker_command` to the new
-environment. Use the package installed by your Nix configuration, including
-its input pins, when preparing that environment.
-The installed Nix package retains its Python interpreter across garbage
-collection; avoid deleting older package generations while their worker
-environments remain configured.
+Verify both public recipients match, then remove the temporary file/directory.
+Keep the vault backup; losing it makes notes unreadable. Configure only the
+complete public `age1...` recipient.
 
-Before dialing, provision a LiveKit Cloud project, inference access/credits,
-and an outbound SIP trunk with its caller ID. Configure the carrier and trunk
-for TLS and SRTP. The worker refuses a trunk that does not select TLS and
-requires SRTP per call. This protects the SIP leg, not every telephone-network
-segment. See the [worker setup](../workers/livekit-phone/README.md).
-
-Keep the LiveKit API key, API secret, and an age X25519 private identity in
-1Password. Put only the matching public `age1...` recipient in the phone
-configuration. No private identity is needed to make a call or encrypt notes.
-Losing it makes the archived notes unreadable.
-
-Create a local configuration outside the repository. Replace the placeholder
-paths and values; paths in this file must be absolute, without `~` expansion:
+Save this as `~/.config/phone/config.toml`, replacing paths and values. Paths
+must be absolute, without `~` expansion. Keep the state directory private
+(mode `0700`); `--config` or `PHONE_CONFIG` selects another config file.
 
 ```toml
 backend = "livekit"
-transcript_recipient = "age1..."
+transcript_recipient = "age1...your-complete-public-recipient"
 state_dir = "/absolute/path/to/private/phone/calls"
 worker_project = "/absolute/path/to/switchboard/workers/livekit-phone"
 
 [livekit]
 url = "wss://your-project.livekit.cloud"
 sip_trunk_id = "ST_your_outbound_trunk"
+voice_engine = "pipeline"
 ```
 
-`phone` reads `~/.config/phone/config.toml` by default. `--config` or
-`PHONE_CONFIG` selects another file. Standalone execution accepts
-`PHONE_API_KEY` and `PHONE_API_SECRET` injected by your secret manager.
-`phone --json doctor` validates local settings and encryption and reports
-whether credentials and the worker project are present. It does not verify
-provider credentials, balances, trunk connectivity, or installed Python
-dependencies; use the offline worker check for the latter.
-
-## Through Switchboard
-
-Add a namespace and 1Password references to your existing Switchboard config:
-
-```toml
-[secret.phone_api_key]
-kind = "onepassword_item"
-account = "your-1password-account"
-vault = "Private"
-item = "Phone LiveKit"
-field = "api_key"
-
-[secret.phone_api_secret]
-kind = "onepassword_item"
-account = "your-1password-account"
-vault = "Private"
-item = "Phone LiveKit"
-field = "api_secret"
-
-[auth.phone_personal]
-provider = "phone"
-kind = "phone_cli"
-account = "personal"
-api_key = "phone_api_key"
-api_secret = "phone_api_secret"
-
-[namespace.phone.personal]
-provider = "phone"
-account = "personal"
-auth = "phone_personal"
-state_dir = "~/.local/share/switchboard/namespaces/phone.personal"
-```
-
-Save the phone TOML above as `config.toml` inside that namespace directory.
-Switchboard forces call records into its `calls/` child directory regardless
-of the configured `state_dir` inside the phone TOML. It clears inherited phone
-and LiveKit configuration and uses only this namespace's settings and secrets.
-
-```sh
-switchboard phone.doctor --ns phone.personal --json
-switchboard phone.call.run --ns phone.personal --draft \
-  --destination +12125550100 --caller-name Example \
-  --task 'Ask for opening hours' --max-duration-seconds 300
-```
-
-The example number is a fictional placeholder. Review the exact destination,
-brief, and duration in the stored operation. Then, only when ready to dial:
-
-```sh
-switchboard op approve <operation-id> --apply
-```
-
-Calls require explicit operation approval even if the general write policy is
-`allow`. There is no raw phone passthrough. The stored operation ID becomes the
-call ID, and an existing call record prevents dialing that ID again, including
-after a crash. An intentional second attempt needs a new reviewed operation.
-Calls cannot be undone.
-
-Switchboard executes the binary on `PATH`, or `SWITCHBOARD_PHONE_BIN`. A custom
-wrapper must `exec` the actual binary so parent-process supervision can detect
-Switchboard exiting. Phone integration currently targets macOS and Linux.
-
-## GPT-Live voice engine
-
-The default voice engine remains the LiveKit Inference pipeline. To use
-OpenAI GPT-Live, set these fields in the namespace's phone configuration:
+For the Nix installation, use `worker_command` pointing to the prepared worker
+executable instead of `worker_project`. For GPT-Live with [Astra] reasoning,
+replace the `[livekit]` section with:
 
 ```toml
 [livekit]
 url = "wss://your-project.livekit.cloud"
-sip_trunk_id = "your-outbound-trunk"
+sip_trunk_id = "ST_your_outbound_trunk"
 voice_engine = "gpt_live"
 realtime_model = "gpt-live-1"
 backend_model = "gpt-6-astra"
@@ -192,91 +86,146 @@ backend_reasoning_effort = "xhigh"
 voice = "cedar"
 ```
 
-GPT-Live handles speech and delegates reasoning and tool calls to the backend
-model. The worker uses the OpenAI plugin directly, requiring an OpenAI API key
-with access to both models. LiveKit still handles media, telephony, and the
-separate answering-machine classifier. The worker runs locally for the call.
+Reasoning effort is optional and must be supported by the backend. Higher
+levels can increase latency and cost; the call deadline still applies.
+See the [worker README] for model overrides and defaults.
 
-The example selects Astra for delegated reasoning and tool calls, with extra-high
-reasoning effort. Voice and backend model are independent. Higher reasoning
-effort can increase response time and cost when delegated work is needed. If
-omitted, the backend model defaults to `gpt-5.6-luna`, the voice to `marin`, and
-reasoning effort to the API's model default. `backend_reasoning_effort` accepts
-`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; the chosen backend
-must support the selected level (Astra supports `low` through `max`).
+## Inject credentials from 1Password
 
-The GPT-Live speaking instructions use a measured, concise executive-assistant
-style. They delegate careful reasoning and tools before stating a result, while
-handling ordinary conversation directly. Voice choice changes the sound;
-instructions control delivery and do not guarantee a particular perceived age
-or gender.
+Use concealed credential fields and keep the transcript identity separate.
+Put your vault references in `~/.config/phone/runtime.env`:
 
-Configure `model_api_key` on the Switchboard `phone_cli` auth entry to reference
-a secret, alongside `api_key` and `api_secret` for LiveKit. For an ephemeral
-credential supplied by your secret manager, that secret can use `kind = "env"`
-and `name = "PHONE_MODEL_API_KEY"`. Never store the key itself in TOML. The
-standalone phone CLI also accepts `PHONE_MODEL_API_KEY`, with `OPENAI_API_KEY`
-as a fallback. Only the GPT-Live worker receives this credential; pipeline
-workers receive neither it nor the transcript decryption identity.
-
-GPT-Live uses model-controlled turns and interruptions. Its greeting is
-model-generated, and transcripts can arrive after their audio. Validate consent
-disclosure, overlapping speech, final transcript capture, and hangup with a
-controlled call before using it for business calls. The pinned OpenAI plugin
-uses the service default of `store = false`; LiveKit recording remains off,
-and local transcript records remain encrypted. These settings do not imply
-zero retention across the providers processing the call.
-
-## Transcripts and outcomes
-
-```sh
-switchboard phone.transcripts.list --ns phone.personal --json
-phone --config /absolute/path/to/namespace/config.toml transcripts show <call-id>
+```dotenv
+PHONE_API_KEY="op://Private/Phone Runtime/livekit_api_key"
+PHONE_API_SECRET="op://Private/Phone Runtime/livekit_api_secret"
+# Uncomment for gpt_live:
+# PHONE_MODEL_API_KEY="op://Private/OpenAI/api_key"
 ```
 
-For the second command, inject `PHONE_TRANSCRIPT_IDENTITY` from 1Password and
-set `PHONE_STATE_DIR` to the namespace's absolute `calls/` directory if the
-TOML points elsewhere. Decryption writes JSON to stdout, so do not redirect it
-to an unencrypted file or include it in logs. Transcript decryption is a
-standalone CLI action; Switchboard's call result stores metadata only.
-
-Each journal record is independently encrypted with age, finalized, synced,
-and published atomically. The directory is private and files are owner-only.
-Already-published records remain decryptable after an interrupted write. The
-journal includes the intent, speaker-labelled transcript segments, lifecycle,
-and outcome. No raw audio is retained. Transcript text and interruption
-alignment are machine-generated and can contain errors.
-
-Results contain `call_id`, `status`, `transcript_path`, and
-`remote_hangup_confirmed`. A `completed` status means the conversation ended,
-not that the task's answer was verified. Inspect the transcript for the result.
-An unconfirmed remote hangup stays explicitly unknown. The CLI cancels on
-interrupt, supervisor exit, deadline, or transcript storage failure, then
-allows bounded cleanup. A server-side call-duration cap remains the fallback
-if the machine or connection disappears. No automatic redial occurs.
-
-The general Switchboard operation database still contains the approved brief,
-destination, and audit metadata in its existing storage format. Only the phone
-journal is encrypted by this feature. Keep its state directory private and
-provide the minimum personal information the call requires.
-
-LiveKit session recording is disabled in code. Disable project observability
-before live use too, and confirm current retention settings for LiveKit,
-inference providers, and the SIP carrier. Local encrypted notes do not prevent
-those services from processing call content.
-
-## Development
+This file contains [secret references], not key values. Avoid shell tracing
+and never put plaintext keys in command arguments. Then check local config:
 
 ```sh
-cargo test -p phone-cli
-cargo test -p switchboard-providers phone::tests
-cd workers/livekit-phone
-uv run --locked --no-sync ruff check .
-uv run --locked --no-sync ruff format --check .
-uv run --locked --no-sync mypy src tests
-uv run --locked --no-sync pytest -q
+op run --env-file "$HOME/.config/phone/runtime.env" -- phone --json doctor
 ```
 
-Offline checks use the actual SDK types and local process protocol. They do
-not dial. The worker's pinned dependencies and wire protocol are documented
-in its README; changes must keep the Rust adapter and Python consumer aligned.
+`doctor` validates config, encryption, and credential presence. It does not
+contact providers or run the worker; with `worker_command`, it does not even
+check executable existence. Run that exact executable with `check` as well.
+Standalone `phone` also accepts `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` and
+`OPENAI_API_KEY` fallbacks. Only GPT-Live workers receive the OpenAI key.
+
+## Through Switchboard
+
+Merge these entries into `~/.config/switchboard/config.toml`:
+
+```toml
+[secret]
+phone_api_key = { kind = "env", name = "PHONE_API_KEY" }
+phone_api_secret = { kind = "env", name = "PHONE_API_SECRET" }
+phone_model_api_key = { kind = "env", name = "PHONE_MODEL_API_KEY" }
+
+[auth.phone_personal]
+provider = "phone"
+kind = "phone_cli"
+account = "personal"
+api_key = "phone_api_key"
+api_secret = "phone_api_secret"
+# Uncomment for gpt_live:
+# model_api_key = "phone_model_api_key"
+
+[namespace.phone.personal]
+provider = "phone"
+account = "personal"
+auth = "phone_personal"
+state_dir = "/absolute/path/to/private/switchboard/phone.personal"
+```
+
+Save phone TOML as `config.toml` in the namespace directory; journals go into
+`calls/`. GPT-Live requires `model_api_key`. There is no raw phone command.
+Using `env` avoids the whole-item cache of `onepassword_item`; never include
+decryption identities in items resolved through that cache.
+
+```sh
+op run --env-file "$HOME/.config/phone/runtime.env" -- \
+  switchboard phone.doctor --ns phone.personal --json
+```
+
+## Make an explicitly approved test call
+
+Use a number you control. Replace the fictional number below, review the
+brief and duration, and authorize only that call. Standalone `--approve` dials:
+
+```sh
+op run --env-file "$HOME/.config/phone/runtime.env" -- \
+  phone --json run --approve \
+  --destination +12125550101 --caller-name Example \
+  --task 'Do a short audio check, then finish.' --max-duration-seconds 180
+```
+
+With Switchboard, create a draft, review it, then approve its returned ID:
+
+```sh
+op run --env-file "$HOME/.config/phone/runtime.env" -- \
+  switchboard phone.call.run --ns phone.personal --draft \
+  --destination +12125550101 --caller-name Example \
+  --task 'Do a short audio check, then finish.' --max-duration-seconds 180
+op run --env-file "$HOME/.config/phone/runtime.env" -- \
+  switchboard op approve 'replace-with-operation-id' --apply
+```
+
+Check the opening, audio, interruptions, transcript completeness, and actual
+hangup. Confirm `remote_hangup_confirmed`; false means unknown. Calls always
+require approval, cannot be undone, and never automatically redial. Another
+attempt needs a new call/operation ID. For sensitive standalone briefs, use
+`phone run --approve --request-stdin` to avoid process arguments.
+
+## Transcripts and privacy
+
+```sh
+phone transcripts list
+op run --env-file "$HOME/.config/phone/runtime.env" -- \
+  switchboard phone.transcripts.list --ns phone.personal --json
+```
+
+Decrypt using the vault backup (Bash or Zsh, with shell tracing disabled):
+
+```sh
+set -o pipefail
+PHONE_TRANSCRIPT_IDENTITY="$(
+  op document get 'Phone Transcript Identity' --vault Private |
+    sed -n '/^AGE-SECRET-KEY-1/p'
+)" phone transcripts show 'replace-with-call-id'
+```
+
+The identity variable accepts only the private-key line, not file comments.
+For Switchboard calls, add `--config /absolute/path/to/namespace/config.toml`
+and set `PHONE_STATE_DIR` to its `calls/` directory. Decryption prints plaintext
+JSON; keep it out of logs. Journals are encrypted, but Switchboard's operation
+database still contains the brief, destination, and audit metadata.
+
+The agent announces AI assistance and transcription without a consent question,
+and is instructed to stop on objections or when additional authority is needed.
+Establish the legal basis for transcription before dialing. Voice behavior
+remains model-driven.
+
+No raw audio is saved locally. Keep project observability and carrier recording
+off; the worker disables LiveKit recording and relies on GPT-Live's
+[default `store: false`][session storage]. Providers still process call data;
+this is neither zero retention nor end-to-end PSTN encryption. Local journals
+do not expire automatically. See [OpenAI data controls] and the [worker README].
+
+[1Password CLI]: https://www.1password.dev/cli/get-started
+[LiveKit credentials]: https://docs.livekit.io/reference/telephony/connectors-api/#constructor-parameters
+[Inference]: https://docs.livekit.io/agents/models/inference/
+[outbound SIP trunk]: https://docs.livekit.io/telephony/making-calls/outbound-trunk/
+[Twilio setup]: https://docs.livekit.io/telephony/start/providers/twilio/
+[secure trunking]: https://docs.livekit.io/telephony/features/secure-trunking/
+[OpenAI API key]: https://developers.openai.com/api/docs/quickstart
+[GPT-Live plugin]: https://docs.livekit.io/agents/models/realtime/plugins/gpt-live/
+[age-keygen]: https://github.com/FiloSottile/age/blob/main/doc/age-keygen.1.ronn
+[Astra]: https://developers.openai.com/api/docs/models/gpt-6-astra
+[secret references]: https://www.1password.dev/cli/secrets-environment-variables
+[session storage]: https://developers.openai.com/api/docs/guides/live-conversations#store-and-fork-a-session
+[OpenAI data controls]: https://developers.openai.com/api/docs/guides/your-data
+[worker README]: ../workers/livekit-phone/README.md
