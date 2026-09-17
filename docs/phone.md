@@ -7,20 +7,23 @@ needed. Rust's `CallBackend` / `ActiveCall` traits isolate the provider SDK.
 ## What you need
 
 - macOS or Linux, Rust, `uv`, Python 3.12 or 3.13, `age`, and [1Password CLI].
-- A [LiveKit project][LiveKit credentials], URL, API key/secret, and [Inference]
-  credits. GPT-Live also needs Inference for answering-machine detection.
+- A [LiveKit project][LiveKit credentials], URL, and API key/secret. The pipeline
+  engine also needs [Inference] credits; GPT-Live sends all inference directly
+  to OpenAI, including answering-machine detection.
 - An [outbound SIP trunk] and authorized caller ID. For Twilio, follow its
   [Elastic SIP Trunking setup][Twilio setup], enable Secure Trunking, and
   require TLS/SRTP in LiveKit using [secure trunking]. Use the LiveKit `ST_`
   trunk ID. Carrier billing is separate.
 - An age X25519 public recipient, with its private identity backed up securely.
 - For `gpt_live`, an [OpenAI API key] with access to `gpt-live-1` and the chosen
-  backend. The [GPT-Live plugin] currently requires alpha access; funding an
-  account alone does not grant it. OpenAI billing is separate too.
+  backend, which must support Responses tool calls and `low` reasoning for
+  answering-machine checks. The [GPT-Live plugin] currently requires alpha
+  access; funding an account alone does not grant it. OpenAI billing is separate
+  too.
 
 | Engine | Defaults | Runtime credentials |
 | --- | --- | --- |
-| `pipeline` | Deepgram Nova-3, Gemini 3.1 Flash Lite, Inworld TTS-2 / Ashley | LiveKit API key and secret; no separate model-provider keys |
+| `pipeline` | Deepgram Nova-3, GPT-5.5, Inworld TTS-2 / Ashley | LiveKit API key and secret; no separate model-provider keys |
 | `gpt_live` | GPT-Live 1, delegated GPT-5.6 Luna, Marin voice | LiveKit credentials plus an OpenAI API key |
 
 Replace example values; keep config and secrets outside the repository.

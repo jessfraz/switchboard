@@ -12,6 +12,7 @@ import sys
 import aiohttp
 import pytest
 from livekit.agents import (
+    AMD,
     APIStatusError,
     CloseEvent,
     ConversationItemAddedEvent,
@@ -22,6 +23,8 @@ from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
 from livekit.agents.tts import TTSError
 from livekit.agents.voice.events import CloseReason
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
+from livekit.plugins.openai.responses import LLM as ResponsesLLM
+from openai.types import Reasoning as ReasoningOptions
 from openai.types.shared_params import Reasoning
 
 from livekit_phone.config import (
@@ -246,6 +249,27 @@ def test_real_sdk_models_select_the_engine_and_close_owned_clients(
                     assert model.provider == "api.openai.com"
                     assert models.session.stt is None
                     assert models.session.tts is None
+                    assert isinstance(models.classifier, ResponsesLLM)
+                    assert models.classifier.provider == "api.openai.com"
+                    assert models.classifier.model == config.backend_model
+                    assert models.classifier._opts.store is False
+                    assert models.classifier._opts.reasoning == ReasoningOptions(
+                        effort="low"
+                    )
+                    assert models.session.turn_detection == "realtime_llm"
+                    classifier_client = models.classifier._client
+                    assert classifier_client is not None
+                    async with AMD(
+                        models.session,
+                        llm=models.classifier,
+                        stt=None,
+                        ivr_detection=False,
+                    ) as detector:
+                        # The real AMD accepts this client and reuses native
+                        # transcripts instead of creating an inference STT.
+                        assert detector._classifier is not None
+                        assert detector._classifier._llm is models.classifier
+                        assert detector._stt is None
                     realtime_model = model.duplex_model
                     assert isinstance(realtime_model, GPTLiveModel)
                     expected = ResponsesDelegationOptions(
@@ -261,12 +285,13 @@ def test_real_sdk_models_select_the_engine_and_close_owned_clients(
                     assert model.model == config.llm_model
                     assert models.session.stt is not None
                     assert models.session.tts is not None
+                    classifier_client = model._client
             finally:
                 await models.session.aclose()
                 await models.aclose()
             # Closing the models must not steal the shared HTTP context.
             assert not http_session.closed
-            assert models.classifier._client.is_closed()
+            assert classifier_client.is_closed()
 
     asyncio.run(construct())
 

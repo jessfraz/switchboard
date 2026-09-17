@@ -22,8 +22,9 @@ uv run --frozen --no-sync livekit-phone-worker check
 their HTTP context, then closes them. It does not contact a provider, run
 inference, or dial.
 No separate model-weight download command is needed. Silero VAD ships with the
-SDK dependency, and the turn detector uses LiveKit Inference without a local
-fallback model. Setup downloads the locked Python packages.
+SDK dependency. The pipeline turn detector uses LiveKit Inference without a
+local fallback model; GPT-Live handles turn-taking directly. Setup downloads
+the locked Python packages.
 
 ### Nix installation
 
@@ -75,11 +76,15 @@ When omitted, the API's model default applies. For example, use `gpt-6-astra`
 with `xhigh` for deeper delegated reasoning, and `cedar` for a different voice.
 GPT-Live handles audio and transcripts directly through the official OpenAI
 endpoint, with the backend model handling delegated reasoning and local tools.
-A separate LiveKit inference LLM, selected by `LIVEKIT_PHONE_LLM_MODEL`, still
-classifies answering machines, so GPT-Live also requires working LiveKit
-Inference access and credits. The worker never reads an OpenAI key in pipeline
-mode. Keys belong in 1Password and must be supplied by the supervising process,
-not written to this source directory.
+Answering-machine detection reuses those native transcripts and calls the same
+backend model directly through OpenAI Responses, with `low` reasoning and
+`store=false`. Choose a backend that supports Responses tool calls and `low`
+reasoning. This separate greeting check does not change the configured reasoning
+effort for delegated work. GPT-Live uses no LiveKit Inference services or credits;
+LiveKit credentials and billing still apply to room/SIP transport. Pipeline-only
+STT, LLM, and TTS settings do not affect GPT-Live. The worker never reads an OpenAI
+key in pipeline mode. Keys belong in 1Password and must be supplied by the
+supervising process, not written to this source directory.
 
 The public CLI takes these model settings from `[livekit]` in its phone TOML.
 It maps `PHONE_MODEL_API_KEY` (or standalone `OPENAI_API_KEY`) into the worker's

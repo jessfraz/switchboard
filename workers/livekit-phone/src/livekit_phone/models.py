@@ -6,8 +6,10 @@ import asyncio
 from dataclasses import dataclass
 
 import aiohttp
-from livekit.agents import AgentSession, TurnHandlingOptions, inference
+from livekit.agents import AgentSession, TurnHandlingOptions, inference, llm
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
+from livekit.plugins.openai.responses import LLM as ResponsesLLM
+from openai.types import Reasoning as ReasoningOptions
 from openai.types.shared_params import Reasoning
 
 from livekit_phone.config import Config, VoiceEngine
@@ -16,7 +18,7 @@ from livekit_phone.config import Config, VoiceEngine
 @dataclass
 class CallModels:
     session: AgentSession[None]
-    classifier: inference.LLM
+    classifier: llm.LLM[None]
 
     async def aclose(self) -> None:
         # AgentSession closes streams, but these model clients are caller-owned.
@@ -41,14 +43,17 @@ def create_models(
 ) -> CallModels:
     """Construct clients without opening network connections."""
     # Never honor ambient endpoint overrides when sending call audio or secrets.
-    gateway = "https://agent-gateway.livekit.cloud/v1"
-    classifier = inference.LLM(
-        model=config.llm_model,
-        base_url=gateway,
-        api_key=config.api_key,
-        api_secret=config.api_secret,
-    )
     if config.voice_engine == VoiceEngine.GPT_LIVE:
+        # AMD returns verdicts via tools, which Astra supports through Responses.
+        # Greeting checks need little reasoning, even with a deeper call backend.
+        classifier: llm.LLM[None] = ResponsesLLM(
+            model=config.backend_model,
+            api_key=config.openai_api_key or "",
+            base_url="https://api.openai.com/v1",
+            use_websocket=False,
+            reasoning=ReasoningOptions(effort="low"),
+            store=False,
+        )
         responses_options = ResponsesDelegationOptions(
             model=config.backend_model,
             instructions=backend_instructions,
@@ -68,9 +73,17 @@ def create_models(
                 base_url="https://api.openai.com/v1",
                 http_session=http_session,
             ),
+            turn_handling=TurnHandlingOptions(turn_detection="realtime_llm"),
             user_away_timeout=None,
         )
     else:
+        gateway = "https://agent-gateway.livekit.cloud/v1"
+        classifier = inference.LLM(
+            model=config.llm_model,
+            base_url=gateway,
+            api_key=config.api_key,
+            api_secret=config.api_secret,
+        )
         session = AgentSession[None](
             stt=inference.STT(
                 model=config.stt_model,
