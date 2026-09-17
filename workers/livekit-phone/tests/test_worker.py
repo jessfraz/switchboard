@@ -11,9 +11,10 @@ import sys
 
 import aiohttp
 import pytest
-from livekit.agents import ConversationItemAddedEvent, ErrorEvent, inference
+from livekit.agents import CloseEvent, ConversationItemAddedEvent, ErrorEvent, inference
 from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
 from livekit.agents.tts import TTSError
+from livekit.agents.voice.events import CloseReason
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
 from openai.types.shared_params import Reasoning
 
@@ -336,7 +337,7 @@ def test_events_are_valid_ndjson_without_null_summary() -> None:
 
 
 @pytest.mark.parametrize("recoverable", [False, True])
-def test_voice_errors_are_sanitized_and_fatal_errors_stop_the_call(
+def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
     recoverable: bool,
 ) -> None:
     async def report_error() -> None:
@@ -353,30 +354,31 @@ def test_voice_errors_are_sanitized_and_fatal_errors_stop_the_call(
             try:
                 # Use the real registered session event path. SDK/provider error
                 # payloads must never be copied into our transcript protocol.
+                error = TTSError(
+                    timestamp=0.0,
+                    label="private-model-sentinel",
+                    error=RuntimeError("private-credential-sentinel"),
+                    recoverable=recoverable,
+                )
                 call.session.emit(
                     "error",
-                    ErrorEvent(
-                        source=call.session.tts,
-                        error=TTSError(
-                            timestamp=0.0,
-                            label="private-model-sentinel",
-                            error=RuntimeError("private-credential-sentinel"),
-                            recoverable=recoverable,
-                        ),
-                    ),
+                    ErrorEvent(source=call.session.tts, error=error),
                 )
-                assert stop.event.is_set() is not recoverable
-                if recoverable:
-                    assert output.getvalue() == ""
-                else:
+                assert not stop.event.is_set()
+                assert output.getvalue() == ""
+                if not recoverable:
+                    call.session.emit(
+                        "close", CloseEvent(error=error, reason=CloseReason.ERROR)
+                    )
                     assert json.loads(output.getvalue()) == {
                         "protocol_version": 1,
                         "type": "error",
-                        "code": "voice_model_error",
-                        "message": "A voice model failed.",
+                        "code": "tts_error",
+                        "message": "The voice session ended after model errors.",
                     }
+                    assert stop.event.is_set()
                     assert stop.reason == "failed"
-                    assert stop.summary == "A voice model failed; the call was stopped."
+                    assert stop.summary == "The voice session ended (tts_error)."
             finally:
                 assert await call.cleanup()
 

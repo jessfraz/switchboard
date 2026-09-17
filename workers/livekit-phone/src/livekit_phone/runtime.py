@@ -14,7 +14,6 @@ from livekit.agents import (
     AMDCategory,
     CloseEvent,
     ConversationItemAddedEvent,
-    ErrorEvent,
     room_io,
 )
 from livekit.agents.voice import TranscriptSynchronizer
@@ -25,7 +24,6 @@ from livekit_phone.control import Stop, transcript_event
 from livekit_phone.models import create_models
 from livekit_phone.protocol import (
     Completed,
-    CompletionReason,
     Error,
     EventSink,
     Lifecycle,
@@ -97,20 +95,22 @@ class Call:
         @self.session.on("close")
         def on_close(event: CloseEvent) -> None:
             if not self.stop.event.is_set():
-                reason: CompletionReason = "failed" if event.error else "completed"
-                self.stop.request(reason)
-
-        @self.session.on("error")
-        def on_error(event: ErrorEvent) -> None:
-            if getattr(event.error, "recoverable", False):
-                return
-            # Provider exceptions can contain credentials or call content. Emit
-            # a fixed diagnostic only after SDK retries fail. Protocol errors
-            # are terminal in the Rust supervisor, unlike recoverable SDK errors.
-            self.output.emit(
-                Error(code="voice_model_error", message="A voice model failed.")
-            )
-            self.stop.request("failed", "A voice model failed; the call was stopped.")
+                if event.error:
+                    # Individual model errors are not terminal: the SDK owns
+                    # retries and its error budget. Our supervisor treats Error
+                    # as fatal, so emit only once the session actually closes.
+                    # The typed category is safe; provider exception text is not.
+                    self.output.emit(
+                        Error(
+                            code=event.error.type,
+                            message="The voice session ended after model errors.",
+                        )
+                    )
+                    self.stop.request(
+                        "failed", f"The voice session ended ({event.error.type})."
+                    )
+                else:
+                    self.stop.request("completed")
 
         @self.room.on("participant_disconnected")
         def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:

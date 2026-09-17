@@ -156,8 +156,9 @@ and objection handling are still model-driven.
 
 Answering-machine detection is closed after its initial verdict so it cannot
 suppress subsequent conversation turns. Automated menus get an explicit first
-response. Voice-model errors produce fixed diagnostics without provider error
-text, and unrecoverable errors stop the call. A recipient hangup before any
+response. The SDK owns model retries; only a terminal session failure produces
+a fatal diagnostic, using its typed error category without provider error text.
+A recipient hangup before any
 committed agent speech is reported as a failed call.
 
 The worker sets a server-side maximum call duration, deletes its unique room
