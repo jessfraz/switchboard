@@ -11,8 +11,9 @@ import sys
 
 import aiohttp
 import pytest
-from livekit.agents import ConversationItemAddedEvent, inference
+from livekit.agents import ConversationItemAddedEvent, ErrorEvent, inference
 from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
+from livekit.agents.tts import TTSError
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
 from openai.types.shared_params import Reasoning
 
@@ -332,6 +333,54 @@ def test_events_are_valid_ndjson_without_null_summary() -> None:
         "reason": "cancelled",
         "remote_hangup_confirmed": True,
     }
+
+
+@pytest.mark.parametrize("recoverable", [False, True])
+def test_voice_errors_are_sanitized_and_fatal_errors_stop_the_call(
+    recoverable: bool,
+) -> None:
+    async def report_error() -> None:
+        config = Config(
+            url="wss://test.livekit.cloud",
+            api_key="key",
+            api_secret="offline-not-a-secret-at-least-32-characters",
+            trunk_id="trunk",
+        )
+        output = io.StringIO()
+        stop = Stop()
+        async with aiohttp.ClientSession() as http_session:
+            call = Call(start_request(), config, stop, EventSink(output), http_session)
+            try:
+                # Use the real registered session event path. SDK/provider error
+                # payloads must never be copied into our transcript protocol.
+                call.session.emit(
+                    "error",
+                    ErrorEvent(
+                        source=call.session.tts,
+                        error=TTSError(
+                            timestamp=0.0,
+                            label="private-model-sentinel",
+                            error=RuntimeError("private-credential-sentinel"),
+                            recoverable=recoverable,
+                        ),
+                    ),
+                )
+                assert stop.event.is_set() is not recoverable
+                if recoverable:
+                    assert output.getvalue() == ""
+                else:
+                    assert json.loads(output.getvalue()) == {
+                        "protocol_version": 1,
+                        "type": "error",
+                        "code": "voice_model_error",
+                        "message": "A voice model failed.",
+                    }
+                    assert stop.reason == "failed"
+                    assert stop.summary == "A voice model failed; the call was stopped."
+            finally:
+                assert await call.cleanup()
+
+    asyncio.run(report_error())
 
 
 def worker(arguments: list[str], input_text: str) -> subprocess.CompletedProcess[str]:

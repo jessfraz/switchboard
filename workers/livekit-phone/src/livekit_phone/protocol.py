@@ -80,14 +80,7 @@ class Transcript(Message):
     interrupted: bool
 
 
-class ApprovalRequired(Message):
-    type: Literal["approval_required"] = "approval_required"
-    reason: str
-
-
-CompletionReason = Literal[
-    "completed", "cancelled", "timeout", "approval_required", "failed"
-]
+CompletionReason = Literal["completed", "cancelled", "timeout", "failed"]
 
 
 class Completed(Message):

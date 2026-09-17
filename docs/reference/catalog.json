@@ -25768,7 +25768,7 @@
       "provider": "phone",
       "kind": "write",
       "backend": "cli",
-      "summary": "Make one approved information-only business call and save its encrypted transcript",
+      "summary": "Make one approved business call and save its encrypted transcript",
       "surface": "curated",
       "aggregate_read_supported": false,
       "execution_support": "executable",

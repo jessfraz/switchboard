@@ -4,7 +4,7 @@
 
 ## Curated tools
 
-- `phone.call.run` [stable] Make one approved information-only business call and save its encrypted transcript
+- `phone.call.run` [stable] Make one approved business call and save its encrypted transcript
 - `phone.doctor` [stable] Check local phone configuration without contacting a provider
 - `phone.transcripts.list` [stable] List local encrypted call records without decrypting them
 

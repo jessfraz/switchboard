@@ -204,8 +204,15 @@ and set `PHONE_STATE_DIR` to its `calls/` directory. Decryption prints plaintext
 JSON; keep it out of logs. Journals are encrypted, but Switchboard's operation
 database still contains the brief, destination, and audit metadata.
 
-The agent announces AI assistance and transcription without a consent question,
-and is instructed to stop on objections or when additional authority is needed.
+The agent announces AI assistance and transcription without a consent question.
+There is no in-call approval tool. It answers routine questions, declines
+disallowed alternatives, and continues pursuing the approved task. It ends if
+the recipient objects or no permitted way forward remains.
+An approved brief may explicitly request a refund for a specified order and
+amount to the original payment method. The agent may identify that order using
+the supplied purchaser name, order number, date, and email. It must decline
+fees, partial refunds, credits, replacements, and new terms. These are
+model-driven conversation limits, not a guarantee of merchant compliance.
 Establish the legal basis for transcription before dialing. Voice behavior
 remains model-driven.
 

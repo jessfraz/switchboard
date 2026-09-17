@@ -108,8 +108,8 @@ SIGTERM requests cancellation. The maximum duration is 30 to 3600 seconds.
 There is exactly one start command per process, and the worker never redials.
 Identifiers must be unique per attempted call; the supervisor enforces this.
 
-Events are `ready`, `dialing`, `connected`, `transcript`,
-`approval_required`, `error`, and finally `completed`. Every event carries
+Events are `ready`, `dialing`, `connected`, `transcript`, `error`, and finally
+`completed`. Every event carries
 `protocol_version: 1`. Transcript events have `speaker` (`agent` or
 `recipient`), `text`, `timestamp_ms` (Unix time at utterance creation), and
 `interrupted`. Early media transcripts can arrive while dialing. Completed
@@ -138,16 +138,27 @@ option publicly. This disables stored session recordings and forks; it does
 not imply zero provider retention. See [GPT-Live session storage].
 
 The agent introduces itself as the caller's AI assistant and discloses
-transcription without asking a consent question. It stops on objections or a
-need for additional authority. The caller must establish the applicable legal
+transcription without asking a consent question. There is no in-call approval
+tool. It declines disallowed alternatives and continues the approved task,
+ending on recipient objections or when no permitted way forward remains.
+The caller must establish the applicable legal
 basis for transcription and retention before dialing.
 It has no account, payment, booking, messaging, filesystem, or shell tools.
+It may relay a refund request explicitly authorized in the call brief, limited
+to the specified order and amount back to the original payment method. It must
+not accept fees, reduced refunds, credits, replacements, or new terms.
 The voice conversation and menu choices are model-driven and require real-call
 evaluation before relying on their behavior. GPT-Live produces its opening
 natively. The worker observes that opening instead of issuing another greeting
 after answering-machine detection releases queued audio. If no agent transcript
 arrives within 20 seconds after detection, the worker stops. Its spoken wording
 and objection handling are still model-driven.
+
+Answering-machine detection is closed after its initial verdict so it cannot
+suppress subsequent conversation turns. Automated menus get an explicit first
+response. Voice-model errors produce fixed diagnostics without provider error
+text, and unrecoverable errors stop the call. A recipient hangup before any
+committed agent speech is reported as a failed call.
 
 The worker sets a server-side maximum call duration, deletes its unique room
 on every normal exit path, and distinguishes confirmed termination from an

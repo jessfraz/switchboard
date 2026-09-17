@@ -31,7 +31,7 @@ impl PhoneAdapter {
                 ToolDescriptor::new(
                     "phone.call.run",
                     ToolKind::Write,
-                    "Make one approved information-only business call and save its encrypted transcript",
+                    "Make one approved business call and save its encrypted transcript",
                     BackendKind::Cli,
                 )?
                 .with_arguments(arguments),

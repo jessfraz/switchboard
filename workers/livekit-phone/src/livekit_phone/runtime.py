@@ -14,6 +14,7 @@ from livekit.agents import (
     AMDCategory,
     CloseEvent,
     ConversationItemAddedEvent,
+    ErrorEvent,
     room_io,
 )
 from livekit.agents.voice import TranscriptSynchronizer
@@ -54,14 +55,14 @@ class Call:
             backend_instructions=(
                 call_instructions(request)
                 + "\nYou are the backend handling delegated work for the voice model. "
-                "Use require_approval immediately for any objection to AI or "
-                "transcription or need for extra authorization. "
+                "Respect objections to AI or transcription by ending the call. "
+                "Decline unwanted alternatives and continue the authorized task. "
                 "Use finish_call when the voice model "
                 "has said goodbye and delegates ending the call. Return concise "
                 "answers or instructions for a professional executive assistant, "
                 "never start another task. Carefully check reasoning and calculations. "
                 "Resolve ambiguity only within the authorized task; otherwise "
-                "request clarification. Provide conclusions and relevant uncertainty, "
+                "report the limitation. Provide conclusions and uncertainty, "
                 "never internal deliberation or a spoken reasoning monologue."
             ),
         )
@@ -99,12 +100,29 @@ class Call:
                 reason: CompletionReason = "failed" if event.error else "completed"
                 self.stop.request(reason)
 
+        @self.session.on("error")
+        def on_error(event: ErrorEvent) -> None:
+            if getattr(event.error, "recoverable", False):
+                return
+            # Provider exceptions can contain credentials or call content. Emit
+            # a fixed diagnostic only after SDK retries fail. Protocol errors
+            # are terminal in the Rust supervisor, unlike recoverable SDK errors.
+            self.output.emit(
+                Error(code="voice_model_error", message="A voice model failed.")
+            )
+            self.stop.request("failed", "A voice model failed; the call was stopped.")
+
         @self.room.on("participant_disconnected")
         def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
             if participant.identity == self.recipient_identity:
                 self.recipient_gone = True
                 if self.answered.is_set():
-                    self.stop.request("completed", "The recipient ended the call.")
+                    if self.first_agent_utterance.is_set():
+                        self.stop.request("completed", "The recipient ended the call.")
+                    else:
+                        self.stop.request(
+                            "failed", "The recipient hung up before any agent speech."
+                        )
                 else:
                     self.stop.request("failed", "The destination did not answer.")
 
@@ -175,9 +193,7 @@ class Call:
         if self.stop.event.is_set():
             return
         await self.session.start(
-            agent=PhoneAgent(
-                self.request, self.stop, self.output, self.config.voice_engine
-            ),
+            agent=PhoneAgent(self.request, self.stop, self.config.voice_engine),
             room=self.room,
             room_options=room_io.RoomOptions(
                 participant_identity=self.recipient_identity,
@@ -242,14 +258,25 @@ class Call:
                 AMDCategory.MACHINE_VM,
                 AMDCategory.MACHINE_UNAVAILABLE,
             ):
+                # Stop before teardown releases speech authorization, so a late
+                # greeting cannot start a response while leaving AMD's context.
                 self.output.emit(
                     Error(code="no_person_reached", message="No person was reached.")
                 )
                 self.stop.request("failed", "No person reached; no message was left.")
                 return
-            if prediction.category in (AMDCategory.HUMAN, AMDCategory.UNCERTAIN):
-                await self._open_conversation()
-            await self.stop.event.wait()
+
+        # A live AMD detector suppresses automatic replies after a machine
+        # verdict. Release it before navigating menus or talking to a person.
+        if self.stop.event.is_set():
+            return
+        if prediction.category == AMDCategory.MACHINE_IVR:
+            # AMD installs menu tools, but does not start a reply to the initial
+            # prompt. A conversational IVR may already be waiting for our answer.
+            self.session.generate_reply()
+        else:
+            await self._open_conversation()
+        await self.stop.event.wait()
 
     async def _open_conversation(self) -> None:
         if self.config.voice_engine == VoiceEngine.GPT_LIVE:
