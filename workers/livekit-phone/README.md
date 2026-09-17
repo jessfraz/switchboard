@@ -60,7 +60,7 @@ store credentials here. The URL must be a `wss` LiveKit Cloud project URL.
 
 Pipeline model settings are `LIVEKIT_PHONE_STT_MODEL` (default
 `deepgram/nova-3`), `LIVEKIT_PHONE_LLM_MODEL` (default
-`google/gemini-3.1-flash-lite`), `LIVEKIT_PHONE_TTS_MODEL` (default
+`openai/gpt-5.5`), `LIVEKIT_PHONE_TTS_MODEL` (default
 `inworld/inworld-tts-2`), and `LIVEKIT_PHONE_VOICE` (default `Ashley`). All
 pipeline inference uses the LiveKit gateway. No independent model-provider key
 is used. These models require access and sufficient credits in the project.
@@ -143,10 +143,15 @@ tool. It declines disallowed alternatives and continues the approved task,
 ending on recipient objections or when no permitted way forward remains.
 The caller must establish the applicable legal
 basis for transcription and retention before dialing.
-It has no account, payment, booking, messaging, filesystem, or shell tools.
-It may relay a refund request explicitly authorized in the call brief, limited
-to the specified order and amount back to the original payment method. It must
-not accept fees, reduced refunds, credits, replacements, or new terms.
+It has no account, payment, booking, messaging, filesystem, or shell APIs.
+The approved brief defines what it may accomplish through the conversation,
+including refunds, support, reservations, appointments, and general questions.
+Include the necessary facts, permitted choices, and any cost or time limits.
+For example, a refund-only brief can forbid store credit and fees; a restaurant
+brief can authorize a table within a time window but exclude deposits. These
+are task-specific constraints, not hardcoded restrictions on every call.
+The agent must not invent missing details or agree to commitments outside the
+brief. It continues within those constraints without in-call approval pauses.
 The voice conversation and menu choices are model-driven and require real-call
 evaluation before relying on their behavior. GPT-Live produces its opening
 natively. The worker observes that opening instead of issuing another greeting
@@ -155,11 +160,18 @@ arrives within 20 seconds after detection, the worker stops. Its spoken wording
 and objection handling are still model-driven.
 
 Answering-machine detection is closed after its initial verdict so it cannot
-suppress subsequent conversation turns. Automated menus get an explicit first
-response. The SDK owns model retries; only a terminal session failure produces
-a fatal diagnostic, using its typed error category without provider error text.
-A recipient hangup before any
-committed agent speech is reported as a failed call.
+suppress subsequent conversation turns. Keypad tools remain available even if
+a menu appears after talking to a human. The pipeline agent can explicitly stop
+just its current response to wait silently on hold, during a transfer, or while
+someone checks information; it keeps listening for the next turn. GPT-Live
+waits natively, since its backend always speaks after a delegated tool result.
+Transfers are not completed tasks. The SDK's IVR silence wakeups are disabled
+so waiting does not
+trigger a new response every five seconds. Automated menus get an explicit
+first response. The SDK owns model retries; only a terminal session failure
+produces a fatal diagnostic, using its typed error category without provider
+error text. A recipient hangup before any committed agent speech is reported
+as a failed call.
 
 The worker sets a server-side maximum call duration, deletes its unique room
 on every normal exit path, and distinguishes confirmed termination from an
@@ -187,6 +199,24 @@ public CLI's `doctor` is also offline and does not execute `worker_command`;
 run the exact configured executable with `check`. Follow the onboarding guide's
 [owned-number test](../../docs/phone.md#make-an-explicitly-approved-test-call)
 for live validation with explicit authorization.
+
+## Opt-in conversation evaluations
+
+With the normal LiveKit inference credentials supplied by your credential
+manager, run synthetic, paid model evaluations without dialing:
+
+```sh
+uv run --frozen --no-sync python evals/scenarios.py --run
+uv run --frozen --no-sync python evals/scenarios.py --run --scenario transfer
+```
+
+These exercise the real pipeline agent and tools for identity, objections,
+refunds, transfers, holds, restaurant reservations, appointments, support, and
+information-only calls. The menu scenario checks the model's keypad selection
+after a human transfer, without transmitting tones. Output contains synthetic
+conversation evidence, not provider errors or credentials. Set
+`LIVEKIT_PHONE_LLM_MODEL` to compare models. These checks do not prove SIP
+routing, actual hold audio, keypad delivery, or GPT-Live voice behavior.
 
 The implementation follows the official [Agents quickstart], [AMD guide], and
 [recording controls]. Local source inspection additionally verified standalone

@@ -39,7 +39,7 @@ class Config:
     backend_model: str = "gpt-5.6-luna"
     backend_reasoning_effort: BackendReasoningEffort | None = None
     stt_model: str = "deepgram/nova-3"
-    llm_model: str = "google/gemini-3.1-flash-lite"
+    llm_model: str = "openai/gpt-5.5"
     tts_model: str = "inworld/inworld-tts-2"
     voice: str | None = None
 
@@ -101,9 +101,7 @@ class Config:
             backend_model=env.get("LIVEKIT_PHONE_BACKEND_MODEL", "gpt-5.6-luna"),
             backend_reasoning_effort=reasoning_effort,
             stt_model=env.get("LIVEKIT_PHONE_STT_MODEL", "deepgram/nova-3"),
-            llm_model=env.get(
-                "LIVEKIT_PHONE_LLM_MODEL", "google/gemini-3.1-flash-lite"
-            ),
+            llm_model=env.get("LIVEKIT_PHONE_LLM_MODEL", "openai/gpt-5.5"),
             tts_model=env.get("LIVEKIT_PHONE_TTS_MODEL", "inworld/inworld-tts-2"),
             voice=env.get("LIVEKIT_PHONE_VOICE"),
         )

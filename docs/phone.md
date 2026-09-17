@@ -208,11 +208,17 @@ The agent announces AI assistance and transcription without a consent question.
 There is no in-call approval tool. It answers routine questions, declines
 disallowed alternatives, and continues pursuing the approved task. It ends if
 the recipient objects or no permitted way forward remains.
-An approved brief may explicitly request a refund for a specified order and
-amount to the original payment method. The agent may identify that order using
-the supplied purchaser name, order number, date, and email. It must decline
-fees, partial refunds, credits, replacements, and new terms. These are
-model-driven conversation limits, not a guarantee of merchant compliance.
+The brief defines the outcome and constraints for refunds, support,
+reservations, appointments, or general questions. Supply the relevant facts,
+acceptable alternatives, and any cost or scheduling limits. A request to ask
+about availability is not authorization to book; an explicit booking request
+lets the agent confirm an option within its stated constraints. It declines
+commitments outside the brief instead of stopping for caller approval.
+Menus, conversational AI, people, hold queues, and transfers can occur in any
+order. Keypad navigation remains available throughout; hold and transfer
+announcements do not mean the task is complete. The agent waits silently and
+resumes when addressed. The maximum duration still bounds the whole call.
+These are model-driven conversation rules, not guaranteed outcomes.
 Establish the legal basis for transcription before dialing. Voice behavior
 remains model-driven.
 

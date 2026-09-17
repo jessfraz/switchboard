@@ -222,7 +222,9 @@ class Call:
             llm=self.models.classifier,
             stt=None,
             participant_identity=self.recipient_identity,
-            ivr_detection=True,
+            # The agent owns persistent DTMF tools. SDK IVR activity wakes the
+            # model after five seconds of silence, including legitimate holds.
+            ivr_detection=False,
         ) as detector:
             self.output.emit(Lifecycle(type="dialing"))
             self.dial_started = True
@@ -271,8 +273,7 @@ class Call:
         if self.stop.event.is_set():
             return
         if prediction.category == AMDCategory.MACHINE_IVR:
-            # AMD installs menu tools, but does not start a reply to the initial
-            # prompt. A conversational IVR may already be waiting for our answer.
+            # A conversational IVR may already be waiting for our answer.
             self.session.generate_reply()
         else:
             await self._open_conversation()
