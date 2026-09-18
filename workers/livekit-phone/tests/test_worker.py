@@ -307,7 +307,7 @@ def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
                 item=ChatMessage(
                     role="assistant",
                     content=[
-                        "Hi, I'm Caller's AI assistant, calling on their behalf. "
+                        "Hi, I'm Caller's assistant, calling on their behalf. "
                         "I'll transcribe this call for notes."
                     ],
                 )

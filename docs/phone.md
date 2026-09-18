@@ -233,7 +233,8 @@ and set `PHONE_STATE_DIR` to its `calls/` directory. Decryption prints plaintext
 JSON; keep it out of logs. Journals are encrypted, but Switchboard's operation
 database still contains the brief, destination, and audit metadata.
 
-The agent announces AI assistance and transcription without a consent question.
+The agent introduces itself as the caller's assistant and announces transcription
+without a consent question. It identifies itself as AI if asked.
 There is no in-call approval tool. It answers routine questions, declines
 disallowed alternatives, and continues pursuing the approved task. It ends if
 the recipient objects or no permitted way forward remains.
