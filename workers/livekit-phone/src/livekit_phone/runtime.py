@@ -353,8 +353,7 @@ class Call:
                 instructions=(
                     "Begin the conversation now. Answer the latest question or "
                     "interactive prompt if there is one; otherwise give the brief "
-                    "opening. Include only introduction and transcription "
-                    "disclosure information not already delivered."
+                    "opening. Do not repeat information already delivered."
                 )
             )
         async with asyncio.timeout(20):

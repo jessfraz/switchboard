@@ -138,9 +138,10 @@ Live API's documented `store: false` default. The plugin does not expose that
 option publicly. This disables stored session recordings and forks; it does
 not imply zero provider retention. See [GPT-Live session storage].
 
-The agent introduces itself as the caller's assistant, identifies itself as AI
-if asked, and discloses transcription without asking a consent question. There
-is no in-call approval tool. It declines disallowed alternatives and continues
+The agent introduces itself as the caller's assistant and identifies itself as AI
+if asked. It does not add a transcription announcement to the opening; if asked,
+it explains that a text transcript is saved and audio is not recorded. There is
+no in-call approval tool. It declines disallowed alternatives and continues
 the approved task,
 ending on recipient objections or when no permitted way forward remains.
 The caller must establish the applicable legal

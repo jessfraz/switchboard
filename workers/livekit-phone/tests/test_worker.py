@@ -308,10 +308,7 @@ def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
             greeting = ConversationItemAddedEvent(
                 item=ChatMessage(
                     role="assistant",
-                    content=[
-                        "Hi, I'm Caller's assistant, calling on their behalf. "
-                        "I'll transcribe this call for notes."
-                    ],
+                    content=["Hi, I'm Caller's assistant, calling on their behalf."],
                 )
             )
             # Drive the actual registered SDK event path, preserving the first
