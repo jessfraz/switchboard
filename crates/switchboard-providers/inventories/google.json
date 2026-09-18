@@ -12120,7 +12120,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords get",
-      "summary": "Gets a conference record by conference ID.",
+      "summary": "Gets a conference record by conference ID. For more information, see Work with conferences.",
       "usage": "gws conferenceRecords get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12141,7 +12141,7 @@
         "list"
       ],
       "command": "gws meet conferenceRecords list",
-      "summary": "Lists the conference records. By default, ordered by start time and in descending order.",
+      "summary": "Lists the conference records. By default, ordered by start time and in descending order. For more information, see Work with conferences.",
       "usage": "gws conferenceRecords list [OPTIONS]",
       "help_args": [
         "meet",
@@ -12189,7 +12189,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords participants get",
-      "summary": "Gets a participant by participant ID.",
+      "summary": "Gets a participant by participant ID. For more information, see Work with participants.",
       "usage": "gws conferenceRecords participants get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12263,7 +12263,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords participants participantSessions get",
-      "summary": "Gets a participant session by participant session ID.",
+      "summary": "Gets a participant session by participant session ID. For more information, see Work with participants.",
       "usage": "gws conferenceRecords participants participantSessions get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12337,7 +12337,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords recordings get",
-      "summary": "Gets a recording by recording ID.",
+      "summary": "Gets a recording by recording ID. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords recordings get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12360,7 +12360,7 @@
         "list"
       ],
       "command": "gws meet conferenceRecords recordings list",
-      "summary": "Lists the recording resources from the conference record. By default, ordered by start time and in ascending order.",
+      "summary": "Lists the recording resources from the conference record. By default, ordered by start time and in ascending order. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords recordings list [OPTIONS]",
       "help_args": [
         "meet",
@@ -12408,7 +12408,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords smartNotes get",
-      "summary": "Gets smart notes by smart note ID.",
+      "summary": "Gets smart notes by smart note ID. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords smartNotes get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12431,7 +12431,7 @@
         "list"
       ],
       "command": "gws meet conferenceRecords smartNotes list",
-      "summary": "Lists the set of smart notes from the conference record. By default, ordered by start time and in ascending order.",
+      "summary": "Lists the set of smart notes from the conference record. By default, ordered by start time and in ascending order. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords smartNotes list [OPTIONS]",
       "help_args": [
         "meet",
@@ -12508,7 +12508,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords transcripts entries get",
-      "summary": "Gets a `TranscriptEntry` resource by entry ID. Note: The transcript entries returned by the Google Meet API might not match the transcription found in the Google Docs transcript file.",
+      "summary": "Gets a `TranscriptEntry` resource by entry ID. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords transcripts entries get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12533,7 +12533,7 @@
         "list"
       ],
       "command": "gws meet conferenceRecords transcripts entries list",
-      "summary": "Lists the structured transcript entries per transcript. By default, ordered by start time and in ascending order.",
+      "summary": "Lists the structured transcript entries per transcript. By default, ordered by start time and in ascending order. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords transcripts entries list [OPTIONS]",
       "help_args": [
         "meet",
@@ -12557,7 +12557,7 @@
         "get"
       ],
       "command": "gws meet conferenceRecords transcripts get",
-      "summary": "Gets a transcript by transcript ID.",
+      "summary": "Gets a transcript by transcript ID. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords transcripts get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12580,7 +12580,7 @@
         "list"
       ],
       "command": "gws meet conferenceRecords transcripts list",
-      "summary": "Lists the set of transcripts from the conference record. By default, ordered by start time and in ascending order.",
+      "summary": "Lists the set of transcripts from the conference record. By default, ordered by start time and in ascending order. For more information, see Work with artifacts.",
       "usage": "gws conferenceRecords transcripts list [OPTIONS]",
       "help_args": [
         "meet",
@@ -12628,7 +12628,7 @@
         "create"
       ],
       "command": "gws meet spaces create",
-      "summary": "Creates a space.",
+      "summary": "Creates a space. For more information, see Manage meeting spaces.",
       "usage": "gws spaces create [OPTIONS]",
       "help_args": [
         "meet",
@@ -12649,7 +12649,7 @@
         "endActiveConference"
       ],
       "command": "gws meet spaces endActiveConference",
-      "summary": "Ends an active conference (if there's one). For an example, see End active conference.",
+      "summary": "Ends an active conference (if there's one). For more information, see Manage meeting spaces.",
       "usage": "gws spaces endActiveConference [OPTIONS]",
       "help_args": [
         "meet",
@@ -12670,7 +12670,7 @@
         "get"
       ],
       "command": "gws meet spaces get",
-      "summary": "Gets details about a meeting space. For an example, see Get a meeting space.",
+      "summary": "Gets details about a meeting space. For more information, see Manage meeting spaces. For an example, see Get a meeting space.",
       "usage": "gws spaces get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12721,7 +12721,7 @@
         "batchUpdate"
       ],
       "command": "gws meet spaces members batchUpdate",
-      "summary": "Updates members of one space within a batch.",
+      "summary": "Updates members of one space within a batch. For more information, see Manage meeting space members.",
       "usage": "gws spaces members batchUpdate [OPTIONS]",
       "help_args": [
         "meet",
@@ -12744,7 +12744,7 @@
         "create"
       ],
       "command": "gws meet spaces members create",
-      "summary": "Creates a member. This API supports the `fields` parameter in SystemParameterContext. When the `fields` parameter is omitted, this API response will default to \"name,email,role,user\".",
+      "summary": "Creates a member. For more information, see Manage meeting space members. This API supports the `fields` parameter in SystemParameterContext.",
       "usage": "gws spaces members create [OPTIONS]",
       "help_args": [
         "meet",
@@ -12773,7 +12773,7 @@
         "delete"
       ],
       "command": "gws meet spaces members delete",
-      "summary": "Deletes the member who was previously assigned roles in the space.",
+      "summary": "Deletes the member who was previously assigned roles in the space. For more information, see Manage meeting space members.",
       "usage": "gws spaces members delete [OPTIONS]",
       "help_args": [
         "meet",
@@ -12796,7 +12796,7 @@
         "get"
       ],
       "command": "gws meet spaces members get",
-      "summary": "Gets a member. This API supports the `fields` parameter in SystemParameterContext. When the `fields` parameter is omitted, this API response will default to \"name,email,role,user\".",
+      "summary": "Gets a member. For more information, see Manage meeting space members. This API supports the `fields` parameter in SystemParameterContext.",
       "usage": "gws spaces members get [OPTIONS]",
       "help_args": [
         "meet",
@@ -12819,7 +12819,7 @@
         "list"
       ],
       "command": "gws meet spaces members list",
-      "summary": "Lists members. This API supports the `fields` parameter in SystemParameterContext. When the `fields` parameter is omitted this API response will default to \"name,email,role,user\".",
+      "summary": "Lists members. For more information, see Manage meeting space members. This API supports the `fields` parameter in SystemParameterContext.",
       "usage": "gws spaces members list [OPTIONS]",
       "help_args": [
         "meet",
@@ -12842,7 +12842,7 @@
         "patch"
       ],
       "command": "gws meet spaces members patch",
-      "summary": "Updates a member.",
+      "summary": "Updates a member. For more information, see Manage meeting space members.",
       "usage": "gws spaces members patch [OPTIONS]",
       "help_args": [
         "meet",
@@ -12864,7 +12864,7 @@
         "patch"
       ],
       "command": "gws meet spaces patch",
-      "summary": "Updates details about a meeting space. For an example, see Update a meeting space.",
+      "summary": "Updates details about a meeting space. For more information, see Manage meeting spaces.",
       "usage": "gws spaces patch [OPTIONS]",
       "help_args": [
         "meet",
