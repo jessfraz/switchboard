@@ -61,18 +61,26 @@ not change provider limits. Presentation never mutates durable receipts.
 
 ## Authentication
 
-Set one `SWITCHBOARD_RUN_ID` for all commands in a task. `auth check --ns NS`
-performs a provider read and compares its identity with the configured auth
-account. Google uses Gmail `getProfile`, so it requires Gmail access. GitHub
-uses `api user`. Other identity routes are explicitly unsupported.
+Ordinary commands need no authentication environment variables. `auth check
+--ns NS` performs a provider read and compares its identity with the configured
+auth account. Google uses Gmail `getProfile`, so it requires Gmail access.
+GitHub uses `api user`. Other identity routes are explicitly unsupported.
 
 Credentials are resolved from cache first, then existing noninteractive
-1Password sessions. A cache miss can claim one desktop-unlock attempt per
-provider/account/run, lasting at most 60 seconds. The claim is persisted before
-unlocking. Concurrent processes wait for the attempt's cached result; a failed
-or interrupted attempt cannot grant another unlock within that run. An overall
-batch deadline can shorten the remaining wait. Explicit session-only,
-service-account, and disabled-biometric choices are respected.
+1Password sessions. A cache miss can claim one desktop-unlock attempt, lasting
+at most 60 seconds. The claim is persisted before unlocking and shared
+automatically per provider/account. Concurrent processes wait for the attempt's
+cached result. A failed or interrupted attempt suppresses further unlocks until
+60 seconds after it started, then a later command can try again. Cached
+credentials remain usable throughout this window.
+
+Automation can optionally set one `SWITCHBOARD_RUN_ID` across its commands to
+keep the recovery budget for the entire task instead of the default 60-second
+window. Explicit run IDs allow only one attempt per provider/account, including
+across CLI restarts. An overall batch deadline can shorten the remaining wait.
+Explicit session-only, service-account, and disabled-biometric choices are
+respected. Do not replace the 1Password CLI with `/usr/bin/false` to enable
+caching; caching is already the default, and that override disables recovery.
 
 A structured authentication rejection can invalidate the values actually used
 from the vault cache and trigger one re-resolution. A concurrent refresh is

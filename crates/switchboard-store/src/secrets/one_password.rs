@@ -129,7 +129,7 @@ impl SecretBackend for OnePasswordSecretBackend {
         let args = item_json_args(account, vault.as_deref(), item);
         let mut config = self.config.clone();
         config.timeout_seconds = config.timeout_seconds.min(60);
-        let run_item = |interactive: bool| -> Result<String> {
+        let run_item = |interactive: bool, timeout: Duration| -> Result<String> {
             let mut command = op_command(&config);
             command.env(
                 "OP_BIOMETRIC_UNLOCK_ENABLED",
@@ -139,7 +139,7 @@ impl SecretBackend for OnePasswordSecretBackend {
                 command.args(["--session", session]);
             }
             command.args(&args);
-            let output = capture_op(&mut command, &config).map_err(|error| {
+            let output = output_with_timeout(&mut command, timeout).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::TimedOut {
                     Error::AuthenticationTimeout {
                         seconds: config.timeout_seconds,
@@ -166,7 +166,7 @@ impl SecretBackend for OnePasswordSecretBackend {
             })
         };
         let mut recovery_attempt = None;
-        let output = match run_item(false) {
+        let output = match run_item(false, config.timeout()) {
             Ok(output) => output,
             Err(error)
                 if has_external_auth()
@@ -180,8 +180,8 @@ impl SecretBackend for OnePasswordSecretBackend {
                 return Err(error)
             }
             Err(_) => {
-                match self.recovery.claim(auth) {
-                    Ok(attempt) => recovery_attempt = Some(attempt),
+                let attempt = match self.recovery.claim(auth) {
+                    Ok(attempt) => attempt,
                     Err(error @ Error::RecoveryExhausted(_)) => {
                         // A concurrent owner may have just published the credential.
                         if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
@@ -193,10 +193,12 @@ impl SecretBackend for OnePasswordSecretBackend {
                         return Err(error);
                     }
                     Err(error) => return Err(error),
-                }
+                };
                 // One command owns the entire human-presence attempt. No whoami,
                 // signin, or per-field retry can trigger another unlock afterward.
-                run_item(true)?
+                let timeout = attempt.remaining_timeout(config.timeout())?;
+                recovery_attempt = Some(attempt);
+                run_item(true, timeout)?
             }
         };
         let ItemLookup::Fields(fields) = parse_item_fields(&output) else {

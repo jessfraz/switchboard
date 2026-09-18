@@ -189,18 +189,20 @@ Use a read-only identity request to verify access, including the expected
 account, before parallel work:
 
 ```sh
-export SWITCHBOARD_RUN_ID="task-unique-id"
 switchboard auth check --ns google.personal --json
 switchboard auth migration-preview --ns google.personal --verify --json
 ```
 
 `auth check` supports Google and GitHub. Google identity verification uses
-Gmail `getProfile` and requires Gmail access. It tries credential caches and
-existing sessions first. Rejected cached 1Password credentials are invalidated only after
-a structured authentication rejection, then re-resolved once. A cache miss can
-make one desktop-unlock attempt per provider/account/run, bounded to 60 seconds;
-concurrent callers wait for its saved result. An exhausted budget survives CLI
-restarts. Reuse the run ID for every command in a task. Browser consent and
+Gmail `getProfile` and requires Gmail access. Ordinary commands use credential
+caches and existing sessions first, without environment-variable setup.
+Rejected cached 1Password credentials are invalidated only after a structured
+authentication rejection, then re-resolved once. A cache miss can make one
+desktop-unlock attempt, bounded to 60 seconds. Commands automatically share a
+60-second recovery window per provider/account; concurrent callers wait for its
+saved result, and restarting the CLI does not immediately prompt again.
+Automation can optionally set `SWITCHBOARD_RUN_ID` to limit recovery to one
+attempt per provider/account for an entire task instead. Browser consent and
 account mismatches stop the provider. These commands do not send or modify
 provider content.
 

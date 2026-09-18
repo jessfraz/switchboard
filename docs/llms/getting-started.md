@@ -70,10 +70,13 @@ SHA is required; absent, unknown, and truncated checks never become success.
 
 ## Writes and authentication
 
-Use one unique `SWITCHBOARD_RUN_ID` across a task. Switchboard resolves cached
-credentials first and keeps namespaces isolated. Resolve necessary identity
-checks serially before parallel reads. Do not repeat credential-storage or
-biometric prefixes on every command.
+Run ordinary `switchboard` commands without credential or biometric environment
+prefixes. Switchboard resolves cached credentials first, keeps namespaces
+isolated, and automatically coordinates bounded authentication recovery across
+commands. Resolve necessary identity checks serially before parallel reads.
+`SWITCHBOARD_RUN_ID` is optional for automation that needs one recovery budget
+for an entire task. Do not set `SWITCHBOARD_OP_BIN=/usr/bin/false` unless the user
+explicitly requests cache-only access; it disables normal 1Password recovery.
 
 Draft writes before execution. When the user already authorized the exact
 mutation, `--approve-and-apply` persists the plan, approves that operation, and
