@@ -17,10 +17,9 @@ from livekit.agents import (
     CloseEvent,
     ConversationItemAddedEvent,
     ErrorEvent,
-    inference,
 )
 from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
-from livekit.agents.tts import TTSError
+from livekit.agents.llm.realtime import RealtimeModelError
 from livekit.agents.voice.events import CloseReason
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
 from livekit.plugins.openai.responses import LLM as ResponsesLLM
@@ -171,7 +170,7 @@ def test_credentials_are_not_in_config_representation() -> None:
         )
 
 
-def test_engine_selection_requires_only_its_own_credentials() -> None:
+def test_gpt_live_configuration_requires_openai_credentials() -> None:
     env = {
         "LIVEKIT_URL": "wss://test.livekit.cloud",
         "LIVEKIT_API_KEY": "key",
@@ -179,23 +178,20 @@ def test_engine_selection_requires_only_its_own_credentials() -> None:
         "LIVEKIT_SIP_TRUNK_ID": "trunk",
         "OPENAI_API_KEY": "private-openai-sentinel",
     }
-    pipeline = Config.from_env(env)
-    assert pipeline.voice_engine == VoiceEngine.PIPELINE
-    assert pipeline.openai_api_key is None
-    assert pipeline.selected_voice == "Ashley"
-    env["LIVEKIT_PHONE_VOICE_ENGINE"] = "gpt_live"
     live = Config.from_env(env)
     assert live.voice_engine == VoiceEngine.GPT_LIVE
     assert live.openai_api_key == env["OPENAI_API_KEY"]
-    assert live.selected_voice == "marin"
+    assert live.voice == "marin"
     assert live.backend_model == "gpt-5.6-luna"
     assert live.backend_reasoning_effort is None
+    env["LIVEKIT_PHONE_VOICE_ENGINE"] = "gpt_live"
+    assert Config.from_env(env) == live
     env["LIVEKIT_PHONE_VOICE"] = "stone"
     env["LIVEKIT_PHONE_REALTIME_MODEL"] = "voice-model"
     env["LIVEKIT_PHONE_BACKEND_MODEL"] = "backend-model"
     env["LIVEKIT_PHONE_BACKEND_REASONING_EFFORT"] = "xhigh"
     changed = Config.from_env(env)
-    assert changed.selected_voice == "stone"
+    assert changed.voice == "stone"
     assert changed.realtime_model == "voice-model"
     assert changed.backend_model == "backend-model"
     assert changed.backend_reasoning_effort == BackendReasoningEffort.XHIGH
@@ -206,24 +202,23 @@ def test_engine_selection_requires_only_its_own_credentials() -> None:
             Config.from_env(
                 {**env, "LIVEKIT_PHONE_BACKEND_REASONING_EFFORT": unsupported}
             )
-    del env["OPENAI_API_KEY"]
-    with pytest.raises(ConfigurationError, match="requires an OpenAI API key"):
-        Config.from_env(env)
-    env["LIVEKIT_PHONE_VOICE_ENGINE"] = "private-secret-sentinel"
-    with pytest.raises(ConfigurationError, match="^Unsupported phone voice engine\\.$"):
-        Config.from_env(env)
+    for engine in (None, "gpt_live"):
+        missing_key = {
+            key: value for key, value in env.items() if key != "OPENAI_API_KEY"
+        }
+        if engine is None:
+            del missing_key["LIVEKIT_PHONE_VOICE_ENGINE"]
+        with pytest.raises(ConfigurationError, match="requires an OpenAI API key"):
+            Config.from_env(missing_key)
+    for unsupported in ("pipeline", "private-secret-sentinel", ""):
+        with pytest.raises(
+            ConfigurationError, match="^Unsupported phone voice engine\\.$"
+        ):
+            Config.from_env({**env, "LIVEKIT_PHONE_VOICE_ENGINE": unsupported})
 
 
-@pytest.mark.parametrize(
-    ("engine", "effort"),
-    [
-        (VoiceEngine.PIPELINE, None),
-        (VoiceEngine.GPT_LIVE, None),
-        (VoiceEngine.GPT_LIVE, BackendReasoningEffort.XHIGH),
-    ],
-)
-def test_real_sdk_models_select_the_engine_and_close_owned_clients(
-    engine: VoiceEngine,
+@pytest.mark.parametrize("effort", [None, BackendReasoningEffort.XHIGH])
+def test_real_sdk_models_use_openai_and_close_owned_clients(
     effort: BackendReasoningEffort | None,
 ) -> None:
     async def construct() -> None:
@@ -232,7 +227,6 @@ def test_real_sdk_models_select_the_engine_and_close_owned_clients(
             api_key="key",
             api_secret="offline-not-a-secret-at-least-32-characters",
             trunk_id="trunk",
-            voice_engine=engine,
             openai_api_key="offline-not-a-real-key",
             backend_model="gpt-6-astra",
             backend_reasoning_effort=effort,
@@ -243,49 +237,41 @@ def test_real_sdk_models_select_the_engine_and_close_owned_clients(
             )
             model = models.session.llm
             try:
-                if engine == VoiceEngine.GPT_LIVE:
-                    assert isinstance(model, DuplexRealtimeAdapter)
-                    assert model.model == config.realtime_model
-                    assert model.provider == "api.openai.com"
-                    assert models.session.stt is None
-                    assert models.session.tts is None
-                    assert isinstance(models.classifier, ResponsesLLM)
-                    assert models.classifier.provider == "api.openai.com"
-                    assert models.classifier.model == config.backend_model
-                    assert models.classifier._opts.store is False
-                    assert models.classifier._opts.reasoning == ReasoningOptions(
-                        effort="low"
-                    )
-                    assert models.session.turn_detection == "realtime_llm"
-                    classifier_client = models.classifier._client
-                    assert classifier_client is not None
-                    async with AMD(
-                        models.session,
-                        llm=models.classifier,
-                        stt=None,
-                        ivr_detection=False,
-                    ) as detector:
-                        # The real AMD accepts this client and reuses native
-                        # transcripts instead of creating an inference STT.
-                        assert detector._classifier is not None
-                        assert detector._classifier._llm is models.classifier
-                        assert detector._stt is None
-                    realtime_model = model.duplex_model
-                    assert isinstance(realtime_model, GPTLiveModel)
-                    expected = ResponsesDelegationOptions(
-                        model="gpt-6-astra",
-                        instructions="Offline construction only.",
-                    )
-                    if effort is not None:
-                        expected["reasoning"] = Reasoning(effort=effort.value)
-                    assert realtime_model._opts.responses == expected
-                else:
-                    assert isinstance(model, inference.LLM)
-                    assert model is models.classifier
-                    assert model.model == config.llm_model
-                    assert models.session.stt is not None
-                    assert models.session.tts is not None
-                    classifier_client = model._client
+                assert isinstance(model, DuplexRealtimeAdapter)
+                assert model.model == config.realtime_model
+                assert model.provider == "api.openai.com"
+                assert models.session.stt is None
+                assert models.session.tts is None
+                assert isinstance(models.classifier, ResponsesLLM)
+                assert models.classifier.provider == "api.openai.com"
+                assert models.classifier.model == config.backend_model
+                assert models.classifier._opts.store is False
+                assert models.classifier._opts.reasoning == ReasoningOptions(
+                    effort="low"
+                )
+                assert models.session.turn_detection == "realtime_llm"
+                classifier_client = models.classifier._client
+                assert classifier_client is not None
+                async with AMD(
+                    models.session,
+                    llm=models.classifier,
+                    stt=None,
+                    ivr_detection=False,
+                ) as detector:
+                    # The real AMD accepts this client and reuses native
+                    # transcripts instead of creating an inference STT.
+                    assert detector._classifier is not None
+                    assert detector._classifier._llm is models.classifier
+                    assert detector._stt is None
+                realtime_model = model.duplex_model
+                assert isinstance(realtime_model, GPTLiveModel)
+                expected = ResponsesDelegationOptions(
+                    model="gpt-6-astra",
+                    instructions="Offline construction only.",
+                )
+                if effort is not None:
+                    expected["reasoning"] = Reasoning(effort=effort.value)
+                assert realtime_model._opts.responses == expected
             finally:
                 await models.session.aclose()
                 await models.aclose()
@@ -379,6 +365,7 @@ def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
             api_key="key",
             api_secret="offline-not-a-secret-at-least-32-characters",
             trunk_id="trunk",
+            openai_api_key="offline-not-a-real-key",
         )
         output = io.StringIO()
         stop = Stop()
@@ -387,7 +374,7 @@ def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
             try:
                 # Use the real registered session event path. SDK/provider error
                 # payloads must never be copied into our transcript protocol.
-                error = TTSError(
+                error = RealtimeModelError(
                     timestamp=0.0,
                     label="private-model-sentinel",
                     error=(
@@ -404,7 +391,7 @@ def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
                 )
                 call.session.emit(
                     "error",
-                    ErrorEvent(source=call.session.tts, error=error),
+                    ErrorEvent(source=call.session.llm, error=error),
                 )
                 assert not stop.event.is_set()
                 assert output.getvalue() == ""
@@ -413,15 +400,15 @@ def test_voice_errors_allow_sdk_recovery_until_the_session_closes(
                         "close", CloseEvent(error=error, reason=CloseReason.ERROR)
                     )
                     detail = (
-                        "tts_error"
+                        "realtime_model_error"
                         if status_code is None
-                        else f"tts_error, HTTP {status_code}"
+                        else f"realtime_model_error, HTTP {status_code}"
                     )
                     summary = f"The voice session ended ({detail})."
                     assert json.loads(output.getvalue()) == {
                         "protocol_version": 1,
                         "type": "error",
-                        "code": "tts_error",
+                        "code": "realtime_model_error",
                         "message": summary,
                     }
                     assert stop.event.is_set()
@@ -476,7 +463,7 @@ def test_invalid_input_is_sanitized_in_real_process() -> None:
     assert events[1]["code"] == "invalid_command"
 
 
-def test_offline_check_constructs_both_actual_voice_engines() -> None:
+def test_offline_check_constructs_actual_gpt_live_models() -> None:
     result = worker(["check"], "")
     assert result.returncode == 0, result.stderr
     event = json.loads(result.stdout)

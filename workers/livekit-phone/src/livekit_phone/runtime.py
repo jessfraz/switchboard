@@ -22,7 +22,7 @@ from livekit.agents import (
 from livekit.agents.voice import TranscriptSynchronizer
 
 from livekit_phone.agent import PhoneAgent, call_instructions
-from livekit_phone.config import Config, ConfigurationError, VoiceEngine
+from livekit_phone.config import Config, ConfigurationError
 from livekit_phone.control import Stop, transcript_event
 from livekit_phone.models import create_models
 from livekit_phone.protocol import (
@@ -203,7 +203,7 @@ class Call:
         if self.stop.event.is_set():
             return
         await self.session.start(
-            agent=PhoneAgent(self.request, self.stop, self.config.voice_engine),
+            agent=PhoneAgent(self.request, self.stop),
             room=self.room,
             room_options=room_io.RoomOptions(
                 participant_identity=self.recipient_identity,
@@ -290,19 +290,13 @@ class Call:
         await self.stop.event.wait()
 
     async def _open_conversation(self) -> None:
-        if self.config.voice_engine == VoiceEngine.GPT_LIVE:
-            # AMD gates playout, not GPT-Live generation. A native opening may
-            # already be queued or committed. Sending generate_reply here adds
-            # another greeting instruction and restarts the introduction.
-            # Observe the same conversation events we retain for transcripts;
-            # they can arrive after the audio or before AMD returns.
-            async with asyncio.timeout(20):
-                await self.first_agent_utterance.wait()
-        else:
-            await self.session.say(
-                f"Hi, I'm {self.request.caller_name}'s AI assistant, calling on their "
-                "behalf. I'll transcribe this call for notes."
-            )
+        # AMD gates playout, not GPT-Live generation. A native opening may
+        # already be queued or committed. Sending generate_reply here adds
+        # another greeting instruction and restarts the introduction.
+        # Observe the same conversation events we retain for transcripts;
+        # they can arrive after the audio or before AMD returns.
+        async with asyncio.timeout(20):
+            await self.first_agent_utterance.wait()
 
     async def cleanup(self) -> bool:
         confirmed = not self.dial_started or self.recipient_gone

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from livekit.agents import Agent, RunContext, StopResponse, function_tool
+from livekit.agents import Agent, RunContext, function_tool
 from livekit.agents.beta.tools.send_dtmf import send_dtmf_events
 
-from livekit_phone.config import VoiceEngine
 from livekit_phone.control import Stop
 from livekit_phone.protocol import Start
 
@@ -125,41 +124,15 @@ call-ending decisions.
 """
 
 
-@function_tool
-async def wait_for_recipient() -> None:
-    """Wait silently on the connected call for the recipient's next turn.
-
-    Use for transfers, hold music, queue announcements, or while the
-    recipient looks something up. This does not hang up, pause for caller
-    approval, or disable listening. Do not narrate waiting or say goodbye.
-    """
-    # End only this response. Incoming speech starts the next normal turn.
-    raise StopResponse()
-
-
 class PhoneAgent(Agent):
-    def __init__(
-        self,
-        request: Start,
-        stop: Stop,
-        voice_engine: VoiceEngine = VoiceEngine.PIPELINE,
-    ) -> None:
+    def __init__(self, request: Start, stop: Stop) -> None:
         self._stop = stop
         super().__init__(
-            instructions=(
-                voice_instructions(request)
-                if voice_engine == VoiceEngine.GPT_LIVE
-                else call_instructions(request)
-                + "\nUse wait_for_recipient to wait silently on the line."
-            ),
+            instructions=voice_instructions(request),
             # Menus may appear after a human or transfer, not just at answer.
             # GPT-Live does not honor StopResponse from delegated tools, so
             # its voice model waits natively rather than invoking a wait tool.
-            tools=(
-                [send_dtmf_events]
-                if voice_engine == VoiceEngine.GPT_LIVE
-                else [send_dtmf_events, wait_for_recipient]
-            ),
+            tools=[send_dtmf_events],
         )
 
     @function_tool

@@ -29,9 +29,6 @@ pub struct LiveKitConfig {
     pub sip_trunk_id: Option<String>,
     #[serde(default)]
     pub voice_engine: VoiceEngine,
-    pub stt_model: Option<String>,
-    pub llm_model: Option<String>,
-    pub tts_model: Option<String>,
     pub voice: Option<String>,
     pub realtime_model: Option<String>,
     pub backend_model: Option<String>,
@@ -68,14 +65,12 @@ impl ReasoningEffort {
 #[serde(rename_all = "snake_case")]
 pub enum VoiceEngine {
     #[default]
-    Pipeline,
     GptLive,
 }
 
 impl VoiceEngine {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Pipeline => "pipeline",
             Self::GptLive => "gpt_live",
         }
     }

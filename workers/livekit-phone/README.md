@@ -18,13 +18,12 @@ uv sync --frozen
 uv run --frozen --no-sync livekit-phone-worker check
 ```
 
-`check` constructs both voice engines using the real pinned SDK clients and
+`check` constructs GPT-Live using the real pinned SDK clients and
 their HTTP context, then closes them. It does not contact a provider, run
 inference, or dial.
 No separate model-weight download command is needed. Silero VAD ships with the
-SDK dependency. The pipeline turn detector uses LiveKit Inference without a
-local fallback model; GPT-Live handles turn-taking directly. Setup downloads
-the locked Python packages.
+SDK dependency. GPT-Live handles turn-taking directly. Setup downloads the
+locked Python packages.
 
 ### Nix installation
 
@@ -57,19 +56,11 @@ The supervisor injects `LIVEKIT_URL`, `LIVEKIT_API_KEY`,
 `LIVEKIT_API_SECRET`, and `LIVEKIT_SIP_TRUNK_ID`. Do not create `.env` files or
 store credentials here. The URL must be a `wss` LiveKit Cloud project URL.
 
-`LIVEKIT_PHONE_VOICE_ENGINE` selects `pipeline` (the default) or `gpt_live`.
-
-Pipeline model settings are `LIVEKIT_PHONE_STT_MODEL` (default
-`deepgram/nova-3`), `LIVEKIT_PHONE_LLM_MODEL` (default
-`openai/gpt-5.5`), `LIVEKIT_PHONE_TTS_MODEL` (default
-`inworld/inworld-tts-2`), and `LIVEKIT_PHONE_VOICE` (default `Ashley`). All
-pipeline inference uses the LiveKit gateway. No independent model-provider key
-is used. These models require access and sufficient credits in the project.
-
-GPT-Live requires `OPENAI_API_KEY` in the worker environment and an account with
-model access. `LIVEKIT_PHONE_REALTIME_MODEL` defaults to `gpt-live-1`,
-`LIVEKIT_PHONE_BACKEND_MODEL` defaults to `gpt-5.6-luna`, and the voice defaults
-to `marin`. `LIVEKIT_PHONE_VOICE` can override the voice for either engine.
+GPT-Live is the only voice engine. Every call requires `OPENAI_API_KEY` in the
+worker environment and an account with model access.
+`LIVEKIT_PHONE_REALTIME_MODEL` defaults to `gpt-live-1`,
+`LIVEKIT_PHONE_BACKEND_MODEL` defaults to `gpt-5.6-luna`, and
+`LIVEKIT_PHONE_VOICE` defaults to `marin`.
 `LIVEKIT_PHONE_BACKEND_REASONING_EFFORT` optionally sets `none`, `minimal`,
 `low`, `medium`, `high`, `xhigh`, or `max`; the backend must support that level.
 When omitted, the API's model default applies. For example, use `gpt-6-astra`
@@ -80,19 +71,24 @@ Answering-machine detection reuses those native transcripts and calls the same
 backend model directly through OpenAI Responses, with `low` reasoning and
 `store=false`. Choose a backend that supports Responses tool calls and `low`
 reasoning. This separate greeting check does not change the configured reasoning
-effort for delegated work. GPT-Live uses no LiveKit Inference services or credits;
-LiveKit credentials and billing still apply to room/SIP transport. Pipeline-only
-STT, LLM, and TTS settings do not affect GPT-Live. The worker never reads an OpenAI
-key in pipeline mode. Keys belong in 1Password and must be supplied by the
-supervising process, not written to this source directory.
+effort for delegated work. No LiveKit Inference services or credits are used;
+LiveKit credentials and billing still apply to room/SIP transport. Keys belong
+in 1Password and must be supplied by the supervising process, not written to
+this source directory.
 
 The public CLI takes these model settings from `[livekit]` in its phone TOML.
 It maps `PHONE_MODEL_API_KEY` (or standalone `OPENAI_API_KEY`) into the worker's
-`OPENAI_API_KEY` only for GPT-Live. With Switchboard, configure the `phone_cli`
+`OPENAI_API_KEY`. With Switchboard, configure the `phone_cli`
 auth entry's `model_api_key` reference as well; inherited OpenAI environment
 variables are not implicitly accepted. See the guide's [credential
 injection](../../docs/phone.md#inject-credentials-from-1password) and
 [Switchboard setup](../../docs/phone.md#through-switchboard).
+
+For existing phone TOML, `voice_engine = "gpt_live"` remains accepted but is
+unnecessary. Remove or replace `voice_engine = "pipeline"`, remove the retired
+`stt_model`, `llm_model`, and `tts_model` settings, and supply the OpenAI key.
+Replace a pipeline voice such as `Ashley` with a GPT-Live voice, or omit `voice`
+to use Marin. Keep model and voice overrides under `[livekit]`.
 
 The stored SIP trunk must already use TLS. The worker reads its configuration
 and requires SRTP for each call; it never changes the trunk. Ordinary telephone
@@ -136,7 +132,7 @@ LiveKit session recording is explicitly disabled, and no audio files or
 transcript files are written by this worker. Text is not published as a room
 data stream. OpenTelemetry exporters and SDK logs are disabled so stdout is
 the sole transcript output. The supervisor must retain those events encrypted.
-LiveKit, the selected inference providers, and the phone carrier still process
+LiveKit, OpenAI, and the phone carrier still process
 the call. GPT-Live's pinned plugin omits the storage option, relying on the
 Live API's documented `store: false` default. The plugin does not expose that
 option publicly. This disables stored session recordings and forks; it does
@@ -166,10 +162,9 @@ and objection handling are still model-driven.
 
 Answering-machine detection is closed after its initial verdict so it cannot
 suppress subsequent conversation turns. Keypad tools remain available even if
-a menu appears after talking to a human. The pipeline agent can explicitly stop
-just its current response to wait silently on hold, during a transfer, or while
-someone checks information; it keeps listening for the next turn. GPT-Live
-waits natively, since its backend always speaks after a delegated tool result.
+a menu appears after talking to a human. GPT-Live waits natively on hold,
+during a transfer, or while someone checks information, since its backend
+always speaks after a delegated tool result.
 Transfers are not completed tasks. The SDK's IVR silence wakeups are disabled
 so waiting does not
 trigger a new response every five seconds. Automated menus get an explicit
@@ -197,31 +192,13 @@ uv run --frozen --no-sync pytest -q
 ```
 
 Tests exercise the real process protocol, bounded inputs, cancellation state,
-SDK transcript types, secret-safe errors, model selection, and real client
+SDK transcript types, secret-safe errors, model settings, and real client
 construction and cleanup. They do not claim to prove credentials, model access,
 phone routing, speech quality, prompt adherence, or carrier termination. The
 public CLI's `doctor` is also offline and does not execute `worker_command`;
 run the exact configured executable with `check`. Follow the onboarding guide's
-[owned-number test](../../docs/phone.md#make-an-explicitly-approved-test-call)
+[owned-number test](../../docs/phone.md#make-a-call)
 for live validation with explicit authorization.
-
-## Opt-in conversation evaluations
-
-With the normal LiveKit inference credentials supplied by your credential
-manager, run synthetic, paid model evaluations without dialing:
-
-```sh
-uv run --frozen --no-sync python evals/scenarios.py --run
-uv run --frozen --no-sync python evals/scenarios.py --run --scenario transfer
-```
-
-These exercise the real pipeline agent and tools for identity, objections,
-refunds, transfers, holds, restaurant reservations, appointments, support, and
-information-only calls. The menu scenario checks the model's keypad selection
-after a human transfer, without transmitting tones. Output contains synthetic
-conversation evidence, not provider errors or credentials. Set
-`LIVEKIT_PHONE_LLM_MODEL` to compare models. These checks do not prove SIP
-routing, actual hold audio, keypad delivery, or GPT-Live voice behavior.
 
 The implementation follows the official [Agents quickstart], [AMD guide], and
 [recording controls]. Local source inspection additionally verified standalone

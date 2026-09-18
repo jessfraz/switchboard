@@ -13,7 +13,6 @@ class ConfigurationError(Exception):
 
 
 class VoiceEngine(StrEnum):
-    PIPELINE = "pipeline"
     GPT_LIVE = "gpt_live"
 
 
@@ -33,27 +32,16 @@ class Config:
     api_key: str = field(repr=False)
     api_secret: str = field(repr=False)
     trunk_id: str
-    voice_engine: VoiceEngine = VoiceEngine.PIPELINE
-    openai_api_key: str | None = field(default=None, repr=False)
+    openai_api_key: str = field(repr=False)
+    voice_engine: VoiceEngine = VoiceEngine.GPT_LIVE
     realtime_model: str = "gpt-live-1"
     backend_model: str = "gpt-5.6-luna"
     backend_reasoning_effort: BackendReasoningEffort | None = None
-    stt_model: str = "deepgram/nova-3"
-    llm_model: str = "openai/gpt-5.5"
-    tts_model: str = "inworld/inworld-tts-2"
-    voice: str | None = None
+    voice: str = "marin"
 
     def __post_init__(self) -> None:
-        if self.voice_engine == VoiceEngine.GPT_LIVE and not (
-            self.openai_api_key and self.openai_api_key.strip()
-        ):
+        if not self.openai_api_key.strip():
             raise ConfigurationError("GPT-Live requires an OpenAI API key.")
-
-    @property
-    def selected_voice(self) -> str:
-        return self.voice or (
-            "marin" if self.voice_engine == VoiceEngine.GPT_LIVE else "Ashley"
-        )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> Config:
@@ -78,7 +66,7 @@ class Config:
         ):
             raise ConfigurationError("A secure LiveKit Cloud project URL is required.")
         try:
-            engine = VoiceEngine(env.get("LIVEKIT_PHONE_VOICE_ENGINE", "pipeline"))
+            engine = VoiceEngine(env.get("LIVEKIT_PHONE_VOICE_ENGINE", "gpt_live"))
         except ValueError:
             raise ConfigurationError("Unsupported phone voice engine.") from None
         effort = env.get("LIVEKIT_PHONE_BACKEND_REASONING_EFFORT")
@@ -94,14 +82,9 @@ class Config:
             api_secret=env["LIVEKIT_API_SECRET"],
             trunk_id=env["LIVEKIT_SIP_TRUNK_ID"],
             voice_engine=engine,
-            openai_api_key=(
-                env.get("OPENAI_API_KEY") if engine == VoiceEngine.GPT_LIVE else None
-            ),
+            openai_api_key=env.get("OPENAI_API_KEY", ""),
             realtime_model=env.get("LIVEKIT_PHONE_REALTIME_MODEL", "gpt-live-1"),
             backend_model=env.get("LIVEKIT_PHONE_BACKEND_MODEL", "gpt-5.6-luna"),
             backend_reasoning_effort=reasoning_effort,
-            stt_model=env.get("LIVEKIT_PHONE_STT_MODEL", "deepgram/nova-3"),
-            llm_model=env.get("LIVEKIT_PHONE_LLM_MODEL", "openai/gpt-5.5"),
-            tts_model=env.get("LIVEKIT_PHONE_TTS_MODEL", "inworld/inworld-tts-2"),
-            voice=env.get("LIVEKIT_PHONE_VOICE"),
+            voice=env.get("LIVEKIT_PHONE_VOICE") or "marin",
         )

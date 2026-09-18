@@ -78,7 +78,7 @@ fn completed_call_keeps_sensitive_text_encrypted_and_refuses_duplicate_id() {
     let fixture = Fixture::new(
         r#"
 read request
-[ -z "${OPENAI_API_KEY+x}" ] || exit 20
+[ "$OPENAI_API_KEY" = test-model-key ] || exit 20
 [ -z "${PHONE_MODEL_API_KEY+x}" ] || exit 21
 [ -z "${PHONE_TRANSCRIPT_IDENTITY+x}" ] || exit 22
 printf '%s\n' '{"protocol_version":1,"type":"ready"}'
@@ -139,6 +139,36 @@ printf '%s\n' '{"protocol_version":1,"type":"completed","reason":"completed","re
     let output = fixture.run(&CallId::new(), true);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("test-model-key"));
+}
+
+#[test]
+fn doctor_requires_model_credentials_without_an_explicit_voice_engine() {
+    let fixture = Fixture::new("exit 98\n");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_phone"));
+    command
+        .env_remove("PHONE_STATE_DIR")
+        .env_remove("PHONE_MODEL_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env("PHONE_API_KEY", "test-transport-key")
+        .env("PHONE_API_SECRET", "test-transport-secret")
+        .args(["--json", "--config"])
+        .arg(&fixture.config)
+        .arg("doctor");
+    let missing = command.output().expect("run doctor without model credentials");
+    assert!(
+        !missing.status.success(),
+        "transport credentials alone cannot make a call"
+    );
+    for name in ["OPENAI_API_KEY", "PHONE_MODEL_API_KEY"] {
+        let present = command
+            .env(name, "test-model-key")
+            .output()
+            .expect("run doctor with model credentials");
+        assert!(present.status.success(), "{}", String::from_utf8_lossy(&present.stderr));
+        assert!(!String::from_utf8_lossy(&present.stdout).contains("test-model-key"));
+        command.env_remove(name);
+    }
+    assert!(!fixture.root.exists(), "doctor must not create call state");
 }
 
 #[test]

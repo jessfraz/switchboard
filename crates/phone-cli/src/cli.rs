@@ -203,9 +203,10 @@ fn execute(cli: Cli) -> Result<bool, CallError> {
         Command::Doctor => {
             config.validate_runtime()?;
             crate::journal::check_encryption(&config.transcript_recipient)?;
-            let mut credentials_present = [
+            let credentials_present = [
                 ("PHONE_API_KEY", "LIVEKIT_API_KEY"),
                 ("PHONE_API_SECRET", "LIVEKIT_API_SECRET"),
+                ("PHONE_MODEL_API_KEY", "OPENAI_API_KEY"),
             ]
             .iter()
             .all(|(generic, backend)| {
@@ -213,11 +214,6 @@ fn execute(cli: Cli) -> Result<bool, CallError> {
                     .or_else(|| std::env::var_os(backend))
                     .is_some_and(|value| !value.is_empty())
             });
-            if config.livekit.voice_engine == crate::config::VoiceEngine::GptLive {
-                credentials_present &= std::env::var_os("PHONE_MODEL_API_KEY")
-                    .or_else(|| std::env::var_os("OPENAI_API_KEY"))
-                    .is_some_and(|value| !value.is_empty());
-            }
             let output = DoctorOutput {
                 configuration_valid: true,
                 encryption_ready: true,

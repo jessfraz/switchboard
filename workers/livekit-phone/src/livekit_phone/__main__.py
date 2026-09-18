@@ -99,24 +99,22 @@ async def serve(output: EventSink) -> int:
 async def check(output: EventSink) -> int:
     from livekit.agents.utils import http_context
 
-    from livekit_phone.config import Config, VoiceEngine
+    from livekit_phone.config import Config
     from livekit_phone.models import create_models
 
     async with http_context.open() as http_session:
-        for engine in VoiceEngine:
-            config = Config(
-                url="wss://offline-check.livekit.cloud",
-                api_key="offline-check",
-                api_secret="offline-check-not-a-secret-at-least-32-characters",
-                trunk_id="offline-check",
-                voice_engine=engine,
-                openai_api_key="offline-check-not-a-secret",
-            )
-            models = create_models(
-                config, http_session, backend_instructions="Offline construction only."
-            )
-            await models.session.aclose()
-            await models.aclose()
+        config = Config(
+            url="wss://offline-check.livekit.cloud",
+            api_key="offline-check",
+            api_secret="offline-check-not-a-secret-at-least-32-characters",
+            trunk_id="offline-check",
+            openai_api_key="offline-check-not-a-secret",
+        )
+        models = create_models(
+            config, http_session, backend_instructions="Offline construction only."
+        )
+        await models.session.aclose()
+        await models.aclose()
     output.emit(
         Completed(
             reason="completed",

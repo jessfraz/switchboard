@@ -7,24 +7,22 @@ needed. Rust's `CallBackend` / `ActiveCall` traits isolate the provider SDK.
 ## What you need
 
 - macOS or Linux, Rust, `uv`, Python 3.12 or 3.13, `age`, and [1Password CLI].
-- A [LiveKit project][LiveKit credentials], URL, and API key/secret. The pipeline
-  engine also needs [Inference] credits; GPT-Live sends all inference directly
-  to OpenAI, including answering-machine detection.
+- A [LiveKit project][LiveKit credentials], URL, and API key/secret for room/SIP
+  transport. GPT-Live sends all inference directly to OpenAI, including
+  delegated reasoning and answering-machine detection. No LiveKit Inference
+  credits are used.
 - An [outbound SIP trunk] and authorized caller ID. For Twilio, follow its
   [Elastic SIP Trunking setup][Twilio setup], enable Secure Trunking, and
   require TLS/SRTP in LiveKit using [secure trunking]. Use the LiveKit `ST_`
   trunk ID. Carrier billing is separate.
 - An age X25519 public recipient, with its private identity backed up securely.
-- For `gpt_live`, an [OpenAI API key] with access to `gpt-live-1` and the chosen
+- An [OpenAI API key] with access to `gpt-live-1` and the chosen
   backend, which must support Responses tool calls and `low` reasoning for
   answering-machine checks. The [GPT-Live plugin] currently requires alpha
   access; funding an account alone does not grant it. OpenAI billing is separate
   too.
 
-| Engine | Defaults | Runtime credentials |
-| --- | --- | --- |
-| `pipeline` | Deepgram Nova-3, GPT-5.5, Inworld TTS-2 / Ashley | LiveKit API key and secret; no separate model-provider keys |
-| `gpt_live` | GPT-Live 1, delegated GPT-5.6 Luna, Marin voice | LiveKit credentials plus an OpenAI API key |
+The defaults are GPT-Live 1, delegated GPT-5.6 Luna, and the Marin voice.
 
 Replace example values; keep config and secrets outside the repository.
 
@@ -73,7 +71,6 @@ worker_project = "/absolute/path/to/switchboard/workers/livekit-phone"
 [livekit]
 url = "wss://your-project.livekit.cloud"
 sip_trunk_id = "ST_your_outbound_trunk"
-voice_engine = "pipeline"
 ```
 
 For the Nix installation, use `worker_command` pointing to the prepared worker
@@ -84,7 +81,6 @@ replace the `[livekit]` section with:
 [livekit]
 url = "wss://your-project.livekit.cloud"
 sip_trunk_id = "ST_your_outbound_trunk"
-voice_engine = "gpt_live"
 realtime_model = "gpt-live-1"
 backend_model = "gpt-6-astra"
 backend_reasoning_effort = "xhigh"
@@ -95,6 +91,12 @@ Reasoning effort is optional and must be supported by the backend. Higher
 levels can increase latency and cost; the call deadline still applies.
 See the [worker README] for model overrides and defaults.
 
+When upgrading a pipeline configuration, remove `stt_model`, `llm_model`, and
+`tts_model`, and remove `voice_engine = "pipeline"` or change it to `"gpt_live"`.
+GPT-Live is now the only engine; an existing `voice_engine = "gpt_live"` remains
+valid. Replace a pipeline voice such as `Ashley` with a GPT-Live voice, or omit
+`voice` to use Marin. Supply the OpenAI credential below for every call.
+
 ## Inject credentials from 1Password
 
 Use concealed credential fields and keep the transcript identity separate.
@@ -103,8 +105,7 @@ Put your vault references in `~/.config/phone/runtime.env`:
 ```dotenv
 PHONE_API_KEY="op://Private/Phone Runtime/livekit_api_key"
 PHONE_API_SECRET="op://Private/Phone Runtime/livekit_api_secret"
-# Uncomment for gpt_live:
-# PHONE_MODEL_API_KEY="op://Private/OpenAI/api_key"
+PHONE_MODEL_API_KEY="op://Private/OpenAI/api_key"
 ```
 
 This file contains [secret references], not key values. Avoid shell tracing
@@ -118,7 +119,7 @@ op run --env-file "$HOME/.config/phone/runtime.env" -- phone --json doctor
 contact providers or run the worker; with `worker_command`, it does not even
 check executable existence. Run that exact executable with `check` as well.
 Standalone `phone` also accepts `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` and
-`OPENAI_API_KEY` fallbacks. Only GPT-Live workers receive the OpenAI key.
+`OPENAI_API_KEY` fallbacks.
 
 ## Through Switchboard
 
@@ -136,8 +137,7 @@ kind = "phone_cli"
 account = "personal"
 api_key = "phone_api_key"
 api_secret = "phone_api_secret"
-# Uncomment for gpt_live:
-# model_api_key = "phone_model_api_key"
+model_api_key = "phone_model_api_key"
 
 [namespace.phone.personal]
 provider = "phone"
@@ -147,7 +147,7 @@ state_dir = "/absolute/path/to/private/switchboard/phone.personal"
 ```
 
 Save phone TOML as `config.toml` in the namespace directory; journals go into
-`calls/`. GPT-Live requires `model_api_key`. There is no raw phone command.
+`calls/`. Every call requires `model_api_key`. There is no raw phone command.
 Using `env` avoids the whole-item cache of `onepassword_item`; never include
 decryption identities in items resolved through that cache.
 
@@ -259,7 +259,6 @@ do not expire automatically. See [OpenAI data controls] and the [worker README].
 
 [1Password CLI]: https://www.1password.dev/cli/get-started
 [LiveKit credentials]: https://docs.livekit.io/reference/telephony/connectors-api/#constructor-parameters
-[Inference]: https://docs.livekit.io/agents/models/inference/
 [outbound SIP trunk]: https://docs.livekit.io/telephony/making-calls/outbound-trunk/
 [Twilio setup]: https://docs.livekit.io/telephony/start/providers/twilio/
 [secure trunking]: https://docs.livekit.io/telephony/features/secure-trunking/
