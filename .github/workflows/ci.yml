@@ -22,7 +22,7 @@ jobs:
       - run: uv sync --locked
       - run: uv run --locked --no-sync ruff check .
       - run: uv run --locked --no-sync ruff format --check .
-      - run: uv run --locked --no-sync mypy src tests
+      - run: uv run --locked --no-sync mypy src tests evals
       - run: uv run --locked --no-sync pytest -q
       - run: uv run --locked --no-sync livekit-phone-worker check
 

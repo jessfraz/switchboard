@@ -29,5 +29,8 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 python_version = "3.13"
 strict = true
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/livekit_phone"]

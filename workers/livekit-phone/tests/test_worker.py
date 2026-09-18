@@ -17,10 +17,12 @@ from livekit.agents import (
     CloseEvent,
     ConversationItemAddedEvent,
     ErrorEvent,
+    SpeechCreatedEvent,
 )
 from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
 from livekit.agents.llm.realtime import RealtimeModelError
 from livekit.agents.voice.events import CloseReason
+from livekit.agents.voice.speech_handle import SpeechHandle
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
 from livekit.plugins.openai.responses import LLM as ResponsesLLM
 from openai.types import Reasoning as ReasoningOptions
@@ -321,6 +323,14 @@ def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
                     call.session.emit("conversation_item_added", greeting)
                     await call._open_conversation()
                 else:
+                    call.session.emit(
+                        "speech_created",
+                        SpeechCreatedEvent(
+                            speech_handle=SpeechHandle.create(),
+                            user_initiated=False,
+                            source="generate_reply",
+                        ),
+                    )
                     opening = asyncio.create_task(call._open_conversation())
                     await asyncio.sleep(0)
                     assert not opening.done()
@@ -328,7 +338,7 @@ def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
                     await opening
                 assert call.first_agent_utterance.is_set()
                 # This real, unstarted session rejects say/generate_reply. The
-                # production opening path must observe speech without either.
+                # A committed or pending native opening must not start another.
                 assert [
                     json.loads(line)["speaker"]
                     for line in output.getvalue().splitlines()

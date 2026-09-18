@@ -155,11 +155,19 @@ are task-specific constraints, not hardcoded restrictions on every call.
 The agent must not invent missing details or agree to commitments outside the
 brief. It continues within those constraints without in-call approval pauses.
 The voice conversation and menu choices are model-driven and require real-call
-evaluation before relying on their behavior. GPT-Live produces its opening
-natively. The worker observes that opening instead of issuing another greeting
-after answering-machine detection releases queued audio. If no agent transcript
-arrives within 20 seconds after detection, the worker stops. Its spoken wording
-and objection handling are still model-driven.
+evaluation before relying on their behavior. The worker preserves any native
+opening queued during answering-machine detection, including answers to call
+screening. It explicitly starts an opening only when none is pending or already
+delivered. If no agent transcript arrives within 20 seconds after detection,
+the worker stops. Its spoken wording and objection handling are still
+model-driven.
+
+Before rejecting a call as voicemail or unavailable, the worker checks the
+complete latest greeting through the same OpenAI backend. New speech invalidates
+that decision, so a person answering after a voicemail announcement can continue
+the call. Speech stays paused during confirmation. Failed or cancelled detection
+interrupts queued speech before releasing that pause, preventing a queued
+opening from becoming a voicemail message.
 
 Answering-machine detection is closed after its initial verdict so it cannot
 suppress subsequent conversation turns. Keypad tools remain available even if
@@ -186,9 +194,9 @@ server-side duration limit is the remaining safeguard.
 ## Offline validation
 
 ```sh
-uv run --frozen --no-sync ruff check src tests
-uv run --frozen --no-sync ruff format --check src tests
-uv run --frozen --no-sync mypy src tests
+uv run --frozen --no-sync ruff check .
+uv run --frozen --no-sync ruff format --check .
+uv run --frozen --no-sync mypy src tests evals
 uv run --frozen --no-sync pytest -q
 ```
 
@@ -200,6 +208,56 @@ public CLI's `doctor` is also offline and does not execute `worker_command`;
 run the exact configured executable with `check`. Follow the onboarding guide's
 [owned-number test](../../docs/phone.md#make-a-call)
 for live validation with explicit authorization.
+
+## Live audio evaluation
+
+The opt-in evaluator uses the production call's model configuration, prompts,
+tools, and transcript synchronizer with real PCM input and paced audio output.
+It makes paid OpenAI requests using `OPENAI_API_KEY`; it never dials a telephone.
+It requires macOS `say` to generate fictional recipient speech. No dependencies
+or audio fixtures are downloaded. Use the same generated fixtures for both
+source versions:
+
+```sh
+uv run --frozen --no-sync python -m evals.run \
+  --output "$HOME/.local/share/phone/audio-evals" \
+  --label candidate --scenario turns --repeat 1
+```
+
+Run `turns`, `hold`, and `outcome`, repeating each to check model variability.
+For a baseline, add `--source-root /private/path/to/baseline/src` and use
+`--label baseline`. Each result directory is unique and cannot be overwritten.
+Keep API credentials in the invoking process environment, never in source or
+command arguments. Outputs are private (directories 0700, files 0600), and the
+runner rejects output paths inside Git checkouts, including symlinks/worktrees.
+Do not commit recordings, transcripts, phone numbers, or evaluation reports.
+
+Each run produces stereo WAV (recipient left, agent right), a transcript, and
+PCM-derived overlap/response measurements. The transcript timestamps describe
+receipt, not word alignment. Audio activity uses a 20 ms RMS threshold;
+overlap includes acknowledgments, so inspect the conversation before treating
+every overlap as a defect. Response delay is measured from fixture playback
+end, including its trailing silence, and is zero when audio is already playing.
+The hold window includes music and queue announcements. Synthetic scenarios
+exercise interrupted introductions, pauses inside questions, acknowledgments,
+holds, transfers, unavailable photos, pending approvals, and final disconnection.
+Early disconnection aborts playback and fails the run. The final response can
+finish once the pending outcome is established. Passing a run means it finished
+without a harness/lifecycle error; prompt quality requires reviewing the audio
+and transcript as well as the measurements.
+
+The startup scenarios `voicemail`, `pickup`, and `screening` additionally use
+real roomless AMD and the production greeting resolver. They require a source
+snapshot containing that resolver; older baseline snapshots are unsupported.
+`voicemail` passes when the call rejects the mailbox and plays no agent audio
+through gate release and two further seconds. `pickup` and `screening` require
+an audible opening after release. Their report retains preliminary and resolved
+categories, the last phase, and diagnostic metadata even when startup fails.
+A rejected voicemail is an evaluation pass with a failed call outcome.
+
+These tests do not exercise SIP answer supervision, packet loss,
+keypad delivery, acoustic echo, or a human recipient. Follow them with an
+explicitly authorized call to an owned number using private request input.
 
 The implementation follows the official [Agents quickstart], [AMD guide], and
 [recording controls]. Local source inspection additionally verified standalone
