@@ -106,6 +106,12 @@ impl SqliteOperationStore {
             "TEXT",
             "ALTER TABLE operations ADD COLUMN approval_note TEXT",
         )?;
+        ensure_column(
+            &connection,
+            "verification_json",
+            "TEXT",
+            "ALTER TABLE operations ADD COLUMN verification_json TEXT",
+        )?;
         connection
             .execute(
                 "UPDATE operations
@@ -123,6 +129,46 @@ impl SqliteOperationStore {
         Ok(connection)
     }
 
+    fn update(
+        &self,
+        id: &OperationId,
+        change: impl FnOnce(&mut StoredOperation) -> Result<()>,
+    ) -> Result<StoredOperation> {
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| Error::Operation(format!("failed to claim operation transaction: {error}")))?;
+        let mut operation = Self::get_operation(&transaction, id)?;
+        change(&mut operation)?;
+        let verification = operation
+            .verification
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| Error::Operation(format!("failed to encode verification: {error}")))?;
+        transaction
+            .execute(
+                "UPDATE operations SET approval_state = ?2, approval_actor = ?3, approval_note = ?4,
+             status = ?5, effect_json = ?6, failure_reason = ?7, verification_json = ?8,
+             updated_at = CURRENT_TIMESTAMP WHERE operation_id = ?1",
+                params![
+                    id.as_str(),
+                    approval_state_identifier(operation.approval.state),
+                    operation.approval.actor,
+                    operation.approval.note,
+                    operation_status_identifier(operation.status),
+                    encode_effect(operation.effect.as_ref())?,
+                    operation.failure_reason,
+                    verification
+                ],
+            )
+            .map_err(|error| Error::Operation(format!("failed to update operation {id}: {error}")))?;
+        transaction
+            .commit()
+            .map_err(|error| Error::Operation(format!("failed to commit operation {id}: {error}")))?;
+        Ok(operation)
+    }
+
     fn generate_operation_id(connection: &Connection) -> Result<OperationId> {
         let operation_id = connection
             .query_row("SELECT 'op_' || lower(hex(randomblob(16)))", [], |row| {
@@ -136,7 +182,7 @@ impl SqliteOperationStore {
     fn get_operation(connection: &Connection, id: &OperationId) -> Result<StoredOperation> {
         connection
             .query_row(
-                "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
+                "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason, verification_json
                  FROM operations
                  WHERE operation_id = ?1",
                 params![id.as_str()],
@@ -181,134 +227,73 @@ impl OperationStore for SqliteOperationStore {
         Ok(operation)
     }
 
+    fn claim_execution(&self, id: &OperationId) -> Result<StoredOperation> {
+        self.update(id, |operation| operation.claim_execution())
+    }
+
     fn mark_approved(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
-        let connection = self.connect()?;
-        let mut operation = Self::get_operation(&connection, id)?;
-        operation.approve(actor, note.map(str::to_owned))?;
-
-        connection
-            .execute(
-                "UPDATE operations
-                 SET approval_state = ?2, approval_actor = ?3, approval_note = ?4, updated_at = CURRENT_TIMESTAMP
-                 WHERE operation_id = ?1",
-                params![
-                    operation.id.as_str(),
-                    approval_state_identifier(operation.approval.state),
-                    operation.approval.actor.as_deref(),
-                    operation.approval.note.as_deref(),
-                ],
-            )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {id} approved: {error}")))?;
-
-        Ok(operation)
+        self.update(id, |operation| operation.approve(actor, note.map(str::to_owned)))
     }
 
     fn mark_rejected(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation> {
-        let connection = self.connect()?;
-        let mut operation = Self::get_operation(&connection, id)?;
-        operation.reject(actor, note.map(str::to_owned))?;
-
-        connection
-            .execute(
-                "UPDATE operations
-                 SET approval_state = ?2, approval_actor = ?3, approval_note = ?4, updated_at = CURRENT_TIMESTAMP
-                 WHERE operation_id = ?1",
-                params![
-                    operation.id.as_str(),
-                    approval_state_identifier(operation.approval.state),
-                    operation.approval.actor.as_deref(),
-                    operation.approval.note.as_deref(),
-                ],
-            )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {id} rejected: {error}")))?;
-
-        Ok(operation)
+        self.update(id, |operation| operation.reject(actor, note.map(str::to_owned)))
     }
 
     fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation> {
-        let connection = self.connect()?;
-        let mut operation = Self::get_operation(&connection, id)?;
-        operation.mark_applied(output.effect.clone());
-        let effect_json = encode_effect(operation.effect.as_ref())?;
-
-        connection
-            .execute(
-                "UPDATE operations
-                 SET status = ?2, effect_json = ?3, failure_reason = NULL, updated_at = CURRENT_TIMESTAMP
-                 WHERE operation_id = ?1",
-                params![
-                    operation.id.as_str(),
-                    operation_status_identifier(operation.status),
-                    effect_json,
-                ],
-            )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {id} applied: {error}")))?;
-
-        Ok(operation)
+        self.update(id, |operation| operation.mark_applied(output))
     }
 
     fn mark_failed(&self, id: &OperationId, reason: &str) -> Result<StoredOperation> {
-        let connection = self.connect()?;
-        let mut operation = Self::get_operation(&connection, id)?;
-        operation.mark_failed(reason)?;
+        self.update(id, |operation| operation.mark_failed(reason))
+    }
 
-        connection
-            .execute(
-                "UPDATE operations
-                 SET status = ?2, failure_reason = ?3, updated_at = CURRENT_TIMESTAMP
-                 WHERE operation_id = ?1",
-                params![
-                    operation.id.as_str(),
-                    operation_status_identifier(operation.status),
-                    operation.failure_reason.as_deref(),
-                ],
-            )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {id} failed: {error}")))?;
+    fn mark_uncertain(&self, id: &OperationId, reason: &str) -> Result<StoredOperation> {
+        self.update(id, |operation| operation.mark_uncertain(reason))
+    }
 
-        Ok(operation)
+    fn record_verification(
+        &self,
+        id: &OperationId,
+        receipt: &switchboard_core::VerificationReceipt,
+    ) -> Result<StoredOperation> {
+        self.update(id, |operation| operation.record_verification(receipt.clone()))
     }
 
     fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation> {
+        self.update(id, |operation| {
+            operation.can_undo()?;
+            operation.mark_compensated()?;
+            Ok(())
+        })
+    }
+
+    fn get(&self, id: &OperationId) -> Result<Option<StoredOperation>> {
         let connection = self.connect()?;
-        let mut operation = Self::get_operation(&connection, id)?;
-        operation.mark_compensated();
-
-        connection
-            .execute(
-                "UPDATE operations
-                 SET status = ?2, updated_at = CURRENT_TIMESTAMP
-                 WHERE operation_id = ?1",
-                params![operation.id.as_str(), operation_status_identifier(operation.status)],
+        let exists = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM operations WHERE operation_id = ?1)",
+                params![id.as_str()],
+                |row| row.get::<_, bool>(0),
             )
-            .map_err(|error| Error::Operation(format!("failed to mark operation {id} compensated: {error}")))?;
-
-        Ok(operation)
+            .map_err(|error| Error::Operation(format!("failed to find operation {id}: {error}")))?;
+        if exists {
+            Self::get_operation(&connection, id).map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
-    fn get(&self, id: &OperationId) -> Option<StoredOperation> {
-        let connection = self.connect().ok()?;
-        Self::get_operation(&connection, id).ok()
-    }
-
-    fn list(&self) -> Vec<StoredOperation> {
-        let connection = match self.connect() {
-            Ok(connection) => connection,
-            Err(_) => return Vec::new(),
-        };
-        let mut statement = match connection.prepare(
-            "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason
-             FROM operations
-             ORDER BY created_at DESC, rowid DESC",
-        ) {
-            Ok(statement) => statement,
-            Err(_) => return Vec::new(),
-        };
-        let rows = match statement.query_map([], row_to_operation) {
-            Ok(rows) => rows,
-            Err(_) => return Vec::new(),
-        };
-
-        rows.filter_map(|row| row.ok()).collect()
+    fn list(&self) -> Result<Vec<StoredOperation>> {
+        let connection = self.connect()?;
+        let mut statement = connection.prepare(
+            "SELECT operation_id, tool, namespace, auth_ref, kind, summary, backend, approval_required, approval_reason, compensates_operation_id, approval_state, approval_actor, approval_note, status, args_json, effect_json, failure_reason, verification_json
+             FROM operations ORDER BY created_at DESC, rowid DESC",
+        ).map_err(|error| Error::Operation(format!("failed to query operations: {error}")))?;
+        let rows = statement
+            .query_map([], row_to_operation)
+            .map_err(|error| Error::Operation(format!("failed to read operations: {error}")))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|error| Error::Operation(format!("failed to decode operation: {error}")))
     }
 }
 
@@ -359,6 +344,7 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
     let args_json = row.get::<_, String>(14)?;
     let effect_json = row.get::<_, Option<String>>(15)?;
     let failure_reason = row.get::<_, Option<String>>(16)?;
+    let verification_json = row.get::<_, Option<String>>(17)?;
 
     Ok(StoredOperation {
         id: OperationId::new(id).map_err(to_sqlite_error)?,
@@ -383,6 +369,11 @@ fn row_to_operation(row: &Row<'_>) -> rusqlite::Result<StoredOperation> {
         args: serde_json::from_str(&args_json).map_err(to_sqlite_error)?,
         effect: decode_effect(effect_json.as_deref()).map_err(to_sqlite_error)?,
         failure_reason,
+        verification: verification_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(to_sqlite_error)?,
     })
 }
 
@@ -423,6 +414,9 @@ fn backend_kind_identifier(backend: BackendKind) -> &'static str {
 fn operation_status_identifier(status: OperationStatus) -> &'static str {
     match status {
         OperationStatus::Planned => "planned",
+        OperationStatus::Executing => "executing",
+        OperationStatus::Uncertain => "uncertain",
+        OperationStatus::Verified => "verified",
         OperationStatus::Applied => "applied",
         OperationStatus::Failed => "failed",
         OperationStatus::Compensated => "compensated",
@@ -463,6 +457,9 @@ fn parse_backend_kind(value: &str) -> Result<BackendKind> {
 fn parse_operation_status(value: &str) -> Result<OperationStatus> {
     match value {
         "planned" => Ok(OperationStatus::Planned),
+        "executing" => Ok(OperationStatus::Executing),
+        "uncertain" => Ok(OperationStatus::Uncertain),
+        "verified" => Ok(OperationStatus::Verified),
         "applied" => Ok(OperationStatus::Applied),
         "failed" => Ok(OperationStatus::Failed),
         "compensated" => Ok(OperationStatus::Compensated),
@@ -540,12 +537,16 @@ mod tests {
         let path = temp_db_path("persist");
         let first = SqliteOperationStore::open(&path).expect("store should open");
         let created = first.create(&planned_action()).expect("operation should be created");
+        first.claim_execution(&created.id).expect("claim should succeed");
         first
             .mark_applied(&created.id, &applied_output())
             .expect("operation should be applied");
 
         let reopened = SqliteOperationStore::open(&path).expect("store should reopen");
-        let stored = reopened.get(&created.id).expect("stored operation should be persisted");
+        let stored = reopened
+            .get(&created.id)
+            .expect("store read should succeed")
+            .expect("stored operation should be persisted");
 
         assert_eq!(stored.status, OperationStatus::Applied);
         assert_eq!(stored.effect.as_ref().map(|effect| effect.undoable), Some(true));
@@ -582,6 +583,84 @@ mod tests {
             .expect("time should be after epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("switchboard-{label}-{stamp}/operations.sqlite3"))
+    }
+
+    #[test]
+    fn malformed_operation_rows_are_errors_instead_of_empty_results() {
+        let path = temp_db_path("malformed");
+        let store = SqliteOperationStore::open(&path).expect("test setup should succeed");
+        let operation = store.create(&planned_action()).expect("test setup should succeed");
+        let connection = rusqlite::Connection::open(&path).expect("test setup should succeed");
+        connection
+            .execute(
+                "UPDATE operations SET args_json = 'broken' WHERE operation_id = ?1",
+                [&operation.id.as_str()],
+            )
+            .expect("test setup should succeed");
+        assert!(store.get(&operation.id).is_err());
+        assert!(store.list().is_err());
+    }
+
+    #[test]
+    fn concurrent_claims_have_one_owner_and_uncertain_writes_cannot_retry() {
+        let path = temp_db_path("claim");
+        let store = SqliteOperationStore::open(&path).expect("test setup should succeed");
+        let operation = store.create(&planned_action()).expect("test setup should succeed");
+        let first = SqliteOperationStore::open(&path).expect("test setup should succeed");
+        let second = SqliteOperationStore::open(&path).expect("test setup should succeed");
+        let barrier = std::sync::Barrier::new(2);
+        let results = std::thread::scope(|scope| {
+            let a = scope.spawn(|| {
+                barrier.wait();
+                first.claim_execution(&operation.id)
+            });
+            let b = scope.spawn(|| {
+                barrier.wait();
+                second.claim_execution(&operation.id)
+            });
+            [
+                a.join().expect("test setup should succeed"),
+                b.join().expect("test setup should succeed"),
+            ]
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        store
+            .mark_uncertain(&operation.id, "provider disconnected after upload")
+            .expect("test setup should succeed");
+        assert!(store.claim_execution(&operation.id).is_err());
+        assert!(store.mark_failed(&operation.id, "pretend safe to retry").is_err());
+        let mut receipt = switchboard_core::VerificationReceipt::new(
+            switchboard_core::VerificationStatus::Verified,
+            "readback matched",
+            Vec::new(),
+        );
+        receipt.recovered_effect = applied_output().effect;
+        let verified = store
+            .record_verification(&operation.id, &receipt)
+            .expect("test setup should succeed");
+        assert_eq!(verified.status, OperationStatus::Verified);
+        assert!(verified.can_undo().is_ok());
+        assert!(store.claim_execution(&operation.id).is_err());
+        assert_eq!(
+            SqliteOperationStore::open(&path)
+                .expect("test setup should succeed")
+                .get(&operation.id)
+                .expect("test setup should succeed")
+                .expect("test setup should succeed")
+                .verification,
+            Some(receipt)
+        );
+        let mismatch = switchboard_core::VerificationReceipt::new(
+            switchboard_core::VerificationStatus::Mismatch,
+            "remote state changed",
+            Vec::new(),
+        );
+        let observed = store
+            .record_verification(&operation.id, &mismatch)
+            .expect("test setup should succeed");
+        assert_eq!(observed.status, OperationStatus::Applied);
+        assert_eq!(observed.verification, Some(mismatch));
+        assert!(store.claim_execution(&operation.id).is_err());
     }
 
     fn planned_action() -> PlannedAction {

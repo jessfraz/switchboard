@@ -47,6 +47,7 @@ struct NamespaceDiagnostic {
     google_storage_backend: Option<&'static str>,
     saved_auth_files: Vec<PathDiagnostic>,
     cli: Option<CliBinaryDiagnostic>,
+    migration_preview: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +177,9 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
                 None
             }
         };
+        let migration_preview =
+            (google && auth.kind() != AuthKind::GoogleCli && saved_auth_files.iter().any(is_saved_credential))
+                .then(|| format!("switchboard auth migration-preview --ns {} --json", namespace.id));
         report.namespaces.push(NamespaceDiagnostic {
             namespace: namespace.id.to_string(),
             provider: namespace.provider,
@@ -185,6 +189,7 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
             google_storage_backend: google.then_some("file"),
             saved_auth_files,
             cli,
+            migration_preview,
         });
     }
     if needs_one_password {
@@ -392,6 +397,11 @@ impl DoctorReport {
                     output.push_str(&format!(", version {version}"));
                 }
                 output.push('\n');
+            }
+            if let Some(command) = &namespace.migration_preview {
+                output.push_str(&format!(
+                    "  Saved Google session available for opt-in review: {command}\n"
+                ));
             }
             for file in &namespace.saved_auth_files {
                 output.push_str(&format!("  Saved auth: {}\n", file.render_human()));

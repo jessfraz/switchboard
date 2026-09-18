@@ -18,9 +18,9 @@ pub use crate::types::{
     operation::{ApprovalState, OperationApproval, OperationEffect, OperationStatus, StoredOperation},
     policy::{PolicyDecision, WritePolicy},
     tool::{
-        ExecutionMode, PlannedAction, RegisteredTool, ToolArgument, ToolArgumentSpec, ToolArgumentTransport,
-        ToolArgumentValueKind, ToolArguments, ToolDescriptor, ToolExecutionSupport, ToolKind, ToolOutput, ToolRef,
-        ToolRefKind, ToolRequest, ToolSurface, ToolUndoSupport,
+        ExecutionMode, ExecutionTimings, FileChecksum, PlannedAction, RegisteredTool, ToolArgument, ToolArgumentSpec,
+        ToolArgumentTransport, ToolArgumentValueKind, ToolArguments, ToolDescriptor, ToolExecutionSupport, ToolKind,
+        ToolOutput, ToolRef, ToolRefKind, ToolRequest, ToolSurface, ToolUndoSupport,
     },
 };
 

@@ -22,7 +22,7 @@ impl CliLocator for DefaultCliLocator {
                     return Ok(path);
                 }
 
-                return Err(Error::Execution(format!(
+                return Err(Error::Launch(format!(
                     "binary override {env_override} points to {}, but that file is not executable",
                     path.display()
                 )));
@@ -30,7 +30,7 @@ impl CliLocator for DefaultCliLocator {
         }
 
         resolve_on_path(&binary.program).ok_or_else(|| {
-            Error::Execution(format!(
+            Error::Launch(format!(
                 "failed to locate {} on PATH{}",
                 binary.program,
                 binary

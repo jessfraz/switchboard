@@ -320,6 +320,7 @@ fn json_projection_decodes_array_response_and_refs() {
             &execution_target(),
             &action,
             CliResponse {
+                timings: switchboard_core::ExecutionTimings::default(),
                 program: PathBuf::from("gh"),
                 version: "gh version 9.9.9-test".into(),
                 stdout: r#"[{"name":"Switchboard","fullName":"KeepSafe/Switchboard","url":"https://github.com/KeepSafe/Switchboard"}]"#.into(),
@@ -395,6 +396,7 @@ fn json_projection_supports_argument_fields_and_effect_templates() {
             &google_execution_target(),
             &action,
             CliResponse {
+                timings: switchboard_core::ExecutionTimings::default(),
                 program: PathBuf::from("gws"),
                 version: "gws 0.99.0-test".into(),
                 stdout: r#"{"id":"event-1960budgetwork","summary":"Budget review"}"#.into(),
@@ -461,6 +463,7 @@ fn json_projection_supports_array_field_extraction() {
             &execution_target(),
             &action,
             CliResponse {
+                timings: switchboard_core::ExecutionTimings::default(),
                 program: PathBuf::from("gh"),
                 version: "gh version 9.9.9-test".into(),
                 stdout: r#"{"title":"Fix the thing","assignees":[{"login":"jessfraz"}],"labels":[{"name":"infra"},{"name":"tooling"}]}"#
@@ -541,6 +544,7 @@ fn json_projection_supports_extra_fields_empty_stdout_and_multiple_refs() {
             &google_execution_target(),
             &action,
             CliResponse {
+                timings: switchboard_core::ExecutionTimings::default(),
                 program: PathBuf::from("gws"),
                 version: "gws 0.99.0-test".into(),
                 stdout: String::new(),
@@ -602,6 +606,7 @@ fn json_projection_supports_argument_values_and_presence_fields() {
             &google_execution_target(),
             &action,
             CliResponse {
+                timings: switchboard_core::ExecutionTimings::default(),
                 program: PathBuf::from("gws"),
                 version: "gws 0.99.0-test".into(),
                 stdout: r#"{"id":"draft-123"}"#.into(),

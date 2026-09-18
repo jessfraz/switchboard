@@ -3,8 +3,8 @@ use std::{env, ffi::OsString, path::PathBuf};
 use anyhow::{anyhow, bail, Result};
 use clap::{Args, Parser, Subcommand};
 use switchboard_core::{
-    AggregateReadRequest, AuditEventId, ExecutionMode, OperationId, OperationRequest, ToolArgument, ToolName,
-    ToolRequest,
+    AggregateReadRequest, AuditEventId, ExecutionMode, NamespaceId, OperationId, OperationRequest, ProviderKind,
+    ToolArgument, ToolName, ToolRequest,
 };
 
 const AFTER_HELP: &str = concat!(
@@ -60,6 +60,8 @@ impl Cli {
         match &self.command {
             Commands::Ns(namespace) => namespace.json_requested(),
             Commands::Doctor(doctor) => doctor.json,
+            Commands::ReadBatch(batch) => batch.json,
+            Commands::Auth(auth) => auth.json_requested(),
             Commands::Tools(tools) => tools.json_requested(),
             Commands::Audit(audit) => audit.json_requested(),
             Commands::Op(operation) => operation.json_requested(),
@@ -70,9 +72,13 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Commands {
+    /// Execute bounded read-only requests with durable, resumable page results.
+    ReadBatch(crate::batch::ReadBatchArgs),
     Ns(NamespaceCommand),
     /// Inspect configuration, saved state, and CLI availability without authenticating.
     Doctor(DoctorCommand),
+    /// Verify provider authentication or preview adoption of an existing CLI session.
+    Auth(crate::auth::AuthCommand),
     Tools(ToolCatalogCommand),
     Audit(AuditCommand),
     Op(OperationCommand),
@@ -85,6 +91,8 @@ impl Commands {
         match self {
             Self::Ns(namespace) => Ok(namespace.into_runtime_command()),
             Self::Doctor(doctor) => Ok(CommandKind::Doctor(doctor)),
+            Self::ReadBatch(batch) => Ok(CommandKind::ReadBatch(batch)),
+            Self::Auth(auth) => Ok(CommandKind::Auth(auth)),
             Self::Tools(tools) => tools.into_runtime_command(),
             Self::Audit(audit) => audit.into_runtime_command(),
             Self::Op(operation) => operation.into_runtime_command(),
@@ -138,10 +146,22 @@ impl ToolCatalogCommand {
 
     fn into_runtime_command(self) -> Result<CommandKind> {
         let command = match self.command {
-            ToolCatalogSubcommand::List(arguments) => ToolCatalogRuntimeCommand::List { json: arguments.json },
+            ToolCatalogSubcommand::List(arguments) => ToolCatalogRuntimeCommand::List {
+                json: arguments.json,
+                provider: arguments
+                    .provider
+                    .map(|value| {
+                        ProviderKind::from_identifier(&value).ok_or_else(|| anyhow!("unknown provider: {value}"))
+                    })
+                    .transpose()?,
+                namespace: arguments.namespace.map(NamespaceId::new).transpose()?,
+                executable: arguments.executable,
+                search: arguments.search,
+            },
             ToolCatalogSubcommand::Describe(arguments) => ToolCatalogRuntimeCommand::Describe {
                 tool: ToolName::new(arguments.tool)?,
                 json: arguments.json,
+                namespace: arguments.namespace.map(NamespaceId::new).transpose()?,
             },
         };
 
@@ -159,6 +179,18 @@ enum ToolCatalogSubcommand {
 struct ToolCatalogListArgs {
     #[arg(long)]
     json: bool,
+    /// Filter by provider identifier, for example google or github.
+    #[arg(long)]
+    provider: Option<String>,
+    /// Filter by a configured namespace without resolving credentials.
+    #[arg(long = "ns")]
+    namespace: Option<String>,
+    /// Include only tools with an implemented execution path.
+    #[arg(long)]
+    executable: bool,
+    /// Search tool names and summaries (case insensitive).
+    #[arg(long)]
+    search: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -166,6 +198,9 @@ struct ToolCatalogDescribeArgs {
     tool: String,
     #[arg(long)]
     json: bool,
+    /// Use this configured namespace in examples.
+    #[arg(long = "ns")]
+    namespace: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -232,7 +267,7 @@ impl OperationCommand {
             OperationSubcommand::Show(arguments) => arguments.json,
             OperationSubcommand::Approve(arguments) => arguments.json,
             OperationSubcommand::Reject(arguments) => arguments.json,
-            OperationSubcommand::Apply(arguments) => arguments.json,
+            OperationSubcommand::Apply(arguments) | OperationSubcommand::Verify(arguments) => arguments.json,
             OperationSubcommand::Undo(arguments) => arguments.json,
         }
     }
@@ -264,6 +299,10 @@ impl OperationCommand {
                 id: OperationId::new(arguments.id)?,
                 json: arguments.json,
             },
+            OperationSubcommand::Verify(arguments) => StoredOperationCommand::Verify {
+                id: OperationId::new(arguments.id)?,
+                json: arguments.json,
+            },
             OperationSubcommand::Undo(arguments) => StoredOperationCommand::Undo {
                 id: OperationId::new(arguments.id)?,
                 mode: operation_write_mode(arguments.apply),
@@ -282,6 +321,8 @@ enum OperationSubcommand {
     Approve(OperationApproveArgs),
     Reject(OperationRejectArgs),
     Apply(OperationApplyArgs),
+    /// Read back provider state without repeating the write.
+    Verify(OperationApplyArgs),
     Undo(OperationUndoArgs),
 }
 
@@ -353,8 +394,10 @@ struct ListNamespaceArgs {
 
 #[derive(Debug)]
 pub(crate) enum CommandKind {
+    ReadBatch(crate::batch::ReadBatchArgs),
     NamespaceList,
     Doctor(DoctorCommand),
+    Auth(crate::auth::AuthCommand),
     ToolCatalog(ToolCatalogRuntimeCommand),
     Audit(AuditRuntimeCommand),
     Operation(OperationRequest),
@@ -364,8 +407,18 @@ pub(crate) enum CommandKind {
 
 #[derive(Debug)]
 pub(crate) enum ToolCatalogRuntimeCommand {
-    List { json: bool },
-    Describe { tool: ToolName, json: bool },
+    List {
+        json: bool,
+        provider: Option<ProviderKind>,
+        namespace: Option<NamespaceId>,
+        executable: bool,
+        search: Option<String>,
+    },
+    Describe {
+        tool: ToolName,
+        json: bool,
+        namespace: Option<NamespaceId>,
+    },
 }
 
 #[derive(Debug)]
@@ -413,6 +466,10 @@ pub(crate) enum StoredOperationCommand {
         id: OperationId,
         json: bool,
     },
+    Verify {
+        id: OperationId,
+        json: bool,
+    },
     Undo {
         id: OperationId,
         mode: ExecutionMode,
@@ -452,6 +509,22 @@ pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<Co
         .cloned()
         .ok_or_else(|| anyhow!("missing tool name"))?;
     positionals.remove(0);
+    // Help belongs to Switchboard only before the raw CLI delimiter. It must
+    // work before namespace validation, auth, or opening the operation store.
+    if positionals
+        .iter()
+        .take_while(|token| token.as_str() != "--")
+        .any(|token| matches!(token.as_str(), "--help" | "-h"))
+    {
+        return Ok(CommandKind::ToolCatalog(ToolCatalogRuntimeCommand::Describe {
+            tool: ToolName::new(tool)?,
+            json: positionals
+                .iter()
+                .take_while(|token| token.as_str() != "--")
+                .any(|token| token == "--json"),
+            namespace: None,
+        }));
+    }
     let mut namespaces = Vec::new();
     let mut arguments = Vec::new();
     let mut mode = ExecutionMode::Auto;
@@ -489,6 +562,10 @@ pub(crate) fn parse_external_tool_invocation(tokens: Vec<OsString>) -> Result<Co
                     .ok_or_else(|| anyhow!("missing value for --ns"))?;
                 namespaces.push(value.clone());
                 index += 2;
+            }
+            _ if current.starts_with("--ns=") => {
+                namespaces.push(current.trim_start_matches("--ns=").to_owned());
+                index += 1;
             }
             "--argv" | "--argv-json" => {
                 let value = positionals
@@ -577,7 +654,10 @@ fn is_raw_cli_tool_name(tool: &str) -> bool {
 }
 
 fn contains_json_os_tokens(tokens: &[OsString]) -> bool {
-    tokens.iter().any(|value| value == "--json")
+    tokens
+        .iter()
+        .take_while(|value| *value != "--")
+        .any(|value| value == "--json")
 }
 
 fn os_string_to_string(value: OsString) -> String {

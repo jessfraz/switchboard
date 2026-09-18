@@ -32,6 +32,14 @@ pub trait SecretStore: Send + Sync {
 pub trait SecretResolver: Send + Sync {
     /// Resolve one configured secret into its runtime value.
     fn resolve(&self, secret: &ResolvedSecret) -> Result<SecretString>;
+    /// Resolve with the provider account that owns this credential.
+    fn resolve_for_auth(&self, secret: &ResolvedSecret, _auth: &ResolvedAuth) -> Result<SecretString> {
+        self.resolve(secret)
+    }
+    /// Forget a rejected credential cache while preserving its configured source.
+    fn invalidate(&self, _secret: &ResolvedSecret) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 pub trait PolicyEngine: Send + Sync {
@@ -51,6 +59,8 @@ pub trait AuditStore: Send + Sync {
 pub trait OperationStore: Send + Sync {
     /// Persist a newly planned write operation.
     fn create(&self, plan: &PlannedAction) -> Result<StoredOperation>;
+    /// Atomically claim an approved operation. Only the winner may execute it.
+    fn claim_execution(&self, id: &OperationId) -> Result<StoredOperation>;
     /// Mark a planned operation approved.
     fn mark_approved(&self, id: &OperationId, actor: &str, note: Option<&str>) -> Result<StoredOperation>;
     /// Mark a planned operation rejected.
@@ -59,12 +69,16 @@ pub trait OperationStore: Send + Sync {
     fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation>;
     /// Mark an operation failed during apply.
     fn mark_failed(&self, id: &OperationId, reason: &str) -> Result<StoredOperation>;
+    /// Persist an ambiguous remote outcome, which must never be blindly retried.
+    fn mark_uncertain(&self, id: &OperationId, reason: &str) -> Result<StoredOperation>;
+    /// Record provider readback without implying that unavailable verification succeeded.
+    fn record_verification(&self, id: &OperationId, receipt: &crate::VerificationReceipt) -> Result<StoredOperation>;
     /// Mark an applied operation compensated by a later undo flow.
     fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation>;
     /// Look up one stored operation by id.
-    fn get(&self, id: &OperationId) -> Option<StoredOperation>;
+    fn get(&self, id: &OperationId) -> Result<Option<StoredOperation>>;
     /// List stored operations in store-defined order.
-    fn list(&self) -> Vec<StoredOperation>;
+    fn list(&self) -> Result<Vec<StoredOperation>>;
 }
 
 pub trait Adapter: Send + Sync {
@@ -81,6 +95,12 @@ pub trait Adapter: Send + Sync {
     ) -> Result<PlannedAction>;
     /// Execute one planned action against the provider backend.
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput>;
+
+    fn verify(&self, _target: &ExecutionTarget, _operation: &StoredOperation) -> Result<crate::VerificationReceipt> {
+        Ok(crate::VerificationReceipt::unavailable(
+            "provider does not support readback for this operation",
+        ))
+    }
 
     /// Build a compensating request for one previously applied operation, if this adapter can undo it.
     fn compensation_request(&self, _operation: &StoredOperation, _mode: ExecutionMode) -> Result<Option<ToolRequest>> {

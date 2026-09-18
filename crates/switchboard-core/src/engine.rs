@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use crate::{
     error::{Error, Result},
@@ -73,6 +73,32 @@ impl Switchboard {
         Self { services, adapters }
     }
 
+    pub fn namespace_auth(&self, id: &crate::NamespaceId) -> Result<crate::ResolvedAuth> {
+        let namespace = self
+            .services
+            .namespaces
+            .get(id)
+            .ok_or_else(|| Error::UnknownNamespace(id.to_string()))?;
+        self.services
+            .auth
+            .get(&namespace.auth_ref)
+            .ok_or_else(|| Error::MissingAuth(namespace.auth_ref.to_string()))
+    }
+
+    pub fn invalidate_rejected_credentials(&self, id: &crate::NamespaceId) -> Result<bool> {
+        let auth = self.namespace_auth(id)?;
+        let mut invalidated = false;
+        for reference in auth.secret_refs() {
+            let secret = self
+                .services
+                .secrets
+                .get(reference)
+                .ok_or_else(|| Error::MissingSecret(reference.to_string()))?;
+            invalidated |= self.services.secret_resolver.invalidate(&secret)?;
+        }
+        Ok(invalidated)
+    }
+
     pub fn list_namespaces(&self) -> Vec<ResolvedNamespace> {
         self.services.namespaces.list()
     }
@@ -102,11 +128,11 @@ impl Switchboard {
         self.adapters.describe_tool(name)
     }
 
-    pub fn list_operations(&self) -> Vec<StoredOperation> {
+    pub fn list_operations(&self) -> Result<Vec<StoredOperation>> {
         self.services.operations.list()
     }
 
-    pub fn get_operation(&self, id: &OperationId) -> Option<StoredOperation> {
+    pub fn get_operation(&self, id: &OperationId) -> Result<Option<StoredOperation>> {
         self.services.operations.get(id)
     }
 
@@ -130,18 +156,49 @@ impl Switchboard {
         let operation = self
             .services
             .operations
-            .get(id)
+            .get(id)?
             .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
         operation.can_apply()?;
 
         self.execute_stored_operation(operation)
     }
 
+    pub fn verify_operation(&self, id: &OperationId) -> Result<StoredOperation> {
+        let operation = self
+            .services
+            .operations
+            .get(id)?
+            .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
+        operation.can_verify()?;
+        let namespace = self
+            .services
+            .namespaces
+            .get(&operation.namespace)
+            .ok_or_else(|| Error::UnknownNamespace(operation.namespace.to_string()))?;
+        let auth = self
+            .services
+            .auth
+            .get(&operation.auth_ref)
+            .ok_or_else(|| Error::MissingAuth(operation.auth_ref.to_string()))?;
+        if auth.provider() != namespace.provider || operation.tool.provider()? != namespace.provider {
+            return Err(Error::Config(
+                "stored operation no longer matches the configured provider".into(),
+            ));
+        }
+        let adapter = self
+            .adapters
+            .get(&namespace.provider)
+            .ok_or_else(|| Error::MissingAdapter(namespace.provider.clone()))?;
+        let target = self.resolve_execution_target(&PlanningTarget { namespace, auth })?;
+        let receipt = adapter.verify(&target, &operation)?;
+        self.services.operations.record_verification(id, &receipt)
+    }
+
     pub fn undo_operation(&self, id: &OperationId, mode: ExecutionMode) -> Result<DispatchOutcome> {
         let operation = self
             .services
             .operations
-            .get(id)
+            .get(id)?
             .ok_or_else(|| Error::Operation(format!("unknown operation id: {id}")))?;
         operation.can_undo()?;
         let provider = operation.tool.provider()?;
@@ -212,6 +269,15 @@ impl Switchboard {
         let descriptor = adapter
             .find_tool(&request.tool)
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
+        if descriptor.execution_support == crate::ToolExecutionSupport::PlanningOnly
+            && matches!(request.mode, crate::ExecutionMode::Auto | crate::ExecutionMode::Apply)
+            && descriptor.kind == ToolKind::Read
+        {
+            return Err(Error::NotImplemented(format!(
+                "{} cannot execute; use tools describe {} for its supported raw fallback",
+                request.tool, request.tool
+            )));
+        }
         let mut plan = adapter.plan(&target, &request, descriptor)?;
         if let Some(compensates_operation_id) = compensates_operation_id {
             plan = plan.with_compensates_operation_id(compensates_operation_id);
@@ -234,7 +300,7 @@ impl Switchboard {
 
         match descriptor.kind {
             ToolKind::Read => self.finish_read(adapter.as_ref(), &target, plan),
-            ToolKind::Write => self.finish_write(adapter.as_ref(), &target, plan),
+            ToolKind::Write => self.finish_write(plan),
         }
     }
 
@@ -258,7 +324,11 @@ impl Switchboard {
 
         for tool_request in request.into_tool_requests() {
             let namespace = tool_request.namespace.clone();
-            let outcome = self.dispatch(tool_request)?;
+            let outcome = self.dispatch(tool_request).map_err(|error| {
+                let mut failure = crate::Failure::from_error(&error).with_namespace(namespace.clone());
+                failure.retryable = matches!(error, Error::TimedOut { .. } | Error::RateLimited { .. });
+                failure
+            });
             results.push(AggregateReadResult { namespace, outcome });
         }
 
@@ -283,8 +353,15 @@ impl Switchboard {
                 Ok(DispatchOutcome::Planned(plan))
             }
             crate::ExecutionMode::Auto | crate::ExecutionMode::Apply => {
+                let started = Instant::now();
                 let target = self.resolve_execution_target(target)?;
-                let output = adapter.execute(&target, &plan)?;
+                let auth_us = crate::ExecutionTimings::elapsed_us(started);
+                let adapter_started = Instant::now();
+                let mut output = adapter.execute(&target, &plan)?;
+                let timings = output.timings.get_or_insert_with(Default::default);
+                timings.auth_us = Some(auth_us);
+                timings.adapter_us = Some(crate::ExecutionTimings::elapsed_us(adapter_started));
+                timings.execution_us = Some(crate::ExecutionTimings::elapsed_us(started));
                 self.services
                     .audit
                     .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
@@ -293,37 +370,13 @@ impl Switchboard {
         }
     }
 
-    fn finish_write(
-        &self,
-        adapter: &dyn Adapter,
-        target: &PlanningTarget,
-        plan: PlannedAction,
-    ) -> Result<DispatchOutcome> {
+    fn finish_write(&self, plan: PlannedAction) -> Result<DispatchOutcome> {
         let operation = self.services.operations.create(&plan)?;
         let plan = plan.with_operation_id(operation.id.clone());
         let should_apply = matches!(plan.mode, crate::ExecutionMode::Apply) && !plan.approval_required;
 
         if should_apply {
-            let target = self.resolve_execution_target(target)?;
-            let operation_id = operation.id.clone();
-            let output = match adapter.execute(&target, &plan) {
-                Ok(output) => output.with_operation_id(operation_id.clone()),
-                Err(error) => {
-                    self.services
-                        .operations
-                        .mark_failed(&operation_id, &error.to_string())?;
-                    self.services
-                        .audit
-                        .record(&AuditEvent::from_plan(&plan, AuditOutcome::Failed))?;
-                    return Err(error);
-                }
-            };
-            let applied = self.services.operations.mark_applied(&operation_id, &output)?;
-            self.finalize_compensation(&applied)?;
-            self.services
-                .audit
-                .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
-            return Ok(DispatchOutcome::Executed(output));
+            return self.execute_stored_operation(operation).map(DispatchOutcome::Executed);
         }
 
         self.services
@@ -389,26 +442,90 @@ impl Switchboard {
             operation_id: Some(operation.id.clone()),
             compensates_operation_id: operation.compensates_operation_id.clone(),
         };
+        if descriptor.execution_support != crate::ToolExecutionSupport::Executable {
+            return Err(Error::NotImplemented(format!("{} cannot execute", operation.tool)));
+        }
+        let started = Instant::now();
         let execution_target = self.resolve_execution_target(&planning_target)?;
+        let auth_us = crate::ExecutionTimings::elapsed_us(started);
+        // The store claims atomically after local validation/auth, before any provider write.
+        self.services.operations.claim_execution(&operation.id)?;
 
-        let output = match adapter.execute(&execution_target, &plan) {
+        let adapter_started = Instant::now();
+        let mut output = match adapter.execute(&execution_target, &plan) {
             Ok(output) => output.with_operation_id(operation.id.clone()),
             Err(error) => {
-                self.services
-                    .operations
-                    .mark_failed(&operation.id, &error.to_string())?;
+                let ambiguous = matches!(
+                    error,
+                    Error::Execution(_)
+                        | Error::ProviderFailed { .. }
+                        | Error::TimedOut { .. }
+                        | Error::RateLimited { .. }
+                );
+                if ambiguous {
+                    self.services
+                        .operations
+                        .mark_uncertain(&operation.id, &error.to_string())
+                        .map_err(|storage| Error::OutcomeUnknown {
+                            operation_id: operation.id.clone(),
+                            reason: format!("{error}; uncertainty receipt could not be saved: {storage}"),
+                        })?;
+                } else {
+                    self.services
+                        .operations
+                        .mark_failed(&operation.id, &error.to_string())?;
+                }
                 self.services
                     .audit
-                    .record(&AuditEvent::from_plan(&plan, AuditOutcome::Failed))?;
-                return Err(error);
+                    .record(&AuditEvent::from_plan(&plan, AuditOutcome::Failed))
+                    .map_err(|storage| {
+                        if ambiguous {
+                            Error::OutcomeUnknown {
+                                operation_id: operation.id.clone(),
+                                reason: format!("{error}; audit receipt could not be saved: {storage}"),
+                            }
+                        } else {
+                            storage
+                        }
+                    })?;
+                return if ambiguous {
+                    Err(Error::OutcomeUnknown {
+                        operation_id: operation.id.clone(),
+                        reason: error.to_string(),
+                    })
+                } else {
+                    Err(error)
+                };
             }
         };
 
-        let applied = self.services.operations.mark_applied(&operation.id, &output)?;
-        self.finalize_compensation(&applied)?;
+        let timings = output.timings.get_or_insert_with(Default::default);
+        timings.auth_us = Some(auth_us);
+        timings.adapter_us = Some(crate::ExecutionTimings::elapsed_us(adapter_started));
+        timings.execution_us = Some(crate::ExecutionTimings::elapsed_us(started));
+
+        let persistence_error = |error: Error| Error::OutcomeUnknown {
+            operation_id: operation.id.clone(),
+            reason: format!("provider returned success, but the durable receipt could not be finalized: {error}"),
+        };
+        let applied = self
+            .services
+            .operations
+            .mark_applied(&operation.id, &output)
+            .map_err(persistence_error)?;
+        let receipt = adapter.verify(&execution_target, &applied).unwrap_or_else(|error| {
+            crate::VerificationReceipt::unavailable(format!("write applied; readback failed: {error}"))
+        });
+        self.services
+            .operations
+            .record_verification(&operation.id, &receipt)
+            .map_err(persistence_error)?;
+        output.verification = Some(Box::new(receipt));
+        self.finalize_compensation(&applied).map_err(persistence_error)?;
         self.services
             .audit
-            .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))?;
+            .record(&AuditEvent::from_plan(&plan, AuditOutcome::Executed))
+            .map_err(persistence_error)?;
 
         Ok(output)
     }
@@ -433,35 +550,38 @@ impl Switchboard {
                 api_secret,
                 model_api_key,
             } => ResolvedCredentials::PhoneCli {
-                api_key: api_key.as_ref().map(|secret| self.resolve_secret(secret)).transpose()?,
+                api_key: api_key
+                    .as_ref()
+                    .map(|secret| self.resolve_secret(&target.auth, secret))
+                    .transpose()?,
                 api_secret: api_secret
                     .as_ref()
-                    .map(|secret| self.resolve_secret(secret))
+                    .map(|secret| self.resolve_secret(&target.auth, secret))
                     .transpose()?,
                 model_api_key: model_api_key
                     .as_ref()
-                    .map(|secret| self.resolve_secret(secret))
+                    .map(|secret| self.resolve_secret(&target.auth, secret))
                     .transpose()?,
             },
             AuthSecretRefs::GitHubCli => ResolvedCredentials::GitHubCli,
             AuthSecretRefs::GoogleCli => ResolvedCredentials::GoogleCli,
             AuthSecretRefs::GitHubToken { token } => ResolvedCredentials::GitHubToken {
-                token: self.resolve_secret(token)?,
+                token: self.resolve_secret(&target.auth, token)?,
             },
             AuthSecretRefs::GoogleOAuth {
                 client_id,
                 client_secret,
                 refresh_token,
             } => ResolvedCredentials::GoogleOAuth {
-                client_id: self.resolve_secret(client_id)?,
-                client_secret: self.resolve_secret(client_secret)?,
+                client_id: self.resolve_secret(&target.auth, client_id)?,
+                client_secret: self.resolve_secret(&target.auth, client_secret)?,
                 refresh_token: match refresh_token {
-                    Some(refresh_token) => Some(self.resolve_secret(refresh_token)?),
+                    Some(refresh_token) => Some(self.resolve_secret(&target.auth, refresh_token)?),
                     None => None,
                 },
             },
             AuthSecretRefs::GoogleOAuthFile { credentials } => ResolvedCredentials::GoogleOAuthFile {
-                credentials: self.resolve_secret(credentials)?,
+                credentials: self.resolve_secret(&target.auth, credentials)?,
             },
             AuthSecretRefs::MyChartCli {
                 base_url,
@@ -474,35 +594,35 @@ impl Switchboard {
                 username,
             } => ResolvedCredentials::MyChartCli {
                 base_url: match base_url {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 portal_base_url: match portal_base_url {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_id: match client_id {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_secret: match client_secret {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 redirect_uri: match redirect_uri {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 access_token: match access_token {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 refresh_token: match refresh_token {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 username: match username {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
             },
@@ -524,63 +644,63 @@ impl Switchboard {
                 refresh_token,
             } => ResolvedCredentials::SchwabCli {
                 base_url: match base_url {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 market_data_base_url: match market_data_base_url {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 authorize_url: match authorize_url {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 token_url: match token_url {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_id: match client_id {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_secret: match client_secret {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 third_party_id: match third_party_id {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_channel: match client_channel {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_app_id: match client_app_id {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 client_function_id: match client_function_id {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 resource_version: match resource_version {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 rrbus_pilot_rollout: match rrbus_pilot_rollout {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 redirect_uri: match redirect_uri {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 access_token: match access_token {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
                 refresh_token: match refresh_token {
-                    Some(secret_ref) => Some(self.resolve_secret(secret_ref)?),
+                    Some(secret_ref) => Some(self.resolve_secret(&target.auth, secret_ref)?),
                     None => None,
                 },
             },
@@ -593,14 +713,14 @@ impl Switchboard {
         })
     }
 
-    fn resolve_secret(&self, secret_ref: &crate::SecretRef) -> Result<crate::SecretString> {
+    fn resolve_secret(&self, auth: &crate::ResolvedAuth, secret_ref: &crate::SecretRef) -> Result<crate::SecretString> {
         let secret = self
             .services
             .secrets
             .get(secret_ref)
             .ok_or_else(|| Error::MissingSecret(secret_ref.to_string()))?;
 
-        self.services.secret_resolver.resolve(&secret)
+        self.services.secret_resolver.resolve_for_auth(&secret, auth)
     }
 }
 
@@ -662,6 +782,7 @@ mod tests {
         let operation_id = plan.operation_id.expect("operation id should exist");
         let stored = operations
             .get(&operation_id)
+            .expect("store read should succeed")
             .expect("planned operation should be stored");
         assert_eq!(stored.status, OperationStatus::Planned);
 
@@ -672,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_apply_marks_operation_failed_and_audits_failure() {
+    fn ambiguous_apply_marks_operation_uncertain_and_audits_failure() {
         let audit = Arc::new(TestAuditSink::default());
         let operations = Arc::new(TestOperationStore::default());
         let switchboard = test_switchboard(
@@ -698,11 +819,11 @@ mod tests {
             )
             .expect_err("execution should fail");
 
-        assert_eq!(error, Error::Execution("adapter blew up".into()));
+        assert!(matches!(error, Error::OutcomeUnknown { .. }));
 
-        let stored = operations.list();
+        let stored = operations.list().expect("store read succeeds");
         assert_eq!(stored.len(), 1);
-        assert_eq!(stored[0].status, OperationStatus::Failed);
+        assert_eq!(stored[0].status, OperationStatus::Uncertain);
         assert_eq!(
             stored[0].failure_reason.as_deref(),
             Some("execution failure: adapter blew up")
@@ -969,9 +1090,34 @@ mod tests {
             Ok(operation)
         }
 
+        fn claim_execution(&self, id: &OperationId) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.claim_execution()?;
+                Ok(operation.clone())
+            })
+        }
+
+        fn mark_uncertain(&self, id: &OperationId, reason: &str) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.mark_uncertain(reason)?;
+                Ok(operation.clone())
+            })
+        }
+
+        fn record_verification(
+            &self,
+            id: &OperationId,
+            receipt: &crate::VerificationReceipt,
+        ) -> Result<StoredOperation> {
+            self.with_operation_mut(id, |operation| {
+                operation.record_verification(receipt.clone())?;
+                Ok(operation.clone())
+            })
+        }
+
         fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation> {
             self.with_operation_mut(id, |operation| {
-                operation.mark_applied(output.effect.clone());
+                operation.mark_applied(output)?;
                 Ok(operation.clone())
             })
         }
@@ -999,22 +1145,22 @@ mod tests {
 
         fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation> {
             self.with_operation_mut(id, |operation| {
-                operation.mark_compensated();
+                operation.mark_compensated()?;
                 Ok(operation.clone())
             })
         }
 
-        fn get(&self, id: &OperationId) -> Option<StoredOperation> {
+        fn get(&self, id: &OperationId) -> Result<Option<StoredOperation>> {
             match self.operations.lock() {
-                Ok(operations) => operations.get(id).cloned(),
-                Err(poisoned) => poisoned.into_inner().get(id).cloned(),
+                Ok(operations) => Ok(operations.get(id).cloned()),
+                Err(poisoned) => Ok(poisoned.into_inner().get(id).cloned()),
             }
         }
 
-        fn list(&self) -> Vec<StoredOperation> {
+        fn list(&self) -> Result<Vec<StoredOperation>> {
             match self.operations.lock() {
-                Ok(operations) => operations.values().cloned().collect(),
-                Err(poisoned) => poisoned.into_inner().values().cloned().collect(),
+                Ok(operations) => Ok(operations.values().cloned().collect()),
+                Err(poisoned) => Ok(poisoned.into_inner().values().cloned().collect()),
             }
         }
     }

@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use switchboard_core::{process::output_with_timeout, Error, Result};
@@ -40,8 +40,9 @@ impl CliExecutor for ProcessCliExecutor {
 
         match invocation.stdio_mode {
             CliStdioMode::Capture => {
+                let started = Instant::now();
                 let output = output_with_timeout(&mut command, Duration::from_secs(60))
-                    .map_err(|error| execution_error(&invocation, error))?;
+                    .map_err(|error| execution_error(&invocation, error, started.elapsed()))?;
 
                 let stdout = String::from_utf8(output.stdout).map_err(|error| {
                     Error::Execution(format!(
@@ -57,6 +58,9 @@ impl CliExecutor for ProcessCliExecutor {
                 })?;
 
                 if !output.status.success() {
+                    if let Some(error) = provider_failure(&stdout).or_else(|| provider_failure(&stderr)) {
+                        return Err(error);
+                    }
                     let reason = if !stderr.trim().is_empty() {
                         stderr.trim().to_owned()
                     } else if !stdout.trim().is_empty() {
@@ -65,11 +69,11 @@ impl CliExecutor for ProcessCliExecutor {
                         format!("process exited with status {}", output.status)
                     };
 
-                    return Err(Error::Execution(format!(
-                        "{} {} failed: {reason}",
-                        invocation.program.display(),
-                        invocation.args.join(" ")
-                    )));
+                    return Err(Error::ProviderFailed {
+                        program: invocation.program.display().to_string(),
+                        exit_code: output.status.code(),
+                        reason,
+                    });
                 }
 
                 Ok(CliOutput { stdout, stderr })
@@ -79,7 +83,10 @@ impl CliExecutor for ProcessCliExecutor {
                 command.stdout(Stdio::inherit());
                 command.stderr(Stdio::inherit());
 
-                let status = command.status().map_err(|error| execution_error(&invocation, error))?;
+                let started = Instant::now();
+                let status = command
+                    .status()
+                    .map_err(|error| execution_error(&invocation, error, started.elapsed()))?;
                 if !status.success() {
                     return Err(Error::Execution(format!(
                         "{} {} failed: process exited with status {}",
@@ -98,18 +105,84 @@ impl CliExecutor for ProcessCliExecutor {
     }
 }
 
-fn execution_error(invocation: &CliInvocation, error: std::io::Error) -> Error {
+fn execution_error(invocation: &CliInvocation, error: std::io::Error, elapsed: Duration) -> Error {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+    ) {
+        return Error::Launch(format!("{}: {error}", invocation.program.display()));
+    }
     if error.kind() == std::io::ErrorKind::TimedOut {
-        return Error::Execution(format!(
-            "{} timed out after 60 seconds. The remote outcome may be unknown; check the provider before retrying a write",
-            invocation.program.display()
-        ));
+        return Error::TimedOut {
+            program: invocation.program.display().to_string(),
+            seconds: elapsed.as_secs(),
+        };
     }
     Error::Execution(format!(
         "failed to run {} {}: {error}",
         invocation.program.display(),
         invocation.args.join(" ")
     ))
+}
+
+fn provider_failure(text: &str) -> Option<Error> {
+    #[derive(serde::Deserialize)]
+    struct OAuthError {
+        error: String,
+        #[serde(default)]
+        error_description: String,
+    }
+    if let Ok(error) = serde_json::from_str::<OAuthError>(text) {
+        return match error.error.as_str() {
+            "interaction_required" | "consent_required" => Some(Error::BrowserConsentRequired {
+                reason: error.error_description,
+            }),
+            "invalid_grant" | "invalid_token" => Some(Error::AuthenticationRejected {
+                reason: error.error_description,
+            }),
+            _ => None,
+        };
+    }
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        error: ApiError,
+    }
+    #[derive(serde::Deserialize)]
+    struct ApiError {
+        code: u16,
+        #[serde(default)]
+        message: String,
+        retry_after_seconds: Option<u64>,
+        #[serde(default)]
+        details: Vec<Detail>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Detail {
+        #[serde(rename = "@type")]
+        kind: String,
+        #[serde(rename = "retryDelay")]
+        retry_delay: Option<String>,
+    }
+    let error = serde_json::from_str::<Envelope>(text).ok()?.error;
+    if error.code == 401 {
+        return Some(Error::AuthenticationRejected { reason: error.message });
+    }
+    if !matches!(error.code, 429 | 503) {
+        return None;
+    }
+    let retry = error.retry_after_seconds.or_else(|| {
+        error.details.iter().find_map(|detail| {
+            if detail.kind != "type.googleapis.com/google.rpc.RetryInfo" {
+                return None;
+            }
+            let seconds = detail.retry_delay.as_deref()?.strip_suffix('s')?.parse::<f64>().ok()?;
+            (seconds.is_finite() && (0.0..=3600.0).contains(&seconds)).then_some(seconds.ceil() as u64)
+        })
+    })?;
+    Some(Error::RateLimited {
+        retry_after_seconds: retry,
+        reason: error.message,
+    })
 }
 
 #[cfg(test)]
@@ -150,6 +223,33 @@ EOF
         assert_eq!(output.stdout, "captured-output\n");
         assert!(output.stderr.is_empty());
         assert!(script.capture_contents().contains("ARGV=alpha beta"));
+    }
+
+    #[test]
+    fn structured_oauth_failures_distinguish_consent_and_revocation() {
+        for (code, consent) in [("consent_required", true), ("invalid_grant", false)] {
+            let script = temp_script(&format!(
+                r#"printf '%s\n' '{{"error":"{code}","error_description":"fixture blocker"}}' >&2
+exit 1"#
+            ));
+            let result = ProcessCliExecutor.execute(CliInvocation {
+                program: script.path().to_path_buf(),
+                args: vec!["identity".into()],
+                runtime: ProcessContext::new(),
+                stdio_mode: CliStdioMode::Capture,
+            });
+            if consent {
+                assert!(matches!(
+                    result,
+                    Err(switchboard_core::Error::BrowserConsentRequired { .. })
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(switchboard_core::Error::AuthenticationRejected { .. })
+                ));
+            }
+        }
     }
 
     #[test]

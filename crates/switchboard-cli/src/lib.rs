@@ -20,6 +20,9 @@ use switchboard_store::{
 pub mod catalog;
 
 mod args;
+mod auth;
+mod batch;
+mod discovery;
 mod doctor;
 mod output;
 
@@ -27,15 +30,13 @@ mod output;
 mod test_support;
 
 use crate::{
-    args::{AuditRuntimeCommand, AuditSelector, Cli, CommandKind, StoredOperationCommand, ToolCatalogRuntimeCommand},
-    catalog::{ToolCatalogDetail, ToolCatalogEntry},
+    args::{AuditRuntimeCommand, AuditSelector, Cli, CommandKind, StoredOperationCommand},
     output::{
         operation_needs_attention, render_audit_events_human, render_audit_selection_human, render_clap_error,
-        render_dispatch_human, render_json, render_json_dispatch, render_json_error, render_json_operation,
-        render_namespaces_human, render_operation_human, render_operations_human, render_output_human,
-        render_stored_operation_human, render_tool_detail_human, render_tools_human, AuditEventResponse,
-        AuditListResponse, AuditOperationResponse, AuditSelection, NamespaceListResponse, StoredOperationListResponse,
-        StoredOperationResponse, ToolCatalogDetailResponse, ToolCatalogListResponse,
+        render_dispatch_human, render_json, render_json_dispatch, render_json_operation, render_namespaces_human,
+        render_operation_human, render_operations_human, render_output_human, render_stored_operation_human,
+        AuditEventResponse, AuditListResponse, AuditOperationResponse, AuditSelection, NamespaceListResponse,
+        StoredOperationListResponse, StoredOperationResponse,
     },
 };
 
@@ -44,6 +45,10 @@ pub fn command() -> clap::Command {
 }
 
 fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
+    load_switchboard_with_run(config_path, std::env::var("SWITCHBOARD_RUN_ID").ok().as_deref())
+}
+
+fn load_switchboard_with_run(config_path: Option<&Path>, run_id: Option<&str>) -> Result<Switchboard> {
     let config_path = resolve_config_path(config_path)?;
     let config = SwitchboardConfig::from_file(&config_path).context("failed to load switchboard config")?;
     let policy = config.policy_engine();
@@ -62,9 +67,10 @@ fn load_switchboard(config_path: Option<&Path>) -> Result<Switchboard> {
         Arc::new(namespaces),
         Arc::new(auth),
         Arc::new(secrets),
-        Arc::new(LocalSecretResolver::with_one_password_config(
+        Arc::new(LocalSecretResolver::with_recovery_budget(
             Some(one_password_session_cache),
             one_password,
+            run_id.map(str::to_owned),
         )),
         Arc::new(policy),
         Arc::new(audit),
@@ -110,14 +116,41 @@ where
         Err(error) => return render_clap_error(error, json_requested),
     };
 
+    let requested_tool = match &cli.command {
+        args::Commands::Tool(tokens) => tokens
+            .first()
+            .and_then(|token| token.to_str())
+            .and_then(|name| switchboard_core::ToolName::new(name).ok()),
+        _ => None,
+    };
     match run(cli) {
         Ok(output) => {
             print!("{output}");
             ExitCode::SUCCESS
         }
         Err(error) => {
+            if let Some(incomplete) = error.downcast_ref::<output::IncompleteOutput>() {
+                println!("{}", incomplete.0);
+                return ExitCode::FAILURE;
+            }
             if json_requested {
-                println!("{}", render_json_error(&error.to_string()));
+                let namespace = args
+                    .iter()
+                    .take_while(|value| value.as_os_str() != "--")
+                    .enumerate()
+                    .find_map(|(index, value)| {
+                        let value = value.to_str()?;
+                        let namespace = if value == "--ns" {
+                            args.get(index + 1)?.to_str()?
+                        } else {
+                            value.strip_prefix("--ns=")?
+                        };
+                        switchboard_core::NamespaceId::new(namespace).ok()
+                    });
+                println!(
+                    "{}",
+                    output::render_json_error_for_tool(&error, namespace, requested_tool.as_ref())
+                );
             } else {
                 eprintln!("{error:#}");
             }
@@ -134,6 +167,15 @@ fn run(cli: Cli) -> Result<String> {
     if let CommandKind::Doctor(arguments) = command {
         return doctor::run(config_path.as_deref(), arguments);
     }
+    if let CommandKind::ToolCatalog(command) = command {
+        return discovery::run(config_path.as_deref(), command);
+    }
+    if let CommandKind::Auth(arguments) = command {
+        return auth::run(config_path.as_deref(), arguments);
+    }
+    if let CommandKind::ReadBatch(arguments) = &command {
+        arguments.configure_deadline()?;
+    }
     let switchboard = load_switchboard(config_path.as_deref());
     let switchboard = match switchboard {
         Ok(switchboard) => switchboard,
@@ -143,6 +185,8 @@ fn run(cli: Cli) -> Result<String> {
 
     match command {
         CommandKind::Doctor(arguments) => doctor::run(config_path.as_deref(), arguments),
+        CommandKind::Auth(arguments) => auth::run(config_path.as_deref(), arguments),
+        CommandKind::ReadBatch(arguments) => batch::run(&switchboard, arguments),
         CommandKind::NamespaceList => {
             let namespaces = switchboard.list_namespaces();
             if json_requested {
@@ -151,24 +195,27 @@ fn run(cli: Cli) -> Result<String> {
                 Ok(render_namespaces_human(&namespaces))
             }
         }
-        CommandKind::ToolCatalog(command) => run_tool_catalog_command(&switchboard, command),
+        CommandKind::ToolCatalog(command) => discovery::run(config_path.as_deref(), command),
         CommandKind::Audit(command) => run_audit_command(&switchboard, command),
         CommandKind::Operation(request) => {
             let outcome = switchboard.execute_operation(request)?;
 
-            if json_requested {
-                render_json_operation(&outcome)
+            let text = if json_requested {
+                render_json_operation(&outcome)?
             } else {
-                Ok(render_operation_human(&outcome))
-            }
+                render_operation_human(&outcome)
+            };
+            output::require_complete(text, output::operation_complete(&outcome))
         }
         CommandKind::ApproveAndApply(request) => {
             let output = approve_and_apply(&switchboard, request)?;
-            if json_requested {
-                render_json_dispatch(&DispatchOutcome::Executed(output))
+            let complete = output::output_complete(&output);
+            let text = if json_requested {
+                render_json_dispatch(&DispatchOutcome::Executed(output))?
             } else {
-                Ok(render_output_human(&output))
-            }
+                render_output_human(&output)
+            };
+            output::require_complete(text, complete)
         }
         CommandKind::StoredOperation(command) => run_stored_operation_command(&switchboard, command),
     }
@@ -192,11 +239,11 @@ fn approve_and_apply(switchboard: &Switchboard, request: ToolRequest) -> Result<
     if plan.approval_required {
         switchboard
             .approve_operation(&id, &args::default_actor(), None)
-            .map_err(|error| anyhow!("failed to approve operation {id}: {error}"))?;
+            .with_context(|| format!("failed to approve operation {id}"))?;
     }
     switchboard
         .apply_operation(&id)
-        .map_err(|error| anyhow!("failed to apply operation {id}: {error}; inspect it before retrying"))
+        .with_context(|| format!("failed to apply operation {id}; inspect it before retrying"))
 }
 
 fn run_audit_command(switchboard: &Switchboard, command: AuditRuntimeCommand) -> Result<String> {
@@ -250,54 +297,11 @@ fn run_audit_command(switchboard: &Switchboard, command: AuditRuntimeCommand) ->
     }
 }
 
-fn run_tool_catalog_command(switchboard: &Switchboard, command: ToolCatalogRuntimeCommand) -> Result<String> {
-    match command {
-        ToolCatalogRuntimeCommand::List { json } => {
-            let tools = switchboard.list_tools()?;
-            if json {
-                render_json(
-                    &ToolCatalogListResponse {
-                        status: "ok",
-                        tools: tools.iter().map(ToolCatalogEntry::from).collect(),
-                    },
-                    true,
-                )
-            } else {
-                Ok(render_tools_human(&tools))
-            }
-        }
-        ToolCatalogRuntimeCommand::Describe { tool, json } => {
-            let descriptor = switchboard
-                .describe_tool(&tool)
-                .context("failed to resolve tool metadata")?
-                .ok_or_else(|| anyhow!("unknown tool: {tool}"))?;
-            let namespaces = switchboard
-                .list_namespaces()
-                .into_iter()
-                .filter(|namespace| namespace.provider == descriptor.provider)
-                .collect::<Vec<_>>();
-            let detail = ToolCatalogDetail::new(&descriptor, &namespaces);
-
-            if json {
-                render_json(
-                    &ToolCatalogDetailResponse {
-                        status: "ok",
-                        tool: detail,
-                    },
-                    true,
-                )
-            } else {
-                Ok(render_tool_detail_human(&detail))
-            }
-        }
-    }
-}
-
 fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperationCommand) -> Result<String> {
     match command {
         StoredOperationCommand::List { pending_only, json } => {
             let operations = switchboard
-                .list_operations()
+                .list_operations()?
                 .into_iter()
                 .filter(|operation| !pending_only || operation_needs_attention(operation))
                 .collect::<Vec<_>>();
@@ -315,7 +319,7 @@ fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperat
         }
         StoredOperationCommand::Show { id, json } => {
             let operation = switchboard
-                .get_operation(&id)
+                .get_operation(&id)?
                 .ok_or_else(|| anyhow!("unknown operation id: {id}"))?;
             if json {
                 render_json(
@@ -339,11 +343,7 @@ fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperat
             let operation = switchboard.approve_operation(&id, &actor, note.as_deref())?;
             if apply {
                 let output = switchboard.apply_operation(&id)?;
-                if json {
-                    return render_json_dispatch(&DispatchOutcome::Executed(output));
-                }
-
-                return Ok(render_output_human(&output));
+                return output::render_output_result(&output, json);
             }
 
             if json {
@@ -374,11 +374,26 @@ fn run_stored_operation_command(switchboard: &Switchboard, command: StoredOperat
         }
         StoredOperationCommand::Apply { id, json } => {
             let output = switchboard.apply_operation(&id)?;
-            if json {
-                render_json_dispatch(&DispatchOutcome::Executed(output))
+            output::render_output_result(&output, json)
+        }
+        StoredOperationCommand::Verify { id, json } => {
+            let operation = switchboard.verify_operation(&id)?;
+            let verified = operation
+                .verification
+                .as_ref()
+                .is_some_and(|receipt| receipt.status == switchboard_core::VerificationStatus::Verified);
+            let text = if json {
+                render_json(
+                    &StoredOperationResponse {
+                        status: if verified { "verified" } else { "unverified" },
+                        operation: &operation,
+                    },
+                    true,
+                )?
             } else {
-                Ok(render_output_human(&output))
-            }
+                render_stored_operation_human(&operation)
+            };
+            output::require_complete(text, verified)
         }
         StoredOperationCommand::Undo { id, mode, json } => {
             let outcome = switchboard.undo_operation(&id, mode)?;
@@ -440,7 +455,9 @@ fn existing_file(path: PathBuf) -> Option<PathBuf> {
 }
 
 fn contains_flag(args: &[OsString], flag: &str) -> bool {
-    args.iter().any(|value| value == flag)
+    args.iter()
+        .take_while(|value| value.as_os_str() != "--")
+        .any(|value| value == flag)
 }
 
 pub fn args_from_env() -> Vec<OsString> {

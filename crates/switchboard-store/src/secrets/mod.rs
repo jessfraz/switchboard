@@ -5,14 +5,21 @@ use crate::OnePasswordConfig;
 mod env_secret;
 mod file_secret;
 mod one_password;
+mod recovery;
 
 pub use one_password::{one_password_item_cache_expiries, one_password_session_cache_entry_count};
 
-use switchboard_core::{Error, ResolvedSecret, Result, SecretResolver, SecretString};
+use switchboard_core::{Error, ResolvedAuth, ResolvedSecret, Result, SecretResolver, SecretString};
 
 trait SecretBackend: Send + Sync {
     fn can_resolve(&self, secret: &ResolvedSecret) -> bool;
     fn resolve(&self, secret: &ResolvedSecret) -> Result<SecretString>;
+    fn resolve_for_auth(&self, secret: &ResolvedSecret, _auth: &ResolvedAuth) -> Result<SecretString> {
+        self.resolve(secret)
+    }
+    fn invalidate(&self, _secret: &ResolvedSecret) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 pub struct LocalSecretResolver {
@@ -34,13 +41,22 @@ impl LocalSecretResolver {
         one_password_session_cache_path: Option<PathBuf>,
         config: OnePasswordConfig,
     ) -> Self {
+        Self::with_recovery_budget(one_password_session_cache_path, config, None)
+    }
+
+    pub fn with_recovery_budget(
+        one_password_session_cache_path: Option<PathBuf>,
+        config: OnePasswordConfig,
+        run_id: Option<String>,
+    ) -> Self {
         Self {
             backends: vec![
                 Box::new(env_secret::EnvSecretBackend),
                 Box::new(file_secret::FileSecretBackend),
-                Box::new(one_password::OnePasswordSecretBackend::with_config(
+                Box::new(one_password::OnePasswordSecretBackend::with_recovery_budget(
                     one_password_session_cache_path,
                     config,
+                    run_id,
                 )),
             ],
         }
@@ -48,6 +64,27 @@ impl LocalSecretResolver {
 }
 
 impl SecretResolver for LocalSecretResolver {
+    fn invalidate(&self, secret: &ResolvedSecret) -> Result<bool> {
+        let backend = self
+            .backends
+            .iter()
+            .find(|backend| backend.can_resolve(secret))
+            .ok_or_else(|| Error::MissingSecret(secret.id.to_string()))?;
+        backend.invalidate(secret)
+    }
+
+    fn resolve_for_auth(&self, secret: &ResolvedSecret, auth: &ResolvedAuth) -> Result<SecretString> {
+        let backend = self
+            .backends
+            .iter()
+            .find(|backend| backend.can_resolve(secret))
+            .ok_or_else(|| Error::SecretResolution {
+                secret_ref: secret.id.to_string(),
+                reason: "no secret backend is registered for this secret source".into(),
+            })?;
+        backend.resolve_for_auth(secret, auth)
+    }
+
     fn resolve(&self, secret: &ResolvedSecret) -> Result<SecretString> {
         let backend = self
             .backends

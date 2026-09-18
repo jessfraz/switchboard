@@ -10,6 +10,32 @@ pub enum Error {
     Config(String),
     #[error("execution failure: {0}")]
     Execution(String),
+    #[error("provider CLI could not start: {0}")]
+    Launch(String),
+    #[error("provider asked to retry after {retry_after_seconds} seconds: {reason}")]
+    RateLimited { retry_after_seconds: u64, reason: String },
+    #[error("provider rejected authentication: {reason}")]
+    AuthenticationRejected { reason: String },
+    #[error("authenticated account {actual:?} does not match configured account {expected:?}")]
+    AccountMismatch { expected: String, actual: String },
+    #[error(
+        "authentication timed out after at most {seconds} seconds; inspect the authentication blocker before retrying"
+    )]
+    AuthenticationTimeout { seconds: u64 },
+    #[error("authentication requires browser consent: {reason}")]
+    BrowserConsentRequired { reason: String },
+    #[error("provider {program} failed (exit {exit_code:?}): {reason}")]
+    ProviderFailed {
+        program: String,
+        exit_code: Option<i32>,
+        reason: String,
+    },
+    #[error("{program} timed out after {seconds} seconds; the remote outcome may be unknown")]
+    TimedOut { program: String, seconds: u64 },
+    #[error("operation {operation_id} has an unknown remote outcome: {reason}; run op verify before retrying")]
+    OutcomeUnknown { operation_id: OperationId, reason: String },
+    #[error("authentication recovery exhausted: {0}")]
+    RecoveryExhausted(String),
     #[error("operation failure: {0}")]
     Operation(String),
     #[error("missing auth configuration: {0}")]

@@ -194,6 +194,8 @@ impl PlannedAction {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolRefKind {
+    Draft,
+    File,
     Message,
     Thread,
     Event,
@@ -206,6 +208,8 @@ pub enum ToolRefKind {
 impl Display for ToolRefKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
+            Self::Draft => "draft",
+            Self::File => "file",
             Self::Message => "message",
             Self::Thread => "thread",
             Self::Event => "event",
@@ -231,6 +235,16 @@ pub struct ToolRef {
     pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<FileChecksum>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "algorithm", content = "value", rename_all = "snake_case")]
+pub enum FileChecksum {
+    Sha256(String),
+    Sha1(String),
+    Md5(String),
 }
 
 impl ToolRef {
@@ -251,6 +265,7 @@ impl ToolRef {
             parent_id: None,
             label: None,
             web_url: None,
+            checksum: None,
         })
     }
 
@@ -276,7 +291,37 @@ impl ToolRef {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+/// Measured wall-clock microseconds for successful execution. Missing phases
+/// were not measured (not zero). `execution_us` spans auth through adapter
+/// completion, including a write's local claim, but excludes planning, final
+/// persistence, audit, and readback. `adapter_us` includes adapter orchestration.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionTimings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locate_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub materialize_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_us: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decode_us: Option<u64>,
+}
+
+impl ExecutionTimings {
+    pub fn elapsed_us(start: std::time::Instant) -> u64 {
+        start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolOutput {
     pub tool: ToolName,
     pub namespace: NamespaceId,
@@ -288,6 +333,12 @@ pub struct ToolOutput {
     pub operation_id: Option<OperationId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effect: Option<OperationEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<Box<crate::VerificationReceipt>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<crate::ReadCoverage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timings: Option<ExecutionTimings>,
 }
 
 impl ToolOutput {
@@ -300,6 +351,9 @@ impl ToolOutput {
             refs: Vec::new(),
             operation_id: None,
             effect: None,
+            verification: None,
+            coverage: None,
+            timings: None,
         }
     }
 

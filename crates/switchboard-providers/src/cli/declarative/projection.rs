@@ -93,6 +93,7 @@ impl CliJsonProjection {
             version,
             stdout,
             stderr,
+            ..
         } = response;
         let value: Value = if stdout.trim().is_empty() {
             self.empty_stdout_json.clone().ok_or_else(|| {

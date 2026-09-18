@@ -108,7 +108,10 @@ impl OperationEffect {
 #[serde(rename_all = "snake_case")]
 pub enum OperationStatus {
     Planned,
+    Executing,
+    Uncertain,
     Applied,
+    Verified,
     Failed,
     Compensated,
 }
@@ -134,6 +137,8 @@ pub struct StoredOperation {
     pub effect: Option<OperationEffect>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<crate::VerificationReceipt>,
 }
 
 impl StoredOperation {
@@ -158,16 +163,80 @@ impl StoredOperation {
             args: plan.args.clone(),
             effect: None,
             failure_reason: None,
+            verification: None,
         }
     }
 
-    pub fn mark_applied(&mut self, effect: Option<OperationEffect>) {
+    pub fn mark_applied(&mut self, output: &crate::ToolOutput) -> Result<()> {
+        self.require_executing()?;
+        let mut effect = output.effect.clone().unwrap_or_else(|| OperationEffect::new(false));
+        for reference in &output.refs {
+            if !effect.refs.contains(reference) {
+                effect.refs.push(reference.clone());
+            }
+        }
         self.status = OperationStatus::Applied;
-        self.effect = effect;
+        self.effect = Some(effect);
         self.failure_reason = None;
+        Ok(())
+    }
+
+    pub fn claim_execution(&mut self) -> Result<()> {
+        self.can_apply()?;
+        self.status = OperationStatus::Executing;
+        self.failure_reason = None;
+        Ok(())
+    }
+
+    pub fn require_executing(&self) -> Result<()> {
+        if self.status != OperationStatus::Executing {
+            return Err(Error::Operation(format!(
+                "operation {} is not claimed for execution",
+                self.id
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn can_verify(&self) -> Result<()> {
+        if !matches!(
+            self.status,
+            OperationStatus::Executing
+                | OperationStatus::Uncertain
+                | OperationStatus::Applied
+                | OperationStatus::Verified
+        ) {
+            return Err(Error::Operation(format!("operation {} has not been executed", self.id)));
+        }
+        Ok(())
+    }
+
+    pub fn mark_uncertain(&mut self, reason: impl Into<String>) -> Result<()> {
+        self.require_executing()?;
+        let reason = reason.into();
+        crate::types::validate_non_empty("uncertain outcome reason", &reason)?;
+        self.status = OperationStatus::Uncertain;
+        self.failure_reason = Some(reason);
+        Ok(())
+    }
+
+    pub fn record_verification(&mut self, receipt: crate::VerificationReceipt) -> Result<()> {
+        self.can_verify()?;
+        if receipt.status == crate::VerificationStatus::Verified {
+            self.status = OperationStatus::Verified;
+            self.failure_reason = None;
+            if let Some(effect) = &receipt.recovered_effect {
+                self.effect = Some(effect.clone());
+            }
+        } else if self.status == OperationStatus::Verified {
+            self.status = OperationStatus::Applied;
+        }
+        self.verification = Some(receipt);
+        Ok(())
     }
 
     pub fn mark_failed(&mut self, failure_reason: impl Into<String>) -> Result<()> {
+        self.require_executing()?;
         let failure_reason = failure_reason.into();
         crate::types::validate_non_empty("operation failure reason", &failure_reason)?;
         self.status = OperationStatus::Failed;
@@ -175,8 +244,10 @@ impl StoredOperation {
         Ok(())
     }
 
-    pub fn mark_compensated(&mut self) {
+    pub fn mark_compensated(&mut self) -> Result<()> {
+        self.can_undo()?;
         self.status = OperationStatus::Compensated;
+        Ok(())
     }
 
     pub fn approve(&mut self, actor: impl Into<String>, note: Option<String>) -> Result<()> {
@@ -186,7 +257,7 @@ impl StoredOperation {
                 self.id
             )));
         }
-        if self.status == OperationStatus::Applied || self.status == OperationStatus::Compensated {
+        if !matches!(self.status, OperationStatus::Planned | OperationStatus::Failed) {
             return Err(Error::Operation(format!(
                 "operation {} can no longer be approved",
                 self.id
@@ -203,7 +274,7 @@ impl StoredOperation {
                 self.id
             )));
         }
-        if self.status == OperationStatus::Applied || self.status == OperationStatus::Compensated {
+        if !matches!(self.status, OperationStatus::Planned | OperationStatus::Failed) {
             return Err(Error::Operation(format!(
                 "operation {} can no longer be rejected",
                 self.id
@@ -215,7 +286,7 @@ impl StoredOperation {
 
     pub fn can_apply(&self) -> Result<()> {
         match self.status {
-            OperationStatus::Applied => {
+            OperationStatus::Applied | OperationStatus::Verified => {
                 return Err(Error::Operation(format!(
                     "operation {} has already been applied",
                     self.id
@@ -228,6 +299,12 @@ impl StoredOperation {
                 )));
             }
             OperationStatus::Planned | OperationStatus::Failed => {}
+            OperationStatus::Executing | OperationStatus::Uncertain => {
+                return Err(Error::OutcomeUnknown {
+                    operation_id: self.id.clone(),
+                    reason: "execution has started; verify the remote state".into(),
+                });
+            }
         }
 
         match self.approval.state {
@@ -244,7 +321,7 @@ impl StoredOperation {
     }
 
     pub fn can_undo(&self) -> Result<()> {
-        if self.status != OperationStatus::Applied {
+        if !matches!(self.status, OperationStatus::Applied | OperationStatus::Verified) {
             return Err(Error::OperationNotUndoable(self.id.clone()));
         }
 

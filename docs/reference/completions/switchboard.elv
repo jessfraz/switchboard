@@ -23,11 +23,25 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand --help 'Print help'
             cand -V 'Print version'
             cand --version 'Print version'
+            cand read-batch 'Execute bounded read-only requests with durable, resumable page results'
             cand ns 'ns'
             cand doctor 'Inspect configuration, saved state, and CLI availability without authenticating'
+            cand auth 'Verify provider authentication or preview adoption of an existing CLI session'
             cand tools 'tools'
             cand audit 'audit'
             cand op 'op'
+        }
+        &'switchboard;read-batch'= {
+            cand --input 'JSON object containing an items array of {id, tool, namespace, args}'
+            cand --checkpoint 'Durable results; successful pages are saved after each bounded wave'
+            cand --concurrency 'concurrency'
+            cand --deadline-seconds 'deadline-seconds'
+            cand --max-pages 'max-pages'
+            cand --config 'config'
+            cand --resume 'resume'
+            cand --json 'json'
+            cand -h 'Print help'
+            cand --help 'Print help'
         }
         &'switchboard;ns'= {
             cand --config 'config'
@@ -48,6 +62,29 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'switchboard;auth'= {
+            cand --config 'config'
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand check 'Perform a read-only provider identity request and verify the configured account'
+            cand migration-preview 'Show an opt-in Google CLI migration without modifying configuration or credentials'
+        }
+        &'switchboard;auth;check'= {
+            cand --ns 'ns'
+            cand --run-id 'Share the one-recovery-attempt budget across commands in this task'
+            cand --config 'config'
+            cand --json 'json'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'switchboard;auth;migration-preview'= {
+            cand --ns 'ns'
+            cand --config 'config'
+            cand --verify 'Verify the saved CLI session through a live read before changing config'
+            cand --json 'json'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
         &'switchboard;tools'= {
             cand --config 'config'
             cand -h 'Print help'
@@ -56,12 +93,17 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand describe 'describe'
         }
         &'switchboard;tools;list'= {
+            cand --provider 'Filter by provider identifier, for example google or github'
+            cand --ns 'Filter by a configured namespace without resolving credentials'
+            cand --search 'Search tool names and summaries (case insensitive)'
             cand --config 'config'
             cand --json 'json'
+            cand --executable 'Include only tools with an implemented execution path'
             cand -h 'Print help'
             cand --help 'Print help'
         }
         &'switchboard;tools;describe'= {
+            cand --ns 'Use this configured namespace in examples'
             cand --config 'config'
             cand --json 'json'
             cand -h 'Print help'
@@ -96,6 +138,7 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand approve 'approve'
             cand reject 'reject'
             cand apply 'apply'
+            cand verify 'Read back provider state without repeating the write'
             cand undo 'undo'
         }
         &'switchboard;op;list'= {
@@ -129,6 +172,12 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand --help 'Print help'
         }
         &'switchboard;op;apply'= {
+            cand --config 'config'
+            cand --json 'json'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'switchboard;op;verify'= {
             cand --config 'config'
             cand --json 'json'
             cand -h 'Print help'

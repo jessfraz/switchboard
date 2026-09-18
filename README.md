@@ -74,6 +74,10 @@ This repo is real, but still in the "tighten the public surface" phase.
 
 This workspace also contains adjacent CLIs. The public polish and open-source hardening work is focused on `switchboard` first.
 
+See [results, recovery, and readback](docs/reliability.md) for the versioned
+outcome contract, uncertain writes, verification boundaries, resumable reads,
+and execution timings.
+
 ## Install Today
 
 Today, the honest install paths are source or Nix. The release pipeline for prebuilt binaries is configured, but the first public tagged release still needs to be cut.
@@ -163,11 +167,40 @@ switchboard google.cli.write --ns google.personal --draft -- auth login
 switchboard op approve <operation-id> --apply
 ```
 
-Existing namespace logins need no new client setup. Bare `auth login` gets
-Switchboard's shared service scopes and verifies the resulting Google account.
-The optional `workspace_admin` profile
-adds user, organizational-unit, group, membership, and Groups Settings access
-for that namespace only.
+Existing namespace logins need no new client setup. Standard bare `auth login`
+uses `gws auth login --full --services` for Drive, Sheets, Gmail, Calendar,
+Docs, Slides, Tasks, and People, and verifies the configured auth account.
+Caller-provided login options are preserved.
+
+The pinned gws 0.22.5 cannot resolve all Admin Directory, Groups Settings, or
+Cloud Identity scopes using its service registry. Bare login for the optional
+`workspace_admin` profile therefore reports unsupported before launching
+consent. Existing saved admin sessions remain usable. Standard login does not
+claim Cloud Identity coverage. Use explicitly verified native login options or
+a gws version with the required services when additional access is needed.
+
+Use a read-only identity request to verify access, including the expected
+account, before parallel work:
+
+```sh
+export SWITCHBOARD_RUN_ID="task-unique-id"
+switchboard auth check --ns google.personal --json
+switchboard auth migration-preview --ns google.personal --verify --json
+```
+
+`auth check` supports Google and GitHub. Google identity verification uses
+Gmail `getProfile` and requires Gmail access. It tries credential caches and
+existing sessions first. Rejected cached 1Password credentials are invalidated only after
+a structured authentication rejection, then re-resolved once. A cache miss can
+make one desktop-unlock attempt per provider/account/run, bounded to 60 seconds;
+concurrent callers wait for its saved result. An exhausted budget survives CLI
+restarts. Reuse the run ID for every command in a task. Browser consent and
+account mismatches stop the provider. These commands do not send or modify
+provider content.
+
+Migration preview preserves configuration and the namespace state directory.
+`--verify` checks the proposed saved Google CLI session before suggesting the
+opt-in change. File presence alone is never reported as valid authentication.
 
 Default Google state paths live under `namespaces/<namespace>` beside the
 operation database. A local `switchboard.toml` therefore uses

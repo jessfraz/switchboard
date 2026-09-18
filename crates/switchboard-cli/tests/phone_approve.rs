@@ -146,7 +146,7 @@ fn approve_persists_and_audits_one_exact_phone_attempt_without_redialing() {
     // The actual phone CLI attempted to start a nonexistent executable. The
     // operation is consumed even though the call itself could not connect.
     assert_eq!(response.fields.response.status, "failed");
-    let operations = fixture.operations().list();
+    let operations = fixture.operations().list().expect("operation store read");
     assert_eq!(operations.len(), 1);
     let operation = &operations[0];
     assert_eq!(operation.id, response.operation_id);
@@ -168,7 +168,7 @@ fn approve_persists_and_audits_one_exact_phone_attempt_without_redialing() {
         .output()
         .expect("retry consumed operation");
     assert!(!retry.status.success());
-    assert_eq!(fixture.operations().list().len(), 1);
+    assert_eq!(fixture.operations().list().expect("operation store read").len(), 1);
     assert_eq!(fixture.audit().list().len(), 3);
 }
 
@@ -178,7 +178,7 @@ fn ordinary_and_apply_phone_requests_still_wait_for_separate_approval() {
         let fixture = Fixture::new("require_approval");
         let output = fixture.call(&flags);
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
-        let operations = fixture.operations().list();
+        let operations = fixture.operations().list().expect("operation store read");
         assert_eq!(operations.len(), 1);
         assert_eq!(operations[0].status, OperationStatus::Planned);
         assert_eq!(operations[0].approval.state, ApprovalState::Pending);
@@ -191,7 +191,7 @@ fn approve_does_not_override_denied_write_policy() {
     let fixture = Fixture::new("deny");
     let output = fixture.call(&["--approve-and-apply"]);
     assert!(!output.status.success());
-    assert!(fixture.operations().list().is_empty());
+    assert!(fixture.operations().list().expect("operation store read").is_empty());
     let events = fixture.audit().list();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].outcome, AuditOutcome::Blocked);
@@ -210,7 +210,7 @@ fn approve_rejects_conflicting_modes_and_multiple_namespaces_before_planning() {
         let fixture = Fixture::new("require_approval");
         let output = fixture.call(&flags);
         assert!(!output.status.success());
-        assert!(fixture.operations().list().is_empty());
+        assert!(fixture.operations().list().expect("operation store read").is_empty());
         assert!(fixture.audit().list().is_empty());
         assert!(!fixture.namespace.join("calls").exists());
     }
@@ -251,7 +251,7 @@ fn approve_failure_reports_the_persisted_operation_id_without_retrying() {
         .output()
         .expect("run with missing phone executable");
     assert!(!output.status.success());
-    let operations = fixture.operations().list();
+    let operations = fixture.operations().list().expect("operation store read");
     assert_eq!(operations.len(), 1);
     let operation = &operations[0];
     assert_eq!(operation.status, OperationStatus::Failed);
@@ -290,15 +290,15 @@ fn approve_also_applies_writes_whose_policy_does_not_require_approval() {
         .output()
         .expect("run without a GitHub executable");
     assert!(!output.status.success());
-    let operations = fixture.operations().list();
+    let operations = fixture.operations().list().expect("operation store read");
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].approval.state, ApprovalState::NotRequired);
-    assert_eq!(operations[0].status, OperationStatus::Failed);
+    assert_eq!(operations[0].status, OperationStatus::Planned);
     assert!(String::from_utf8_lossy(&output.stdout).contains(operations[0].id.as_str()));
     let audit = fixture.audit().list();
     assert_eq!(
         audit.iter().map(|event| &event.outcome).collect::<Vec<_>>(),
-        vec![&AuditOutcome::Failed, &AuditOutcome::Planned]
+        vec![&AuditOutcome::Planned]
     );
 }
 
@@ -332,7 +332,7 @@ fn approve_reports_credential_resolution_cause_with_the_operation_id() {
         .output()
         .expect("run without required credential");
     assert!(!output.status.success());
-    let operations = fixture.operations().list();
+    let operations = fixture.operations().list().expect("operation store read");
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].status, OperationStatus::Planned);
     assert_eq!(operations[0].approval.state, ApprovalState::Approved);

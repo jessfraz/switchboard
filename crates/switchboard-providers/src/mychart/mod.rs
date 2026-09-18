@@ -28,18 +28,6 @@ impl MyChartAdapter {
             catalog,
         })
     }
-
-    fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
-        ToolOutput::new(
-            action.tool.clone(),
-            action.namespace.clone(),
-            format!("{} via {} (stub)", action.summary, action.backend),
-        )
-        .with_field("status", "stub")
-        .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id().to_string())
-        .with_field("note", "mychart command execution is not wired yet")
-    }
 }
 
 impl Adapter for MyChartAdapter {
@@ -84,7 +72,10 @@ impl Adapter for MyChartAdapter {
                 )));
             }
 
-            return Ok(Self::stub_output(target, action));
+            return Err(Error::NotImplemented(format!(
+                "{} execution is not implemented",
+                action.tool
+            )));
         }
 
         Err(Error::UnsupportedTool(action.tool.to_string()))

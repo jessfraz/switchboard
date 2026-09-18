@@ -9,7 +9,7 @@ use std::{
 
 use rusqlite::Connection;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use switchboard_core::{Error, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
+use switchboard_core::{Error, ResolvedAuth, ResolvedSecret, Result, SecretRef, SecretSource, SecretString};
 
 use crate::{
     one_password_config::{has_environment_session, has_external_auth},
@@ -24,6 +24,7 @@ pub(super) struct OnePasswordSecretBackend {
     session_cache_path: Option<PathBuf>,
     item_cache_path: Option<PathBuf>,
     config: OnePasswordConfig,
+    recovery: crate::secrets::recovery::RecoveryBudget,
 }
 
 impl Default for OnePasswordSecretBackend {
@@ -38,6 +39,15 @@ impl OnePasswordSecretBackend {
     }
 
     pub(super) fn with_config(session_cache_path: Option<PathBuf>, config: OnePasswordConfig) -> Self {
+        Self::with_recovery_budget(session_cache_path, config, None)
+    }
+
+    pub(super) fn with_recovery_budget(
+        session_cache_path: Option<PathBuf>,
+        config: OnePasswordConfig,
+        run_id: Option<String>,
+    ) -> Self {
+        let recovery = crate::secrets::recovery::RecoveryBudget::new(session_cache_path.as_deref(), run_id);
         let item_cache_path = item_cache_path(session_cache_path.as_deref());
         Self {
             sessions: Mutex::new(BTreeMap::new()),
@@ -45,11 +55,170 @@ impl OnePasswordSecretBackend {
             session_cache_path,
             item_cache_path,
             config,
+            recovery,
         }
     }
 }
 
 impl SecretBackend for OnePasswordSecretBackend {
+    fn invalidate(&self, secret: &ResolvedSecret) -> Result<bool> {
+        let SecretSource::OnePasswordItem {
+            account, item, vault, ..
+        } = &secret.source
+        else {
+            return Ok(false);
+        };
+        let key = OnePasswordItemKey::new(account, vault.as_deref(), item);
+        let mut items = self
+            .items
+            .lock()
+            .map_err(|_| Error::Config("credential cache lock was poisoned".into()))?;
+        let Some(observed) = items.remove(&key) else {
+            return Ok(false);
+        };
+        drop(items);
+        // Compare the values this resolver actually used, not a later disk read:
+        // another process may already have replaced the rejected credential.
+        let observed = observed
+            .into_iter()
+            .map(|(field, value)| (field, value.expose().to_owned()))
+            .collect::<BTreeMap<_, _>>();
+        update_cache::<ItemCacheFile>(self.item_cache_path.as_deref(), |cache| {
+            if cache
+                .items
+                .get(&key.cache_key())
+                .is_some_and(|entry| entry.fields == observed)
+            {
+                cache.items.remove(&key.cache_key());
+            }
+        })
+        .map_err(|error| Error::Config(format!("could not invalidate rejected credential cache: {error}")))?;
+        Ok(true)
+    }
+
+    fn resolve_for_auth(&self, secret: &ResolvedSecret, auth: &ResolvedAuth) -> Result<SecretString> {
+        let SecretSource::OnePasswordItem {
+            account,
+            item,
+            field,
+            vault,
+        } = &secret.source
+        else {
+            return self.resolve(secret);
+        };
+        let key = OnePasswordItemKey::new(account, vault.as_deref(), item);
+        if let Some(value) = cached_item_field(&self.items, &key, field) {
+            return Ok(value);
+        }
+        if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
+            cache_item_fields(&self.items, &key, &fields);
+            if let Some(value) = fields.get(field) {
+                return Ok(value.clone());
+            }
+        }
+        // Token/session access is tried with desktop prompts explicitly disabled.
+        // A cached AppIntegration marker is not proof that the app remains unlocked.
+        let session = env_session().or_else(|| {
+            match cached_session(&self.sessions, account)
+                .or_else(|| cached_session_on_disk(self.session_cache_path.as_deref(), account))
+            {
+                Some(CachedSession::Token(token)) => Some(token),
+                _ => None,
+            }
+        });
+        let args = item_json_args(account, vault.as_deref(), item);
+        let mut config = self.config.clone();
+        config.timeout_seconds = config.timeout_seconds.min(60);
+        let run_item = |interactive: bool| -> Result<String> {
+            let mut command = op_command(&config);
+            command.env(
+                "OP_BIOMETRIC_UNLOCK_ENABLED",
+                if interactive { "true" } else { "false" },
+            );
+            if let Some(session) = session.as_deref().filter(|_| !interactive) {
+                command.args(["--session", session]);
+            }
+            command.args(&args);
+            let output = capture_op(&mut command, &config).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::TimedOut {
+                    Error::AuthenticationTimeout {
+                        seconds: config.timeout_seconds,
+                    }
+                } else {
+                    Error::SecretResolution {
+                        secret_ref: secret.id.to_string(),
+                        reason: format!("1Password credential lookup failed: {error}"),
+                    }
+                }
+            })?;
+            if !output.status.success() {
+                return Err(Error::SecretResolution {
+                    secret_ref: secret.id.to_string(),
+                    reason: format!(
+                        "1Password credential lookup failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ),
+                });
+            }
+            String::from_utf8(output.stdout).map_err(|_| Error::SecretResolution {
+                secret_ref: secret.id.to_string(),
+                reason: "1Password returned non-UTF-8 output".into(),
+            })
+        };
+        let mut recovery_attempt = None;
+        let output = match run_item(false) {
+            Ok(output) => output,
+            Err(error)
+                if has_external_auth()
+                    || matches!(
+                        config.auth_mode,
+                        OnePasswordAuthMode::ServiceAccount | OnePasswordAuthMode::Session
+                    )
+                    || env::var("OP_BIOMETRIC_UNLOCK_ENABLED")
+                        .is_ok_and(|value| value.eq_ignore_ascii_case("false")) =>
+            {
+                return Err(error)
+            }
+            Err(_) => {
+                match self.recovery.claim(auth) {
+                    Ok(attempt) => recovery_attempt = Some(attempt),
+                    Err(error @ Error::RecoveryExhausted(_)) => {
+                        // A concurrent owner may have just published the credential.
+                        if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
+                            cache_item_fields(&self.items, &key, &fields);
+                            if let Some(value) = fields.get(field) {
+                                return Ok(value.clone());
+                            }
+                        }
+                        return Err(error);
+                    }
+                    Err(error) => return Err(error),
+                }
+                // One command owns the entire human-presence attempt. No whoami,
+                // signin, or per-field retry can trigger another unlock afterward.
+                run_item(true)?
+            }
+        };
+        let ItemLookup::Fields(fields) = parse_item_fields(&output) else {
+            return Err(Error::SecretResolution {
+                secret_ref: secret.id.to_string(),
+                reason: "1Password item response was not valid JSON; no interactive retry was attempted".into(),
+            });
+        };
+        cache_item_fields(&self.items, &key, &fields);
+        warn_cache_write(
+            "item",
+            write_item_cache_entry(self.item_cache_path.as_deref(), &key, Some(&fields)),
+        );
+        drop(recovery_attempt);
+        fields.get(field).cloned().ok_or_else(|| Error::SecretResolution {
+            secret_ref: secret.id.to_string(),
+            reason: format!(
+                "1Password item did not contain configured field {field:?}; no additional unlock was attempted"
+            ),
+        })
+    }
+
     fn can_resolve(&self, secret: &ResolvedSecret) -> bool {
         matches!(secret.source, SecretSource::OnePasswordItem { .. })
     }
@@ -220,7 +389,7 @@ struct ItemCacheFile {
     items: BTreeMap<String, PersistedItemFields>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct PersistedItemFields {
     expires_at_epoch_seconds: u64,
     #[serde(default)]
@@ -2163,6 +2332,218 @@ esac
                 .count()
                 == 2,
             "expected both item lookups to run without a session token"
+        );
+    }
+
+    #[test]
+    fn rejected_credential_does_not_erase_a_concurrent_refresh() {
+        let fixture = TempFixtureDir::new();
+        let path = fixture.path.join("onepassword-sessions.json");
+        let backend = OnePasswordSecretBackend::new(Some(path));
+        let key = OnePasswordItemKey::new("account", None, "item");
+        let old = std::collections::BTreeMap::from([(
+            "credential".into(),
+            switchboard_core::SecretString::from("old".to_owned()),
+        )]);
+        super::cache_item_fields(&backend.items, &key, &old);
+        super::write_item_cache_entry(backend.item_cache_path.as_deref(), &key, Some(&old)).expect("old cache saved");
+        let replacement = std::collections::BTreeMap::from([(
+            "credential".into(),
+            switchboard_core::SecretString::from("fresh".to_owned()),
+        )]);
+        super::write_item_cache_entry(backend.item_cache_path.as_deref(), &key, Some(&replacement))
+            .expect("concurrent refresh saved");
+        let secret = switchboard_core::ResolvedSecret::new(
+            "token",
+            switchboard_core::SecretSource::OnePasswordItem {
+                account: "account".into(),
+                item: "item".into(),
+                field: "credential".into(),
+                vault: None,
+            },
+        )
+        .expect("secret configured");
+        backend
+            .invalidate(&secret)
+            .expect("old rejected observation invalidated");
+        let current =
+            super::cached_item_fields_on_disk(backend.item_cache_path.as_deref(), &key).expect("fresh cache survives");
+        assert_eq!(current.get("credential").expect("field present").expose(), "fresh");
+    }
+
+    #[test]
+    fn human_presence_timeout_consumes_the_run_budget() {
+        let _lock = ENV_LOCK.lock().expect("environment lock");
+        let fixture = TempFixtureDir::new();
+        let script = fixture.write_executable(
+            "op.sh",
+            r#"#!/bin/sh
+[ "$OP_BIOMETRIC_UNLOCK_ENABLED" = true ] || exit 1
+printf '%s\n' 'unlock' >> "$(dirname "$0")/attempts"
+sleep 3
+"#,
+        );
+        let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", script.into_os_string());
+        let _desktop = EnvVarGuard::remove("OP_BIOMETRIC_UNLOCK_ENABLED");
+        let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
+        let _connect = EnvVarGuard::remove("OP_CONNECT_HOST");
+        let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
+        let cache = fixture.path.join("onepassword-sessions.json");
+        let secret = switchboard_core::ResolvedSecret::new(
+            "token",
+            switchboard_core::SecretSource::OnePasswordItem {
+                account: "account".into(),
+                item: "item".into(),
+                field: "credential".into(),
+                vault: None,
+            },
+        )
+        .expect("secret configured");
+        let auth = switchboard_core::ResolvedAuth::new(
+            "github.personal",
+            "example",
+            switchboard_core::AuthSecretRefs::GitHubCli,
+        )
+        .expect("auth configured");
+        let config = crate::OnePasswordConfig {
+            timeout_seconds: 1,
+            ..Default::default()
+        };
+        let first = OnePasswordSecretBackend::with_recovery_budget(
+            Some(cache.clone()),
+            config.clone(),
+            Some("timeout-run".into()),
+        );
+        assert!(matches!(
+            first.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::AuthenticationTimeout { seconds: 1 })
+        ));
+        let second = OnePasswordSecretBackend::with_recovery_budget(Some(cache), config, Some("timeout-run".into()));
+        assert!(matches!(
+            second.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::RecoveryExhausted(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(fixture.path.join("attempts"))
+                .expect("attempt log")
+                .lines()
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn scoped_recovery_coalesces_and_failed_attempts_are_not_repeated() {
+        let _lock = ENV_LOCK.lock().expect("recovery fixture should succeed");
+        let fixture = TempFixtureDir::new();
+        let script = fixture.write_executable(
+            "op.sh",
+            r#"#!/bin/sh
+printf '%s\n' "$OP_BIOMETRIC_UNLOCK_ENABLED" >> "$(dirname "$0")/attempts"
+[ "$OP_BIOMETRIC_UNLOCK_ENABLED" = true ] || exit 1
+[ ! -f "$(dirname "$0")/fail" ] || exit 1
+sleep 0.2
+printf '%s\n' '{"fields":[{"label":"credential","value":"fixture-value"}]}'
+"#,
+        );
+        let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", script.into_os_string());
+        let _session = EnvVarGuard::remove("OP_SESSION");
+        let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
+        let _connect = EnvVarGuard::remove("OP_CONNECT_HOST");
+        let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
+        let cache = fixture.path.join("onepassword-sessions.json");
+        let secret = switchboard_core::ResolvedSecret::new(
+            "github-token",
+            switchboard_core::SecretSource::OnePasswordItem {
+                account: "account".into(),
+                item: "item".into(),
+                field: "credential".into(),
+                vault: None,
+            },
+        )
+        .expect("recovery fixture should succeed");
+        let auth = switchboard_core::ResolvedAuth::new(
+            "github.personal",
+            "example",
+            switchboard_core::AuthSecretRefs::GitHubCli,
+        )
+        .expect("recovery fixture should succeed");
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| {
+                OnePasswordSecretBackend::with_recovery_budget(
+                    Some(cache.clone()),
+                    crate::OnePasswordConfig::default(),
+                    Some("run".into()),
+                )
+                .resolve_for_auth(&secret, &auth)
+            });
+            let second = scope.spawn(|| {
+                OnePasswordSecretBackend::with_recovery_budget(
+                    Some(cache.clone()),
+                    crate::OnePasswordConfig::default(),
+                    Some("run".into()),
+                )
+                .resolve_for_auth(&secret, &auth)
+            });
+            assert_eq!(
+                first
+                    .join()
+                    .expect("recovery fixture should succeed")
+                    .expect("recovery fixture should succeed")
+                    .expose(),
+                "fixture-value"
+            );
+            assert_eq!(
+                second
+                    .join()
+                    .expect("recovery fixture should succeed")
+                    .expect("recovery fixture should succeed")
+                    .expose(),
+                "fixture-value"
+            );
+        });
+        let attempts = fs::read_to_string(fixture.path.join("attempts")).expect("recovery fixture should succeed");
+        assert_eq!(attempts.lines().filter(|line| *line == "true").count(), 1);
+        let reopened = OnePasswordSecretBackend::with_recovery_budget(
+            Some(cache.clone()),
+            crate::OnePasswordConfig::default(),
+            Some("run".into()),
+        );
+        assert_eq!(
+            reopened
+                .resolve_for_auth(&secret, &auth)
+                .expect("recovery fixture should succeed")
+                .expose(),
+            "fixture-value"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.path.join("attempts")).expect("recovery fixture should succeed"),
+            attempts
+        );
+        reopened.invalidate(&secret).expect("recovery fixture should succeed");
+        fs::write(fixture.path.join("fail"), "").expect("recovery fixture should succeed");
+        let failed = OnePasswordSecretBackend::with_recovery_budget(
+            Some(cache.clone()),
+            crate::OnePasswordConfig::default(),
+            Some("failed-run".into()),
+        );
+        assert!(failed.resolve_for_auth(&secret, &auth).is_err());
+        let retried = OnePasswordSecretBackend::with_recovery_budget(
+            Some(cache),
+            crate::OnePasswordConfig::default(),
+            Some("failed-run".into()),
+        );
+        assert!(matches!(
+            retried.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::RecoveryExhausted(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(fixture.path.join("attempts"))
+                .expect("recovery fixture should succeed")
+                .lines()
+                .filter(|line| *line == "true")
+                .count(),
+            2
         );
     }
 

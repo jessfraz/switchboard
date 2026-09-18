@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 use switchboard_core::{
-    ExecutionTarget, PlannedAction, ResolvedNamespace, Result, ToolArgumentSpec, ToolArgumentTransport,
-    ToolArgumentValueKind, ToolDescriptor, ToolOutput, ToolRequest,
+    ExecutionTarget, ExecutionTimings, PlannedAction, ResolvedNamespace, Result, ToolArgumentSpec,
+    ToolArgumentTransport, ToolArgumentValueKind, ToolDescriptor, ToolOutput, ToolRequest,
 };
 
 use crate::cli::{
@@ -85,12 +85,20 @@ impl CliDecodeStrategy {
         action: &PlannedAction,
         response: CliResponse,
     ) -> Result<ToolOutput> {
-        match self {
+        let mut timings = response.timings;
+        let started = Instant::now();
+        let mut output = match self {
             Self::JsonProjection(projection) => projection.decode(target, action, response),
             Self::RawInventory { program, prefix } => {
                 passthrough::decode_prefixed_passthrough(target, action, response, program, prefix)
             }
         }
+        .map_err(|error| {
+            switchboard_core::Error::Execution(format!("provider returned success but result decoding failed: {error}"))
+        })?;
+        timings.decode_us = Some(ExecutionTimings::elapsed_us(started));
+        output.timings = Some(timings);
+        Ok(output)
     }
 }
 
@@ -114,6 +122,7 @@ impl CliCommandSpec {
 }
 
 pub(crate) struct CliResponse {
+    pub timings: ExecutionTimings,
     pub program: PathBuf,
     pub version: String,
     pub stdout: String,

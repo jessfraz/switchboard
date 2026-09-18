@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 use switchboard_core::{
-    BackendKind, NamespaceId, ProviderKind, RegisteredTool, ResolvedNamespace, ToolArgumentSpec, ToolExecutionSupport,
-    ToolKind, ToolName, ToolSurface, ToolUndoSupport,
+    BackendKind, NamespaceId, ProviderKind, RegisteredTool, ResolvedNamespace, ToolArgumentSpec, ToolArgumentValueKind,
+    ToolExecutionSupport, ToolKind, ToolName, ToolSurface, ToolUndoSupport,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -64,6 +66,187 @@ impl From<&RegisteredTool> for ToolCatalogEntry {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct CatalogPagination {
+    pub limit_argument: &'static str,
+    pub cursor_argument: &'static str,
+    pub coverage_field: &'static str,
+    pub default_limit: u32,
+    pub max_limit: u32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RawFallback {
+    /// A concrete example, not a substitution for the caller's original inputs.
+    pub argv: Vec<String>,
+    pub purpose: &'static str,
+}
+
+/// The execution envelope. Provider payloads whose shape depends on
+/// native argv remain unconstrained instead of promising a made-up schema.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct OutputSchema {
+    #[serde(rename = "type", skip_serializing_if = "Vec::is_empty")]
+    types: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'static str>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    properties: BTreeMap<&'static str, OutputSchema>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    required: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    items: Option<Box<OutputSchema>>,
+    #[serde(rename = "enum", skip_serializing_if = "Vec::is_empty")]
+    values: Vec<&'static str>,
+}
+
+impl OutputSchema {
+    fn value(types: &[&'static str]) -> Self {
+        Self {
+            types: types.to_vec(),
+            ..Self::default()
+        }
+    }
+    fn object(properties: impl IntoIterator<Item = (&'static str, Self)>, required: &[&'static str]) -> Self {
+        Self {
+            properties: properties.into_iter().collect(),
+            required: required.to_vec(),
+            ..Self::value(&["object"])
+        }
+    }
+    fn array(items: Self) -> Self {
+        Self {
+            items: Some(Box::new(items)),
+            ..Self::value(&["array"])
+        }
+    }
+    fn enumeration(values: &[&'static str]) -> Self {
+        Self {
+            values: values.to_vec(),
+            ..Self::value(&["string"])
+        }
+    }
+}
+
+fn output_schema(tool: &RegisteredTool) -> OutputSchema {
+    let fields = if tool.name.as_str() == "google.mail.search" {
+        let message = OutputSchema::object(
+            [
+                ("gmail_message_id", OutputSchema::value(&["string"])),
+                ("from", OutputSchema::value(&["string", "null"])),
+                ("subject", OutputSchema::value(&["string", "null"])),
+                ("date", OutputSchema::value(&["string", "null"])),
+                (
+                    "labels",
+                    OutputSchema {
+                        types: vec!["array", "null"],
+                        items: Some(Box::new(OutputSchema::value(&["string"]))),
+                        ..OutputSchema::default()
+                    },
+                ),
+            ],
+            &["gmail_message_id", "from", "subject", "date", "labels"],
+        );
+        OutputSchema::object(
+            [
+                ("status", OutputSchema::enumeration(&["ok", "partial"])),
+                ("query", OutputSchema::value(&["string"])),
+                ("count", OutputSchema::value(&["integer"])),
+                ("messages", OutputSchema::array(message)),
+                ("result_size_estimate", OutputSchema::value(&["integer", "null"])),
+                (
+                    "failures",
+                    OutputSchema::array(OutputSchema::object(
+                        [
+                            ("code", OutputSchema::value(&["string"])),
+                            ("message", OutputSchema::value(&["string"])),
+                            ("retryable", OutputSchema::value(&["boolean"])),
+                        ],
+                        &["code", "message", "retryable"],
+                    )),
+                ),
+            ],
+            &[
+                "status",
+                "query",
+                "count",
+                "messages",
+                "result_size_estimate",
+                "failures",
+            ],
+        )
+    } else if tool.surface == ToolSurface::Raw {
+        OutputSchema::object(
+            [
+                (
+                    "response",
+                    OutputSchema {
+                        description: Some("Native JSON response, unconstrained by Switchboard."),
+                        ..OutputSchema::default()
+                    },
+                ),
+                ("stdout_text", OutputSchema::value(&["string"])),
+                ("cli_stderr", OutputSchema::value(&["string"])),
+            ],
+            &[],
+        )
+    } else {
+        OutputSchema {
+            description: Some("Provider-specific fields; only the execution envelope is described here."),
+            ..OutputSchema::value(&["object"])
+        }
+    };
+    let mut schema = OutputSchema::object(
+        [
+            ("schema_version", OutputSchema::value(&["integer"])),
+            ("status", OutputSchema::enumeration(&["executed", "partial"])),
+            ("tool", OutputSchema::value(&["string"])),
+            ("namespace", OutputSchema::value(&["string"])),
+            ("summary", OutputSchema::value(&["string"])),
+            ("fields", fields),
+            (
+                "refs",
+                OutputSchema::array(OutputSchema::object(
+                    [
+                        ("provider", OutputSchema::value(&["string"])),
+                        ("namespace", OutputSchema::value(&["string"])),
+                        ("kind", OutputSchema::value(&["string"])),
+                        ("id", OutputSchema::value(&["string"])),
+                    ],
+                    &["provider", "namespace", "kind", "id"],
+                )),
+            ),
+        ],
+        &[
+            "schema_version",
+            "status",
+            "tool",
+            "namespace",
+            "summary",
+            "fields",
+            "refs",
+        ],
+    );
+    schema.description = Some("Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.");
+    if tool.name.as_str() == "google.mail.search" {
+        schema.properties.insert(
+            "coverage",
+            OutputSchema::object(
+                [
+                    (
+                        "status",
+                        OutputSchema::enumeration(&["complete", "truncated", "unknown"]),
+                    ),
+                    ("next_cursor", OutputSchema::value(&["string", "null"])),
+                ],
+                &["status", "next_cursor"],
+            ),
+        );
+        schema.required.push("coverage");
+    }
+    schema
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct ToolCatalogDetail {
     pub name: ToolName,
     pub provider: ProviderKind,
@@ -79,6 +262,12 @@ pub struct ToolCatalogDetail {
     pub available_namespaces: Vec<NamespaceId>,
     pub notes: Vec<String>,
     pub examples: Vec<String>,
+    pub scope_guidance: Vec<String>,
+    pub output_schema: OutputSchema,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pagination: Option<CatalogPagination>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_fallback: Option<RawFallback>,
 }
 
 impl ToolCatalogDetail {
@@ -98,6 +287,26 @@ impl ToolCatalogDetail {
         ];
         if tool.execution_support == ToolExecutionSupport::PlanningOnly {
             notes.push("execution is not wired yet, this tool currently plans cleanly but will not apply".to_owned());
+        }
+        let scope_guidance = scope_guidance(tool);
+        notes.extend(scope_guidance.iter().map(|scope| format!("Permissions: {scope}")));
+        let pagination = (tool.name.as_str() == "google.mail.search").then_some(CatalogPagination {
+            limit_argument: "max",
+            cursor_argument: "cursor",
+            coverage_field: "coverage",
+            default_limit: 20,
+            max_limit: 500,
+        });
+        if pagination.is_some() {
+            notes.push("--max is 1..500 (default 20); continue with --cursor from coverage.next_cursor. coverage.status distinguishes complete, truncated, and unknown; fields.status=partial reports per-message failures.".into());
+        }
+        let raw_fallback = raw_fallback(tool, &example_namespace);
+        if let Some(fallback) = &raw_fallback {
+            notes.push(format!(
+                "Raw fallback ({}): {}",
+                fallback.purpose,
+                shell_command(&fallback.argv)
+            ));
         }
         let examples = if raw {
             notes.push(
@@ -126,22 +335,137 @@ impl ToolCatalogDetail {
             available_namespaces,
             notes,
             examples,
+            scope_guidance,
+            output_schema: output_schema(tool),
+            pagination,
+            raw_fallback,
         }
     }
 }
 
 fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
-    if tool.name.as_str() == "phone.call.run" {
-        return vec![format!("switchboard phone.call.run --ns {namespace} --draft --destination +12125550100 --caller-name Example --task 'Ask for opening hours' --max-duration-seconds 300"), "switchboard op approve <operation-id> --apply".into()];
+    let mut argv = vec![
+        "switchboard".into(),
+        tool.name.to_string(),
+        "--ns".into(),
+        namespace.into(),
+        match tool.kind {
+            ToolKind::Read => "--json",
+            ToolKind::Write => "--draft",
+        }
+        .into(),
+    ];
+    for argument in tool.arguments.iter().filter(|argument| argument.required) {
+        argv.push(format!("--{}", argument.name));
+        if argument.value_kind != ToolArgumentValueKind::Boolean {
+            argv.push(example_value(&argument.name, argument.value_kind).into());
+        }
     }
-    if tool.provider == ProviderKind::Phone {
-        return vec![format!("switchboard {} --ns {namespace} --json", tool.name)];
+    if tool.name.as_str() == "google.drive.search" {
+        argv.extend(["--query".into(), "name contains 'example'".into()]);
     }
-    let mode_flag = match tool.kind {
-        ToolKind::Read => "--json",
-        ToolKind::Write => "--draft",
+    vec![shell_command(&argv)]
+}
+
+fn example_value(name: &str, kind: ToolArgumentValueKind) -> &str {
+    if kind == ToolArgumentValueKind::Json {
+        return "{}";
+    }
+    match name {
+        "query" => "newer_than:7d",
+        "max" | "limit" => "20",
+        "repo" => "owner/repo",
+        "number" => "123",
+        "to" | "email" => "recipient@example.invalid",
+        "subject" | "summary" | "title" => "Example reminder",
+        "body" | "text" | "task" => "Ask for opening hours",
+        "start" => "2026-10-01T09:00:00-05:00",
+        "end" => "2026-10-01T10:00:00-05:00",
+        "calendar" | "calendar-id" => "primary",
+        "destination" => "+12125550100",
+        "caller-name" => "Example",
+        "max-duration-seconds" => "300",
+        _ => "example-id",
+    }
+}
+
+fn shell_command(argv: &[String]) -> String {
+    argv.iter()
+        .map(|argument| {
+            if argument
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "_./:@+=,-".contains(character))
+            {
+                argument.clone()
+            } else {
+                format!("'{}'", argument.replace('\'', "'\"'\"'"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn scope_guidance(tool: &RegisteredTool) -> Vec<String> {
+    let guidance = match tool.name.as_str() {
+        "google.mail.search" | "google.mail.read" => "Gmail read access: gmail.readonly or gmail.modify.",
+        "google.mail.draft" => "Gmail draft access: gmail.compose or gmail.modify.",
+        "google.calendar.list" => "Calendar read access: calendar.readonly or calendar.",
+        "google.calendar.create" | "google.calendar.delete" => "Calendar event write access: calendar.events or calendar.",
+        "google.drive.search" => "Drive metadata read access: drive.metadata.readonly, drive.readonly, or drive.",
+        _ => match tool.provider {
+            ProviderKind::GoogleWorkspace => "Scopes depend on the native service/method; inspect its native schema/help and use gws auth login service flags when authorizing.",
+            ProviderKind::GitHub => "Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint.",
+            ProviderKind::MyChart => "Access depends on the configured account's granted FHIR resources and scopes.",
+            ProviderKind::Phone => "The configured phone namespace supplies provider credentials; no OAuth scopes are requested by catalog discovery.",
+            _ => "Access depends on the configured namespace and native command.",
+        },
     };
-    vec![format!("switchboard {} --ns {namespace} {mode_flag} ...", tool.name)]
+    vec![guidance.into()]
+}
+
+/// Return a concrete native CLI discovery or read example. This never executes
+/// the fallback, and never claims to preserve the caller's query arguments.
+pub fn raw_fallback(tool: &RegisteredTool, namespace: &str) -> Option<RawFallback> {
+    if tool.surface == ToolSurface::Raw || tool.provider == ProviderKind::Phone {
+        return None;
+    }
+    let (tail, purpose): (Vec<&str>, _) = match tool.name.as_str() {
+        "google.mail.search" => (
+            vec![
+                "gmail",
+                "users",
+                "messages",
+                "list",
+                "--params",
+                r#"{"userId":"me","q":"newer_than:7d","maxResults":20}"#,
+            ],
+            "read example; replace query, limit, and pageToken as needed",
+        ),
+        "google.drive.search" => (
+            vec![
+                "drive",
+                "files",
+                "list",
+                "--params",
+                r#"{"q":"trashed = false and name contains 'example'","pageSize":20}"#,
+            ],
+            "read example; replace Drive query and pageToken as needed",
+        ),
+        _ => (
+            vec!["--help"],
+            "native command discovery; select the corresponding method and arguments",
+        ),
+    };
+    let mut argv = vec![
+        "switchboard".into(),
+        format!("{}.cli.read", tool.provider),
+        "--ns".into(),
+        namespace.into(),
+        "--json".into(),
+        "--".into(),
+    ];
+    argv.extend(tail.into_iter().map(str::to_owned));
+    Some(RawFallback { argv, purpose })
 }
 
 fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
@@ -150,51 +474,25 @@ fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
     }
 
     if let Some(path) = inventory_raw_tool_path(&tool.name) {
-        let command = path.join(" ");
-        return match tool.kind {
-            ToolKind::Read => vec![
-                format!("switchboard {} --ns {namespace} --json -- --format json", tool.name),
-                format!(
-                    "switchboard {} --ns {namespace} --argv-json '[\"--format\",\"json\"]' --json",
-                    tool.name
-                ),
-                format!("# fixed CLI path: {command}"),
-            ],
-            ToolKind::Write => vec![
-                format!(
-                    "switchboard {} --ns {namespace} --draft -- --format json ...",
-                    tool.name
-                ),
-                format!(
-                    "switchboard {} --ns {namespace} --argv-json '[\"--format\",\"json\",...]' --apply --json",
-                    tool.name
-                ),
-                format!("# fixed CLI path: {command}"),
-            ],
+        let mode = if tool.kind == ToolKind::Write {
+            "--draft"
+        } else {
+            "--json"
         };
+        return vec![
+            format!("switchboard {} --ns {namespace} {mode} -- --help", tool.name),
+            format!(
+                "# fixed CLI path: {}; --help after -- is forwarded to the native command",
+                path.join(" ")
+            ),
+        ];
     }
 
     match (tool.provider.clone(), tool.kind) {
-        (ProviderKind::GoogleWorkspace, ToolKind::Read) => vec![
-            format!(
-                "switchboard {} --ns {namespace} --json -- calendar +agenda --format json --today",
-                tool.name
-            ),
-            format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"gmail\",\"users\",\"messages\",\"list\",\"--query\",\"from:finance\",\"--format\",\"json\"]' --json",
-                tool.name
-            ),
-        ],
-        (ProviderKind::GoogleWorkspace, ToolKind::Write) => vec![
-            format!(
-                "switchboard {} --ns {namespace} --draft -- gmail users drafts create --params '{{\"userId\":\"me\"}}' --json '{{\"message\":{{\"raw\":\"SGVsbG8=\"}}}}' --format json",
-                tool.name
-            ),
-            format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"calendar\",\"events\",\"insert\",\"--summary\",\"Vet visit\",\"--start\",\"2026-04-01T09:00:00-07:00\",\"--end\",\"2026-04-01T10:00:00-07:00\",\"--format\",\"json\"]' --apply --json",
-                tool.name
-            ),
-        ],
+        (ProviderKind::GoogleWorkspace, ToolKind::Read) => vec![format!(
+            "switchboard {} --ns {namespace} --json -- gmail users messages list --params '{{\"userId\":\"me\",\"q\":\"newer_than:7d\",\"maxResults\":20}}'", tool.name)],
+        (ProviderKind::GoogleWorkspace, ToolKind::Write) => vec![format!(
+            "switchboard {} --ns {namespace} --draft -- calendar events insert --params '{{\"calendarId\":\"primary\"}}' --json '{{\"summary\":\"Example reminder\",\"start\":{{\"dateTime\":\"2026-10-01T09:00:00-05:00\"}},\"end\":{{\"dateTime\":\"2026-10-01T10:00:00-05:00\"}}}}'", tool.name)],
         (ProviderKind::GitHub, ToolKind::Read) => vec![
             format!(
                 "switchboard {} --ns {namespace} --json -- repo view owner/repo --json name,visibility,defaultBranchRef",
@@ -211,7 +509,7 @@ fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
                 tool.name
             ),
             format!(
-                "switchboard {} --ns {namespace} --argv-json '[\"issue\",\"edit\",\"77\",\"--add-label\",\"triage\"]' --apply --json",
+                "switchboard {} --ns {namespace} --argv-json '[\"issue\",\"edit\",\"77\",\"--add-label\",\"triage\"]' --draft --json",
                 tool.name
             ),
         ],
@@ -237,7 +535,7 @@ fn raw_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
                 mychart_example_namespace(namespace)
             ),
         ],
-        (_, _) => vec![format!("switchboard {} --ns {namespace} -- ...", tool.name)],
+        (_, _) => vec![format!("switchboard {} --ns {namespace} --json -- --help", tool.name)],
     }
 }
 

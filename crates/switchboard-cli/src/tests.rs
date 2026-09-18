@@ -390,11 +390,6 @@ struct GitHubPullRequestPayload {
     labels: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct StubStatusFields {
-    status: String,
-}
-
 fn parse_json<T: DeserializeOwned>(output: &str) -> T {
     serde_json::from_str(output).expect("output should be valid json")
 }
@@ -435,17 +430,6 @@ fn non_empty_capture_field(fields: &BTreeMap<String, String>, key: &str) -> Opti
     fields
         .get(key)
         .and_then(|value| if value.is_empty() { None } else { Some(value.clone()) })
-}
-
-fn parse_output_fields<T: DeserializeOwned>(output: &switchboard_core::ToolOutput) -> T {
-    serde_json::from_value(serde_json::Value::Object(
-        output
-            .fields
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-    ))
-    .expect("tool output fields should deserialize")
 }
 
 #[test]
@@ -599,7 +583,7 @@ fn operation_approval_flow_can_approve_and_apply_planned_writes() {
     assert!(
         environment
             .gws_capture_contents()
-            .contains("ARGV=calendar +insert --format json --summary Budget review"),
+            .contains("ARGV=calendar events insert --params"),
         "expected calendar insert command to run after approval"
     );
 }
@@ -1614,7 +1598,7 @@ fn repeated_argv_accepts_dash_prefixed_passthrough_tokens() {
 }
 
 #[test]
-fn unwired_read_requests_execute_into_stub_results() {
+fn unwired_read_requests_report_unsupported() {
     let environment = TestEnvironment::new();
     let switchboard = super::load_switchboard(Some(environment.path())).expect("switchboard should build");
     let request = ToolRequest::new(
@@ -1625,16 +1609,33 @@ fn unwired_read_requests_execute_into_stub_results() {
     )
     .expect("request should parse");
 
-    let outcome = switchboard.dispatch(request).expect("dispatch should succeed");
-    match outcome {
-        DispatchOutcome::Executed(output) => {
-            let fields: StubStatusFields = parse_output_fields(&output);
-            assert_eq!(fields.status, "stub");
-        }
-        DispatchOutcome::Planned(_) => {
-            panic!("read requests should execute by default");
-        }
+    let error = switchboard.dispatch(request).expect_err("unwired reads cannot execute");
+    assert!(matches!(error, switchboard_core::Error::NotImplemented(_)));
+    #[derive(serde::Deserialize)]
+    struct FailureResponse {
+        schema_version: u32,
+        failure: switchboard_core::Failure,
+        raw_fallback: Fallback,
     }
+    #[derive(serde::Deserialize)]
+    struct Fallback {
+        argv: Vec<String>,
+        purpose: String,
+    }
+    let rendered = crate::output::render_json_error_for_tool(
+        &anyhow::Error::new(error),
+        Some(NamespaceId::new("google.work").expect("namespace should parse")),
+        Some(&ToolName::new("google.drive.search").expect("tool should parse")),
+    );
+    let failure: FailureResponse = serde_json::from_str(&rendered).expect("typed failure should decode");
+    assert_eq!(failure.schema_version, 1);
+    assert_eq!(failure.failure.code, switchboard_core::FailureCode::Unsupported);
+    assert_eq!(
+        failure.raw_fallback.argv[..6],
+        ["switchboard", "google.cli.read", "--ns", "google.work", "--json", "--"]
+    );
+    assert!(failure.raw_fallback.purpose.contains("example"));
+    assert!(environment.gws_capture_contents().is_empty());
 }
 
 #[test]
@@ -1975,6 +1976,53 @@ fn valueless_flags_flow_through_to_real_cli_backends() {
             .contains("ARGV=calendar +agenda --format json --today"),
         "expected --today to reach gws"
     );
+}
+
+#[test]
+fn aggregate_json_preserves_partial_metadata_status_and_successful_accounts() {
+    use switchboard_core::{AggregateReadOutcome, AggregateReadResult, ReadCoverage};
+
+    let tool = ToolName::new("google.mail.search").expect("tool should parse");
+    let complete_ns = NamespaceId::new("google.personal").expect("namespace should parse");
+    let partial_ns = NamespaceId::new("google.work").expect("namespace should parse");
+    let mut complete = ToolOutput::new(tool.clone(), complete_ns.clone(), "complete account");
+    complete.coverage = Some(ReadCoverage::page(None));
+    let mut partial = ToolOutput::new(tool.clone(), partial_ns.clone(), "metadata unavailable");
+    partial.coverage = Some(ReadCoverage::default());
+    let outcome = OperationOutcome::AggregateRead(AggregateReadOutcome {
+        tool,
+        namespaces: vec![complete_ns.clone(), partial_ns.clone()],
+        results: vec![
+            AggregateReadResult {
+                namespace: complete_ns,
+                outcome: Ok(DispatchOutcome::Executed(complete)),
+            },
+            AggregateReadResult {
+                namespace: partial_ns,
+                outcome: Ok(DispatchOutcome::Executed(partial)),
+            },
+        ],
+    });
+    #[derive(Deserialize)]
+    struct Report {
+        status: String,
+        results: Vec<AccountResult>,
+    }
+    #[derive(Deserialize)]
+    struct AccountResult {
+        outcome: AccountOutput,
+    }
+    #[derive(Deserialize)]
+    struct AccountOutput {
+        status: String,
+    }
+    let rendered = crate::output::render_json_operation(&outcome).expect("report should render");
+    let report: Report = serde_json::from_str(&rendered).expect("report should decode");
+    assert_eq!(report.status, "partial");
+    assert_eq!(report.results.len(), 2);
+    assert_eq!(report.results[0].outcome.status, "executed");
+    assert_eq!(report.results[1].outcome.status, "partial");
+    assert!(!crate::output::operation_complete(&outcome));
 }
 
 #[test]

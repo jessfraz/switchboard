@@ -257,6 +257,9 @@ pub(crate) fn render_stored_operation_human(operation: &StoredOperation) -> Stri
     if let Some(reason) = &operation.failure_reason {
         output.push_str(&format!("Failure: {reason}\n"));
     }
+    if let Some(receipt) = &operation.verification {
+        output.push_str(&format!("Verification: {:?}: {}\n", receipt.status, receipt.summary));
+    }
     if let Some(effect) = &operation.effect {
         output.push_str(&render_effect_human(effect));
     }
@@ -331,6 +334,15 @@ pub(crate) fn render_output_human(output: &ToolOutput) -> String {
     }
     if let Some(effect) = &output.effect {
         rendered.push_str(&render_effect_human(effect));
+    }
+    if let Some(receipt) = &output.verification {
+        rendered.push_str(&format!("Verification: {:?}: {}\n", receipt.status, receipt.summary));
+    }
+    if let Some(coverage) = &output.coverage {
+        rendered.push_str(&format!("Coverage: {:?}\n", coverage.status));
+        if let Some(cursor) = &coverage.next_cursor {
+            rendered.push_str(&format!("Next cursor: {cursor}\n"));
+        }
     }
 
     rendered
@@ -447,6 +459,9 @@ pub(crate) fn render_approval_state(state: ApprovalState) -> &'static str {
 pub(crate) fn render_operation_status(status: switchboard_core::OperationStatus) -> &'static str {
     match status {
         switchboard_core::OperationStatus::Planned => "planned",
+        switchboard_core::OperationStatus::Executing => "executing",
+        switchboard_core::OperationStatus::Uncertain => "uncertain",
+        switchboard_core::OperationStatus::Verified => "verified",
         switchboard_core::OperationStatus::Applied => "applied",
         switchboard_core::OperationStatus::Failed => "failed",
         switchboard_core::OperationStatus::Compensated => "compensated",
@@ -482,7 +497,10 @@ pub(crate) fn render_aggregate_read_human(outcome: &AggregateReadOutcome) -> Str
         output.push('\n');
         output.push_str(&format!("[{}]\n", result.namespace));
 
-        let rendered = render_dispatch_human(&result.outcome);
+        let rendered = match &result.outcome {
+            Ok(outcome) => render_dispatch_human(outcome),
+            Err(error) => format!("Failed: {}\n", error.message),
+        };
         for line in rendered.lines() {
             output.push_str(&format!("  {line}\n"));
         }
@@ -496,7 +514,15 @@ pub(crate) fn render_json_operation(outcome: &OperationOutcome) -> Result<String
         OperationOutcome::Single(outcome) => render_json_dispatch(outcome),
         OperationOutcome::AggregateRead(outcome) => render_json(
             &AggregateReadResponse {
-                status: "aggregate_read",
+                status: if outcome
+                    .results
+                    .iter()
+                    .all(|r| r.outcome.as_ref().is_ok_and(dispatch_complete))
+                {
+                    "aggregate_read"
+                } else {
+                    "partial"
+                },
                 tool: &outcome.tool,
                 namespaces: &outcome.namespaces,
                 results: outcome
@@ -504,7 +530,8 @@ pub(crate) fn render_json_operation(outcome: &OperationOutcome) -> Result<String
                     .iter()
                     .map(|result| AggregateReadResultResponse {
                         namespace: &result.namespace,
-                        outcome: DispatchResponse::from(&result.outcome),
+                        outcome: result.outcome.as_ref().ok().map(DispatchResponse::from),
+                        failure: result.outcome.as_ref().err(),
                     })
                     .collect(),
             },
@@ -520,10 +547,55 @@ pub(crate) fn render_json_dispatch(outcome: &DispatchOutcome) -> Result<String> 
     }
 }
 
-pub(crate) fn render_json_error(message: &str) -> String {
+pub(crate) fn render_output_result(output: &ToolOutput, json: bool) -> Result<String> {
+    let text = if json {
+        render_json(&DispatchResponse::from_output(output), true)?
+    } else {
+        render_output_human(output)
+    };
+    require_complete(text, output_complete(output))
+}
+
+pub(crate) fn render_json_error(error: &anyhow::Error) -> String {
+    render_json_error_in_namespace(error, None)
+}
+
+pub(crate) fn render_json_error_in_namespace(error: &anyhow::Error, namespace: Option<NamespaceId>) -> String {
+    render_json_error_for_tool(error, namespace, None)
+}
+
+pub(crate) fn render_json_error_for_tool(
+    error: &anyhow::Error,
+    namespace: Option<NamespaceId>,
+    tool: Option<&ToolName>,
+) -> String {
+    let message = error.to_string();
+    let mut failure = error
+        .downcast_ref::<switchboard_core::Error>()
+        .map(switchboard_core::Failure::from_error)
+        .unwrap_or_else(|| {
+            switchboard_core::Failure::from_error(&switchboard_core::Error::InvalidArguments(message.clone()))
+        });
+    if let Some(namespace) = namespace {
+        failure = failure.with_namespace(namespace);
+    }
+    let raw_fallback = if failure.code == switchboard_core::FailureCode::Unsupported {
+        tool.zip(failure.namespace.as_ref()).and_then(|(tool, namespace)| {
+            let descriptor = switchboard_providers::default_registry()
+                .ok()?
+                .describe_tool(tool)
+                .ok()??;
+            crate::catalog::raw_fallback(&descriptor, namespace.as_str())
+        })
+    } else {
+        None
+    };
     match serde_json::to_string_pretty(&ErrorResponse {
+        schema_version: 1,
         status: "error",
-        error: message,
+        error: &message,
+        failure,
+        raw_fallback,
     }) {
         Ok(json) => json,
         Err(_) => "{\"status\":\"error\",\"error\":\"failed to serialize error\"}".into(),
@@ -534,7 +606,63 @@ pub(crate) fn render_json<T>(value: &T, _json: bool) -> Result<String>
 where
     T: Serialize,
 {
-    serde_json::to_string_pretty(value).context("failed to serialize JSON output")
+    #[derive(Serialize)]
+    struct Versioned<'a, T> {
+        schema_version: u32,
+        #[serde(flatten)]
+        result: &'a T,
+    }
+    serde_json::to_string_pretty(&Versioned {
+        schema_version: 1,
+        result: value,
+    })
+    .context("failed to serialize JSON output")
+}
+
+#[derive(Debug)]
+pub(crate) struct IncompleteOutput(pub(crate) String);
+
+impl std::fmt::Display for IncompleteOutput {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+impl std::error::Error for IncompleteOutput {}
+
+pub(crate) fn require_complete(text: String, complete: bool) -> Result<String> {
+    if complete {
+        Ok(text)
+    } else {
+        Err(IncompleteOutput(text).into())
+    }
+}
+
+pub(crate) fn output_complete(output: &ToolOutput) -> bool {
+    !output
+        .coverage
+        .as_ref()
+        .is_some_and(|coverage| coverage.status == switchboard_core::CoverageStatus::Unknown)
+        && !output
+            .verification
+            .as_ref()
+            .is_some_and(|receipt| receipt.status == switchboard_core::VerificationStatus::Mismatch)
+}
+
+pub(crate) fn dispatch_complete(outcome: &DispatchOutcome) -> bool {
+    match outcome {
+        DispatchOutcome::Planned(_) => true,
+        DispatchOutcome::Executed(output) => output_complete(output),
+    }
+}
+
+pub(crate) fn operation_complete(outcome: &OperationOutcome) -> bool {
+    match outcome {
+        OperationOutcome::Single(outcome) => dispatch_complete(outcome),
+        OperationOutcome::AggregateRead(outcome) => outcome
+            .results
+            .iter()
+            .all(|result| result.outcome.as_ref().is_ok_and(dispatch_complete)),
+    }
 }
 
 pub(crate) fn render_clap_error(error: clap::Error, json_requested: bool) -> std::process::ExitCode {
@@ -545,7 +673,7 @@ pub(crate) fn render_clap_error(error: clap::Error, json_requested: bool) -> std
         }
         _ => {
             if json_requested {
-                println!("{}", render_json_error(&error.to_string()));
+                println!("{}", render_json_error(&anyhow::Error::new(error)));
             } else {
                 eprint!("{error}");
             }
@@ -603,9 +731,10 @@ pub(crate) struct StoredOperationResponse<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
+#[serde(untagged)]
 pub(crate) enum DispatchResponse<'a> {
     Planned {
+        status: &'static str,
         tool: &'a ToolName,
         namespace: &'a NamespaceId,
         summary: &'a str,
@@ -619,6 +748,7 @@ pub(crate) enum DispatchResponse<'a> {
         approval_reason: Option<&'a str>,
     },
     Executed {
+        status: &'static str,
         tool: &'a ToolName,
         namespace: &'a NamespaceId,
         summary: &'a str,
@@ -628,6 +758,12 @@ pub(crate) enum DispatchResponse<'a> {
         operation_id: Option<&'a switchboard_core::OperationId>,
         #[serde(skip_serializing_if = "Option::is_none")]
         effect: Option<&'a OperationEffect>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        verification: Option<&'a switchboard_core::VerificationReceipt>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        coverage: Option<&'a switchboard_core::ReadCoverage>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timings: Option<&'a switchboard_core::ExecutionTimings>,
     },
 }
 
@@ -641,6 +777,7 @@ impl<'a> DispatchResponse<'a> {
 
     pub(crate) fn from_plan(plan: &'a switchboard_core::PlannedAction) -> Self {
         Self::Planned {
+            status: "planned",
             tool: &plan.tool,
             namespace: &plan.namespace,
             summary: &plan.summary,
@@ -654,6 +791,7 @@ impl<'a> DispatchResponse<'a> {
 
     pub(crate) fn from_output(output: &'a ToolOutput) -> Self {
         Self::Executed {
+            status: if output_complete(output) { "executed" } else { "partial" },
             tool: &output.tool,
             namespace: &output.namespace,
             summary: &output.summary,
@@ -661,6 +799,9 @@ impl<'a> DispatchResponse<'a> {
             refs: &output.refs,
             operation_id: output.operation_id.as_ref(),
             effect: output.effect.as_ref(),
+            verification: output.verification.as_deref(),
+            coverage: output.coverage.as_ref(),
+            timings: output.timings.as_ref(),
         }
     }
 }
@@ -676,11 +817,18 @@ pub(crate) struct AggregateReadResponse<'a> {
 #[derive(Serialize)]
 pub(crate) struct AggregateReadResultResponse<'a> {
     namespace: &'a NamespaceId,
-    outcome: DispatchResponse<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outcome: Option<DispatchResponse<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure: Option<&'a switchboard_core::Failure>,
 }
 
 #[derive(Serialize)]
 struct ErrorResponse<'a> {
+    schema_version: u32,
+    failure: switchboard_core::Failure,
     status: &'static str,
     error: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_fallback: Option<crate::catalog::RawFallback>,
 }

@@ -195,9 +195,34 @@ impl OperationStore for MemoryOperationStore {
         })
     }
 
+    fn claim_execution(&self, id: &OperationId) -> Result<StoredOperation> {
+        self.with_operation_mut(id, |operation| {
+            operation.claim_execution()?;
+            Ok(operation.clone())
+        })
+    }
+
+    fn mark_uncertain(&self, id: &OperationId, reason: &str) -> Result<StoredOperation> {
+        self.with_operation_mut(id, |operation| {
+            operation.mark_uncertain(reason)?;
+            Ok(operation.clone())
+        })
+    }
+
+    fn record_verification(
+        &self,
+        id: &OperationId,
+        receipt: &switchboard_core::VerificationReceipt,
+    ) -> Result<StoredOperation> {
+        self.with_operation_mut(id, |operation| {
+            operation.record_verification(receipt.clone())?;
+            Ok(operation.clone())
+        })
+    }
+
     fn mark_applied(&self, id: &OperationId, output: &ToolOutput) -> Result<StoredOperation> {
         self.with_operation_mut(id, |operation| {
-            operation.mark_applied(output.effect.clone());
+            operation.mark_applied(output)?;
             Ok(operation.clone())
         })
     }
@@ -211,20 +236,20 @@ impl OperationStore for MemoryOperationStore {
 
     fn mark_compensated(&self, id: &OperationId) -> Result<StoredOperation> {
         self.with_operation_mut(id, |operation| {
-            operation.mark_compensated();
+            operation.mark_compensated()?;
             Ok(operation.clone())
         })
     }
 
-    fn get(&self, id: &OperationId) -> Option<StoredOperation> {
+    fn get(&self, id: &OperationId) -> Result<Option<StoredOperation>> {
         match self.operations.lock() {
-            Ok(operations) => operations.get(id).cloned(),
-            Err(poisoned) => poisoned.into_inner().get(id).cloned(),
+            Ok(operations) => Ok(operations.get(id).cloned()),
+            Err(poisoned) => Ok(poisoned.into_inner().get(id).cloned()),
         }
     }
 
-    fn list(&self) -> Vec<StoredOperation> {
-        self.snapshot()
+    fn list(&self) -> Result<Vec<StoredOperation>> {
+        Ok(self.snapshot())
     }
 }
 
@@ -296,6 +321,7 @@ mod tests {
                 .expect("undo summary should build"),
         );
 
+        store.claim_execution(&created.id).expect("claim succeeds");
         let applied = store
             .mark_applied(&created.id, &output)
             .expect("operation should be applied");
@@ -314,8 +340,9 @@ mod tests {
         let created = store.create(&planned_action()).expect("operation should be created");
 
         store
-            .mark_rejected(&created.id, "codex", Some("not safe"))
-            .expect("operation should be rejected");
+            .mark_approved(&created.id, "codex", Some("approved"))
+            .expect("operation should be approved");
+        store.claim_execution(&created.id).expect("claim succeeds");
 
         let failed = store
             .mark_failed(&created.id, "provider returned 403")
@@ -323,7 +350,7 @@ mod tests {
 
         assert_eq!(failed.status, OperationStatus::Failed);
         assert_eq!(failed.failure_reason.as_deref(), Some("provider returned 403"));
-        assert_eq!(failed.approval.state, ApprovalState::Rejected);
+        assert_eq!(failed.approval.state, ApprovalState::Approved);
     }
 
     fn planned_action() -> PlannedAction {

@@ -26,11 +26,26 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('-V', '-V ', [CompletionResultType]::ParameterName, 'Print version')
             [CompletionResult]::new('--version', '--version', [CompletionResultType]::ParameterName, 'Print version')
+            [CompletionResult]::new('read-batch', 'read-batch', [CompletionResultType]::ParameterValue, 'Execute bounded read-only requests with durable, resumable page results')
             [CompletionResult]::new('ns', 'ns', [CompletionResultType]::ParameterValue, 'ns')
             [CompletionResult]::new('doctor', 'doctor', [CompletionResultType]::ParameterValue, 'Inspect configuration, saved state, and CLI availability without authenticating')
+            [CompletionResult]::new('auth', 'auth', [CompletionResultType]::ParameterValue, 'Verify provider authentication or preview adoption of an existing CLI session')
             [CompletionResult]::new('tools', 'tools', [CompletionResultType]::ParameterValue, 'tools')
             [CompletionResult]::new('audit', 'audit', [CompletionResultType]::ParameterValue, 'audit')
             [CompletionResult]::new('op', 'op', [CompletionResultType]::ParameterValue, 'op')
+            break
+        }
+        'switchboard;read-batch' {
+            [CompletionResult]::new('--input', '--input', [CompletionResultType]::ParameterName, 'JSON object containing an items array of {id, tool, namespace, args}')
+            [CompletionResult]::new('--checkpoint', '--checkpoint', [CompletionResultType]::ParameterName, 'Durable results; successful pages are saved after each bounded wave')
+            [CompletionResult]::new('--concurrency', '--concurrency', [CompletionResultType]::ParameterName, 'concurrency')
+            [CompletionResult]::new('--deadline-seconds', '--deadline-seconds', [CompletionResultType]::ParameterName, 'deadline-seconds')
+            [CompletionResult]::new('--max-pages', '--max-pages', [CompletionResultType]::ParameterName, 'max-pages')
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--resume', '--resume', [CompletionResultType]::ParameterName, 'resume')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
         'switchboard;ns' {
@@ -55,6 +70,32 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'switchboard;auth' {
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Perform a read-only provider identity request and verify the configured account')
+            [CompletionResult]::new('migration-preview', 'migration-preview', [CompletionResultType]::ParameterValue, 'Show an opt-in Google CLI migration without modifying configuration or credentials')
+            break
+        }
+        'switchboard;auth;check' {
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'ns')
+            [CompletionResult]::new('--run-id', '--run-id', [CompletionResultType]::ParameterName, 'Share the one-recovery-attempt budget across commands in this task')
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'switchboard;auth;migration-preview' {
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'ns')
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--verify', '--verify', [CompletionResultType]::ParameterName, 'Verify the saved CLI session through a live read before changing config')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'switchboard;tools' {
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
@@ -64,13 +105,18 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             break
         }
         'switchboard;tools;list' {
+            [CompletionResult]::new('--provider', '--provider', [CompletionResultType]::ParameterName, 'Filter by provider identifier, for example google or github')
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'Filter by a configured namespace without resolving credentials')
+            [CompletionResult]::new('--search', '--search', [CompletionResultType]::ParameterName, 'Search tool names and summaries (case insensitive)')
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('--executable', '--executable', [CompletionResultType]::ParameterName, 'Include only tools with an implemented execution path')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
         'switchboard;tools;describe' {
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'Use this configured namespace in examples')
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
@@ -109,6 +155,7 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             [CompletionResult]::new('approve', 'approve', [CompletionResultType]::ParameterValue, 'approve')
             [CompletionResult]::new('reject', 'reject', [CompletionResultType]::ParameterValue, 'reject')
             [CompletionResult]::new('apply', 'apply', [CompletionResultType]::ParameterValue, 'apply')
+            [CompletionResult]::new('verify', 'verify', [CompletionResultType]::ParameterValue, 'Read back provider state without repeating the write')
             [CompletionResult]::new('undo', 'undo', [CompletionResultType]::ParameterValue, 'undo')
             break
         }
@@ -147,6 +194,13 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             break
         }
         'switchboard;op;apply' {
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'switchboard;op;verify' {
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')

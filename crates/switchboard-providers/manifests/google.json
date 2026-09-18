@@ -62,6 +62,7 @@
           { "kind": "literal", "value": "--query" },
           { "kind": "required_positional", "aliases": ["query"] },
           { "kind": "option", "flag": "--max", "aliases": ["max"] },
+          { "kind": "option", "flag": "--cursor", "aliases": ["cursor"] },
           { "kind": "flag", "flag": "--labels", "aliases": ["labels"] }
         ]
       },

@@ -51,7 +51,7 @@ JSON
   exit 0
 fi
 
-if [ "$1" = "calendar" ] && [ "$2" = "+insert" ]; then
+if [ "$1" = "calendar" ] && { [ "$2" = "+insert" ] || { [ "$2" = "events" ] && [ "$3" = "insert" ]; }; }; then
   cat >> "$(dirname "$0")/env.txt" <<EOF
 CONFIG_DIR=$GOOGLE_WORKSPACE_CLI_CONFIG_DIR
 CLIENT_ID=$GOOGLE_WORKSPACE_CLI_CLIENT_ID
@@ -80,6 +80,19 @@ EOF
   cat <<'JSON'
 __CALENDAR_DELETE_FIXTURE__
 JSON
+  exit 0
+fi
+
+if [ "$1" = "gmail" ] && [ "$2" = "users" ] && [ "$3" = "messages" ]; then
+  echo "ARGV=$*" >> "$(dirname "$0")/env.txt"
+  if [ "$4" = "list" ]; then
+    echo '{"messages":[{"id":"1960abc123work"},{"id":"1960abc456work"}],"resultSizeEstimate":2}'
+  else
+    case "$*" in
+      *1960abc123work*) echo '{"id":"1960abc123work","labelIds":["INBOX"],"payload":{"headers":[{"name":"Subject","value":"Car wash receipt"}]}}' ;;
+      *) echo '{"id":"1960abc456work","labelIds":["INBOX"],"payload":{"headers":[{"name":"Subject","value":"Booking details for June stay"}]}}' ;;
+    esac
+  fi
   exit 0
 fi
 

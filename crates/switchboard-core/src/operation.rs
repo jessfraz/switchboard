@@ -103,5 +103,5 @@ pub struct AggregateReadOutcome {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AggregateReadResult {
     pub namespace: NamespaceId,
-    pub outcome: DispatchOutcome,
+    pub outcome: std::result::Result<DispatchOutcome, crate::Failure>,
 }

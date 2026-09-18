@@ -170,3 +170,47 @@ switchboard google.cli.read \
 ```
 
 The point is not just forwarding argv. The point is forwarding argv through a namespace that isolates credentials and optional CLI state.
+
+## Discover commands before authentication
+
+`switchboard google.mail.search --help --json` works without a namespace,
+credentials, or an operation database. `tools describe TOOL --json` returns typed
+argument metadata, a JSON `output_schema` for single-namespace execution
+(including partial results), scope guidance, examples, and native fallback argv.
+Native provider payloads remain unconstrained where their shape depends on argv.
+
+Filter the registry before choosing a command:
+
+```bash
+switchboard tools list --provider google --executable --search mail --json
+switchboard tools list --ns github.personal --executable --json
+switchboard tools describe google.mail.search --ns google.personal --json
+```
+
+Discovery reads local configuration to resolve an explicit namespace filter;
+it does not resolve credentials, run provider binaries, or open the operation
+store. Invalid explicit namespace filters fail. Help also works when the
+configuration is absent or invalid. `--help` after the raw `--` delimiter belongs
+to the native CLI and follows normal execution policy and authentication.
+
+Gmail search accepts `--max 1..500` (default 20) and `--cursor`. Continue with
+`coverage.next_cursor`; `coverage.status` distinguishes complete, truncated, and
+unknown coverage. A partial metadata failure is reported in `fields.failures`
+and cannot be interpreted as a complete empty search.
+
+## Read execution timings
+
+Execution JSON contains `timings`, with measured wall-clock
+microseconds. `auth_us` measures credential resolution. `adapter_us` measures the
+adapter call. `execution_us` spans authentication through adapter completion,
+including a write's local operation claim; it excludes planning, final receipt
+persistence, audit, and post-write readback. These are overlapping boundaries,
+not quantities to add together.
+
+The common CLI backend also reports `locate_us`, `probe_us`, `materialize_us`,
+`provider_us`, and `decode_us`. They measure executable lookup, version/capability
+probing, child credential preparation, the provider subprocess, and decoding.
+Missing phases are unmeasured, not zero. For example, Gmail's multi-request search
+currently exposes the adapter total but does not sum overlapping metadata calls
+into a misleading provider duration. Failure receipts do not yet carry partial
+phase timings. No persistent probe cache is introduced by this instrumentation.

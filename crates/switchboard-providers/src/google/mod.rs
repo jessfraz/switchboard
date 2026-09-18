@@ -1,4 +1,7 @@
+mod calendar;
 mod materializer;
+mod search;
+mod verification;
 
 use std::fs;
 
@@ -13,24 +16,7 @@ use crate::{
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
-const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
-    "https://www.googleapis.com/auth/drive,",
-    "https://www.googleapis.com/auth/spreadsheets,",
-    "https://www.googleapis.com/auth/gmail.modify,",
-    "https://www.googleapis.com/auth/calendar,",
-    "https://www.googleapis.com/auth/documents,",
-    "https://www.googleapis.com/auth/presentations,",
-    "https://www.googleapis.com/auth/tasks,",
-    "https://www.googleapis.com/auth/contacts,",
-    "https://www.googleapis.com/auth/cloud-identity.groups,",
-    "https://www.googleapis.com/auth/cloud-platform"
-);
-const WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES: &str = concat!(
-    "https://www.googleapis.com/auth/admin.directory.user,",
-    "https://www.googleapis.com/auth/admin.directory.orgunit,",
-    "https://www.googleapis.com/auth/admin.directory.group,",
-    "https://www.googleapis.com/auth/apps.groups.settings"
-);
+const DEFAULT_AUTH_LOGIN_SERVICES: &str = "drive,sheets,gmail,calendar,docs,slides,tasks,people";
 
 pub struct GoogleWorkspaceAdapter {
     backend: CliProviderBackend,
@@ -58,11 +44,11 @@ impl GoogleWorkspaceAdapter {
             return Ok(request.clone());
         }
 
-        let scopes = if target.namespace.auth_scope_profile == AuthScopeProfile::WorkspaceAdmin {
-            format!("{DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES}")
-        } else {
-            DEFAULT_AUTH_LOGIN_SCOPES.to_owned()
-        };
+        if target.namespace.auth_scope_profile == AuthScopeProfile::WorkspaceAdmin {
+            return Err(Error::UnsupportedOperation(
+                "gws 0.22.5 cannot resolve all Workspace admin scopes through --services. Existing saved admin sessions remain usable. Run switchboard google.cli.read --ns <namespace> -- auth login --help to inspect native options; supply explicit login options only after verifying their scope coverage, or upgrade gws to support admin services".into(),
+            ));
+        }
 
         ToolRequest::new(
             request.tool.as_str(),
@@ -70,7 +56,8 @@ impl GoogleWorkspaceAdapter {
             request.mode,
             vec![ToolArgument::option(
                 "argv-json",
-                serde_json::json!(["auth", "login", "--scopes", scopes]).to_string(),
+                serde_json::to_string(&["auth", "login", "--full", "--services", DEFAULT_AUTH_LOGIN_SERVICES])
+                    .map_err(|error| Error::InvalidArguments(error.to_string()))?,
             )?],
         )
     }
@@ -101,7 +88,7 @@ impl GoogleWorkspaceAdapter {
             .get("user")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| Error::Execution("gws auth status did not report an authenticated user".into()))?;
-        let expected = target.namespace.account_label.trim();
+        let expected = target.auth.account_label().trim();
 
         if expected.contains('@') && !actual.eq_ignore_ascii_case(expected) {
             return Err(Error::Execution(format!(
@@ -129,18 +116,6 @@ impl GoogleWorkspaceAdapter {
             ))),
         }
     }
-
-    fn stub_output(target: &ExecutionTarget, action: &PlannedAction) -> ToolOutput {
-        ToolOutput::new(
-            action.tool.clone(),
-            action.namespace.clone(),
-            format!("{} via {} (stub)", action.summary, action.backend),
-        )
-        .with_field("status", "stub")
-        .with_field("backend", action.backend.to_string())
-        .with_field("auth", target.auth.id().to_string())
-        .with_field("note", "google workspace command execution is not wired yet")
-    }
 }
 
 impl Adapter for GoogleWorkspaceAdapter {
@@ -163,6 +138,7 @@ impl Adapter for GoogleWorkspaceAdapter {
             .find_command(request.tool.as_str())
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let request = Self::request_with_google_auth_defaults(target, request)?;
+        let request = Self::prepare_verifiable_upload(&request)?;
         let summary = command.summarize.summarize(&target.namespace, &request)?;
         Ok(PlannedAction::new(
             &request,
@@ -174,9 +150,21 @@ impl Adapter for GoogleWorkspaceAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+        if action.tool.as_str() == "google.mail.search" {
+            return self.search(target, action);
+        }
+        if action.tool.as_str() == "google.calendar.create" {
+            return self.create_calendar_event(target, action);
+        }
         if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 let mut output = self.backend.execute(target, action, executable)?;
+                self.capture_verification_refs(target, action, &mut output)
+                    .map_err(|error| {
+                        Error::Execution(format!(
+                            "provider returned success but write identity could not be recorded: {error}"
+                        ))
+                    })?;
                 if Self::is_google_auth_login(action)? {
                     if let Some(authenticated_user) = self.verify_google_auth_account(target, executable)? {
                         output = output.with_field("authenticated_user", authenticated_user);
@@ -195,10 +183,21 @@ impl Adapter for GoogleWorkspaceAdapter {
                 )));
             }
 
-            return Ok(Self::stub_output(target, action));
+            return Err(Error::NotImplemented(format!(
+                "{} execution is not implemented",
+                action.tool
+            )));
         }
 
         Err(Error::UnsupportedTool(action.tool.to_string()))
+    }
+
+    fn verify(
+        &self,
+        target: &ExecutionTarget,
+        operation: &switchboard_core::StoredOperation,
+    ) -> Result<switchboard_core::VerificationReceipt> {
+        self.verify_write(target, operation)
     }
 
     fn compensation_request(
@@ -248,7 +247,7 @@ mod tests {
 
     use crate::{
         cli::passthrough,
-        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SCOPES, WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES},
+        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SERVICES},
         test_support::{lock_env, TempScript},
     };
 
@@ -358,9 +357,7 @@ mod tests {
         assert_eq!(fields.messages[0].gmail_message_id, "1960abc123work");
 
         let captured = script.capture_contents();
-        assert!(
-            captured.contains("ARGV=gmail +triage --format json --query from:carwash newer_than:30d --max 5 --labels")
-        );
+        assert!(captured.contains("ARGV=gmail users messages list --params"));
     }
 
     #[test]
@@ -433,7 +430,8 @@ mod tests {
         );
         assert_eq!(fields.draft.draft_id, "draft-1960work");
         assert_eq!(fields.draft.gmail_message_id, "1960draftmsgwork");
-        assert_eq!(output.refs.len(), 2);
+        assert_eq!(output.refs.len(), 3);
+        assert_eq!(output.refs[2].kind, switchboard_core::ToolRefKind::Draft);
         assert_eq!(output.refs[0].kind, switchboard_core::ToolRefKind::Message);
         assert_eq!(output.refs[1].kind, switchboard_core::ToolRefKind::Thread);
         assert_eq!(output.effect.as_ref().map(|effect| effect.undoable), Some(false));
@@ -472,7 +470,10 @@ mod tests {
         let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
         let action = adapter
             .plan(&planning, &request, descriptor)
-            .expect("plan should succeed");
+            .expect("plan should succeed")
+            .with_operation_id(
+                switchboard_core::OperationId::new("op_calendar_test").expect("operation id should build"),
+            );
         let output = adapter
             .execute(&execution_target(), &action)
             .expect("execution should succeed");
@@ -493,9 +494,9 @@ mod tests {
         );
 
         let captured = script.capture_contents();
-        assert!(captured.contains("ARGV=calendar +insert --format json --summary Budget review"));
-        assert!(captured.contains("--calendar primary"));
-        assert!(captured.contains("--attendee alice@example.com --attendee bob@example.com --meet"));
+        assert!(captured.contains("ARGV=calendar events insert --params"));
+        assert!(captured.contains("\"calendarId\":\"primary\""));
+        assert!(captured.contains("\"email\":\"alice@example.com\""));
     }
 
     #[test]
@@ -553,7 +554,8 @@ mod tests {
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
         let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
-        let planning = planning_target();
+        let mut planning = planning_target();
+        planning.namespace.auth_scope_profile = AuthScopeProfile::Standard;
         let request = ToolRequest::new(
             "google.cli.write",
             "google.work",
@@ -578,21 +580,23 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains(&format!(
-            "ARGV=auth login --scopes {DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES}"
+            "ARGV=auth login --full --services {DEFAULT_AUTH_LOGIN_SERVICES}"
         )));
-        for scope in [
-            "https://www.googleapis.com/auth/contacts",
-            "https://www.googleapis.com/auth/cloud-identity.groups",
-            "https://www.googleapis.com/auth/admin.directory.user",
-            "https://www.googleapis.com/auth/admin.directory.orgunit",
-            "https://www.googleapis.com/auth/admin.directory.group",
-            "https://www.googleapis.com/auth/apps.groups.settings",
-        ] {
-            assert!(
-                captured.contains(scope),
-                "default Google auth login should request {scope}"
-            );
-        }
+    }
+
+    #[test]
+    fn default_workspace_admin_login_reports_unsupported_scope_resolution() {
+        let adapter = GoogleWorkspaceAdapter::new().expect("login fixture should be valid");
+        let planning = planning_target();
+        let request = ToolRequest::new(
+            "google.cli.write",
+            "google.work",
+            ExecutionMode::Apply,
+            vec![ToolArgument::option("argv-json", r#"["auth","login"]"#).expect("login fixture should be valid")],
+        )
+        .expect("login fixture should be valid");
+        let descriptor = adapter.find_tool(&request.tool).expect("login fixture should be valid");
+        assert!(adapter.plan(&planning, &request, descriptor).is_err());
     }
 
     #[test]
@@ -624,11 +628,16 @@ mod tests {
             .expect("plan should succeed");
         let argv = passthrough::parse_passthrough_argv(&action.args).expect("auth login argv should parse");
 
-        assert_eq!(argv, ["auth", "login", "--scopes", DEFAULT_AUTH_LOGIN_SCOPES]);
-        assert!(argv[3]
-            .split(',')
-            .any(|scope| scope == "https://www.googleapis.com/auth/cloud-identity.groups"));
-        assert!(!argv.iter().any(|arg| arg.contains(WORKSPACE_ADMIN_AUTH_LOGIN_SCOPES)));
+        assert_eq!(
+            argv,
+            [
+                "auth",
+                "login",
+                "--full",
+                "--services",
+                "drive,sheets,gmail,calendar,docs,slides,tasks,people"
+            ]
+        );
     }
 
     #[test]
@@ -647,7 +656,8 @@ mod tests {
         fs::write(&token_cache, "stale access token").expect("token cache fixture should be written");
 
         let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
-        let planning = planning_target_with_state_dir(state_dir.clone());
+        let mut planning = planning_target_with_state_dir(state_dir.clone());
+        planning.namespace.auth_scope_profile = AuthScopeProfile::Standard;
         let request = ToolRequest::new(
             "google.cli.write",
             "google.work",
@@ -699,7 +709,7 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=auth login --readonly"));
-        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SCOPES));
+        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SERVICES));
     }
 
     #[test]
@@ -709,7 +719,8 @@ mod tests {
         env::set_var("SWITCHBOARD_GWS_BIN", script.path());
 
         let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
-        let planning = planning_target();
+        let mut planning = planning_target();
+        planning.namespace.auth_scope_profile = AuthScopeProfile::Standard;
         let request = ToolRequest::new(
             "google.cli.write",
             "google.work",
@@ -825,6 +836,7 @@ mod tests {
                         ),
                     ),
                     failure_reason: None,
+                    verification: None,
                 },
                 ExecutionMode::Apply,
             )

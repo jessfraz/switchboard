@@ -29,7 +29,21 @@ _switchboard() {
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:switchboard-command-$line[1]:"
         case $line[1] in
-            (ns)
+            (read-batch)
+_arguments "${_arguments_options[@]}" : \
+'--input=[JSON object containing an items array of {id, tool, namespace, args}]:INPUT:_files' \
+'--checkpoint=[Durable results; successful pages are saved after each bounded wave]:CHECKPOINT:_files' \
+'--concurrency=[]:CONCURRENCY:_default' \
+'--deadline-seconds=[]:DEADLINE_SECONDS:_default' \
+'--max-pages=[]:MAX_PAGES:_default' \
+'--config=[]:PATH:_files' \
+'--resume[]' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(ns)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
 '-h[Print help]' \
@@ -65,6 +79,45 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(auth)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'-h[Print help]' \
+'--help[Print help]' \
+":: :_switchboard__subcmd__auth_commands" \
+"*::: :->auth" \
+&& ret=0
+
+    case $state in
+    (auth)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:switchboard-auth-command-$line[1]:"
+        case $line[1] in
+            (check)
+_arguments "${_arguments_options[@]}" : \
+'--ns=[]:NAMESPACE:_default' \
+'--run-id=[Share the one-recovery-attempt budget across commands in this task]:RUN_ID:_default' \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(migration-preview)
+_arguments "${_arguments_options[@]}" : \
+'--ns=[]:NAMESPACE:_default' \
+'--config=[]:PATH:_files' \
+'--verify[Verify the saved CLI session through a live read before changing config]' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (tools)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
@@ -82,14 +135,19 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (list)
 _arguments "${_arguments_options[@]}" : \
+'--provider=[Filter by provider identifier, for example google or github]:PROVIDER:_default' \
+'--ns=[Filter by a configured namespace without resolving credentials]:NAMESPACE:_default' \
+'--search=[Search tool names and summaries (case insensitive)]:SEARCH:_default' \
 '--config=[]:PATH:_files' \
 '--json[]' \
+'--executable[Include only tools with an implemented execution path]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
 ;;
 (describe)
 _arguments "${_arguments_options[@]}" : \
+'--ns=[Use this configured namespace in examples]:NAMESPACE:_default' \
 '--config=[]:PATH:_files' \
 '--json[]' \
 '-h[Print help]' \
@@ -203,6 +261,15 @@ _arguments "${_arguments_options[@]}" : \
 ':id:_default' \
 && ret=0
 ;;
+(verify)
+_arguments "${_arguments_options[@]}" : \
+'--config=[]:PATH:_files' \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+':id:_default' \
+&& ret=0
+;;
 (undo)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
@@ -225,8 +292,10 @@ esac
 (( $+functions[_switchboard_commands] )) ||
 _switchboard_commands() {
     local commands; commands=(
+'read-batch:Execute bounded read-only requests with durable, resumable page results' \
 'ns:' \
 'doctor:Inspect configuration, saved state, and CLI availability without authenticating' \
+'auth:Verify provider authentication or preview adoption of an existing CLI session' \
 'tools:' \
 'audit:' \
 'op:' \
@@ -250,6 +319,24 @@ _switchboard__subcmd__audit__subcmd__list_commands() {
 _switchboard__subcmd__audit__subcmd__show_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard audit show commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__auth_commands] )) ||
+_switchboard__subcmd__auth_commands() {
+    local commands; commands=(
+'check:Perform a read-only provider identity request and verify the configured account' \
+'migration-preview:Show an opt-in Google CLI migration without modifying configuration or credentials' \
+    )
+    _describe -t commands 'switchboard auth commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__auth__subcmd__check_commands] )) ||
+_switchboard__subcmd__auth__subcmd__check_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard auth check commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__auth__subcmd__migration-preview_commands] )) ||
+_switchboard__subcmd__auth__subcmd__migration-preview_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard auth migration-preview commands' commands "$@"
 }
 (( $+functions[_switchboard__subcmd__doctor_commands] )) ||
 _switchboard__subcmd__doctor_commands() {
@@ -276,6 +363,7 @@ _switchboard__subcmd__op_commands() {
 'approve:' \
 'reject:' \
 'apply:' \
+'verify:Read back provider state without repeating the write' \
 'undo:' \
     )
     _describe -t commands 'switchboard op commands' commands "$@"
@@ -309,6 +397,16 @@ _switchboard__subcmd__op__subcmd__show_commands() {
 _switchboard__subcmd__op__subcmd__undo_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard op undo commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__op__subcmd__verify_commands] )) ||
+_switchboard__subcmd__op__subcmd__verify_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard op verify commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__read-batch_commands] )) ||
+_switchboard__subcmd__read-batch_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard read-batch commands' commands "$@"
 }
 (( $+functions[_switchboard__subcmd__tools_commands] )) ||
 _switchboard__subcmd__tools_commands() {

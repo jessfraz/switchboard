@@ -29,6 +29,7 @@ pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Resu
 /// function returning. This preserves the process-group cleanup and output
 /// deadlines of [`output_with_timeout`] while keeping sensitive input off argv.
 pub fn output_with_stdin_timeout(command: &mut Command, stdin: Stdio, timeout: Duration) -> io::Result<Output> {
+    let timeout = remaining_timeout(timeout)?;
     if timeout.is_zero() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -78,6 +79,27 @@ pub fn output_with_stdin_timeout(command: &mut Command, stdin: Stdio, timeout: D
         }
         thread::sleep(Duration::from_millis(10).min(timeout.saturating_sub(started.elapsed())));
     }
+}
+
+/// A CLI batch passes one absolute deadline to every auth, probe, and provider
+/// subprocess. Each capture still measures its own remaining budget monotonically.
+pub fn remaining_timeout(limit: Duration) -> io::Result<Duration> {
+    let Some(value) = std::env::var_os("SWITCHBOARD_DEADLINE_UNIX_MS") else {
+        return Ok(limit);
+    };
+    let deadline = value
+        .to_str()
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid SWITCHBOARD_DEADLINE_UNIX_MS"))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_millis();
+    let remaining = u128::from(deadline).saturating_sub(now);
+    if remaining == 0 {
+        return Err(io::Error::new(io::ErrorKind::TimedOut, "run deadline exhausted"));
+    }
+    Ok(limit.min(Duration::from_millis(u64::try_from(remaining).unwrap_or(u64::MAX))))
 }
 
 struct OwnedChild {
