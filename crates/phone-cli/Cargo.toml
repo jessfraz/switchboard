@@ -17,6 +17,7 @@ name = "phone"
 path = "src/main.rs"
 
 [dependencies]
+switchboard-cli-support = { path = "../switchboard-cli-support" }
 age = "0.12.1"
 clap.workspace = true
 ctrlc = { version = "3.5", features = ["termination"] }

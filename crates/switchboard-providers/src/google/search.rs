@@ -3,7 +3,10 @@ use switchboard_core::{
     CoverageStatus, Error, ExecutionTarget, PlannedAction, ReadCoverage, Result, ToolOutput, ToolRef, ToolRefKind,
 };
 
-use crate::google::context::{ContextLimits, ContextSource};
+use crate::google::{
+    context::{ContextLimits, ContextSource},
+    fanout::{read_messages, READ_CONCURRENCY},
+};
 use crate::{cli::CliStdioMode, google::GoogleWorkspaceAdapter};
 
 #[derive(Serialize)]
@@ -168,39 +171,24 @@ impl GoogleWorkspaceAdapter {
         let mut failures = Vec::new();
         let mut authentication_blocked = false;
         // The first list call establishes auth before bounded metadata fan-out.
-        for chunk in page.messages.chunks(4) {
-            let results = if authentication_blocked {
-                chunk.iter().map(|_| Ok(None)).collect::<Vec<_>>()
-            } else {
-                std::thread::scope(|scope| {
-                    let handles = chunk
-                        .iter()
-                        .map(|message| {
-                            scope.spawn(move || {
-                                self.read_json::<_, MessageMetadata>(
-                                    target,
-                                    &["gmail", "users", "messages", "get"],
-                                    &MetadataParams {
-                                        user_id: "me",
-                                        id: &message.id,
-                                        format: "metadata",
-                                        metadata_headers: ["From", "Subject", "Date"],
-                                    },
-                                )
-                                .map(Some)
-                            })
-                        })
-                        .collect::<Vec<_>>();
-                    handles
-                        .into_iter()
-                        .map(|handle| {
-                            handle
-                                .join()
-                                .unwrap_or_else(|_| Err(Error::Execution("message metadata worker failed".into())))
-                        })
-                        .collect::<Vec<_>>()
-                })
-            };
+        for chunk in page.messages.chunks(READ_CONCURRENCY) {
+            let results = read_messages(
+                chunk,
+                &mut authentication_blocked,
+                "message metadata worker failed",
+                |message| {
+                    self.read_json::<_, MessageMetadata>(
+                        target,
+                        &["gmail", "users", "messages", "get"],
+                        &MetadataParams {
+                            user_id: "me",
+                            id: &message.id,
+                            format: "metadata",
+                            metadata_headers: ["From", "Subject", "Date"],
+                        },
+                    )
+                },
+            );
             for (message, result) in chunk.iter().zip(results) {
                 let row = match result {
                     Ok(Some(metadata)) if metadata.id == message.id => {
@@ -214,7 +202,6 @@ impl GoogleWorkspaceAdapter {
                     Err(error) => {
                         let failure =
                             switchboard_core::Failure::from_error(&error).with_namespace(action.namespace.clone());
-                        authentication_blocked |= failure.phase == switchboard_core::FailurePhase::Authentication;
                         failures.push(failure);
                         SearchMessage {
                             gmail_message_id: message.id.clone(),

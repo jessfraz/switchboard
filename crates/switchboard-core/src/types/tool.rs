@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fmt::{self, Display},
+    str::FromStr,
 };
 
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,24 @@ use crate::{
 pub enum ToolKind {
     Read,
     Write,
+}
+
+impl ToolKind {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+        }
+    }
+}
+
+impl FromStr for ToolKind {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        Self::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(value))
+            .map_err(|_| Error::InvalidArguments(format!("unknown tool kind: {value}")))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

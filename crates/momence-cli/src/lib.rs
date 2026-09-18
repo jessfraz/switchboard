@@ -7,8 +7,8 @@ use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 use anyhow::{Context, Result as AnyhowResult};
 use clap::{Args, Parser, Subcommand};
 use reqwest::Method;
-use serde::Serialize;
 use serde_json::Value;
+use switchboard_cli_support::output::{render_json, ApiErrorResponse, MessageErrorResponse};
 
 pub(crate) use crate::{client::MomenceClient, state::ResolvedContext};
 use crate::{
@@ -142,47 +142,11 @@ pub(crate) enum Error {
 impl Error {
     fn render(&self, compact: bool) -> String {
         match self {
-            Self::Arguments(message) => render_json(
-                &MessageErrorResponse {
-                    status: "error",
-                    kind: "arguments",
-                    message,
-                },
-                compact,
-            ),
-            Self::Api { status_code, body } => render_json(
-                &ApiErrorResponse {
-                    status: "error",
-                    kind: "api",
-                    status_code: *status_code,
-                    body,
-                },
-                compact,
-            ),
-            Self::Config(message) => render_json(
-                &MessageErrorResponse {
-                    status: "error",
-                    kind: "config",
-                    message,
-                },
-                compact,
-            ),
-            Self::Http(message) => render_json(
-                &MessageErrorResponse {
-                    status: "error",
-                    kind: "http",
-                    message,
-                },
-                compact,
-            ),
-            Self::Io(message) => render_json(
-                &MessageErrorResponse {
-                    status: "error",
-                    kind: "io",
-                    message,
-                },
-                compact,
-            ),
+            Self::Arguments(message) => render_json(&MessageErrorResponse::new("arguments", message), compact),
+            Self::Api { status_code, body } => render_json(&ApiErrorResponse::new(*status_code, body), compact),
+            Self::Config(message) => render_json(&MessageErrorResponse::new("config", message), compact),
+            Self::Http(message) => render_json(&MessageErrorResponse::new("http", message), compact),
+            Self::Io(message) => render_json(&MessageErrorResponse::new("io", message), compact),
         }
     }
 }
@@ -194,14 +158,7 @@ fn render_cli_error(error: &anyhow::Error, compact: bool) -> String {
         return error.render(compact);
     }
 
-    render_json(
-        &OwnedMessageErrorResponse {
-            status: "error",
-            kind: "internal",
-            message: format!("{error:#}"),
-        },
-        compact,
-    )
+    render_json(&MessageErrorResponse::new("internal", format!("{error:#}")), compact)
 }
 
 pub(crate) fn execute_bearer(
@@ -233,52 +190,6 @@ pub(crate) fn execute_bearer_json(
     body: Value,
 ) -> Result<Value> {
     execute_bearer(client, token, method, path, query, Some(body))
-}
-
-fn render_json<T: Serialize>(value: &T, compact: bool) -> String {
-    let serialized = if compact {
-        serde_json::to_string(value)
-    } else {
-        serde_json::to_string_pretty(value)
-    };
-
-    match serialized {
-        Ok(serialized) => serialized,
-        Err(error) => render_serialization_error(error),
-    }
-}
-
-#[derive(Serialize)]
-struct MessageErrorResponse<'a> {
-    status: &'static str,
-    kind: &'static str,
-    message: &'a str,
-}
-
-#[derive(Serialize)]
-struct OwnedMessageErrorResponse {
-    status: &'static str,
-    kind: &'static str,
-    message: String,
-}
-
-#[derive(Serialize)]
-struct ApiErrorResponse<'a> {
-    status: &'static str,
-    kind: &'static str,
-    status_code: u16,
-    body: &'a Value,
-}
-
-fn render_serialization_error(error: serde_json::Error) -> String {
-    serde_json::to_string(&OwnedMessageErrorResponse {
-        status: "error",
-        kind: "serialization",
-        message: error.to_string(),
-    })
-    .unwrap_or_else(|_| {
-        "{\"status\":\"error\",\"kind\":\"serialization\",\"message\":\"failed to serialize error payload\"}".to_owned()
-    })
 }
 
 #[cfg(test)]

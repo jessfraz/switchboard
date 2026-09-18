@@ -1392,6 +1392,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "switchboard-cli-support",
  "thiserror 2.0.20",
 ]
 
@@ -1427,6 +1428,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "switchboard-cli-support",
  "thiserror 2.0.20",
 ]
 
@@ -1442,6 +1444,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "switchboard-cli-support",
  "thiserror 2.0.20",
 ]
 
@@ -1613,6 +1616,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "switchboard-cli-support",
  "tempfile",
  "thiserror 2.0.20",
  "toml 1.1.4+spec-1.1.0",
@@ -1689,6 +1693,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "switchboard-cli-support",
  "thiserror 2.0.20",
 ]
 
@@ -2161,6 +2166,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "switchboard-cli-support",
  "thiserror 2.0.20",
 ]
 
@@ -2405,9 +2411,19 @@ dependencies = [
  "clap_mangen",
  "serde",
  "serde_json",
+ "switchboard-cli-support",
  "switchboard-core",
  "switchboard-providers",
  "switchboard-store",
+]
+
+[[package]]
+name = "switchboard-cli-support"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

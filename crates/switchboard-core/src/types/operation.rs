@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -14,6 +16,26 @@ pub enum ApprovalState {
     Pending,
     Approved,
     Rejected,
+}
+
+impl ApprovalState {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotRequired => "not_required",
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+impl FromStr for ApprovalState {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        Self::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(value))
+            .map_err(|_| Error::InvalidArguments(format!("unknown approval state: {value}")))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -114,6 +136,29 @@ pub enum OperationStatus {
     Verified,
     Failed,
     Compensated,
+}
+
+impl OperationStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Executing => "executing",
+            Self::Uncertain => "uncertain",
+            Self::Applied => "applied",
+            Self::Verified => "verified",
+            Self::Failed => "failed",
+            Self::Compensated => "compensated",
+        }
+    }
+}
+
+impl FromStr for OperationStatus {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        Self::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(value))
+            .map_err(|_| Error::InvalidArguments(format!("unknown operation status: {value}")))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

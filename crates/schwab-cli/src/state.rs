@@ -1,12 +1,13 @@
 use std::{
     env, fs,
-    io::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use switchboard_cli_support::private_file::write_private_file;
 
 use crate::{Error, GlobalArgs, Result};
 
@@ -112,29 +113,17 @@ impl StateStore {
     }
 
     pub(crate) fn save(&self, state: &SchwabState) -> Result<()> {
-        let parent = self
-            .path
+        self.path
             .parent()
             .ok_or_else(|| Error::Config(format!("invalid Schwab state path {}", self.path.display())))?;
-        fs::create_dir_all(parent).map_err(|error| {
-            Error::Io(format!(
-                "failed to create Schwab state directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-
-        let temp_path = self.path.with_extension("tmp");
         let contents = serde_json::to_vec_pretty(state)
             .map_err(|error| Error::Config(format!("failed to serialize Schwab state: {error}")))?;
-        write_private_file(&temp_path, &contents)?;
-        fs::rename(&temp_path, &self.path).map_err(|error| {
+        write_private_file(&self.path, &contents).map_err(|error| {
             Error::Io(format!(
-                "failed to move Schwab state into place at {}: {error}",
+                "failed to save Schwab state at {}: {error}",
                 self.path.display()
             ))
-        })?;
-
-        Ok(())
+        })
     }
 }
 
@@ -446,24 +435,4 @@ fn correlation_id() -> String {
         &hex[16..20],
         &hex[20..32]
     )
-}
-
-fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-
-    let mut file = options
-        .open(path)
-        .map_err(|error| Error::Io(format!("failed to open Schwab state file {}: {error}", path.display())))?;
-    file.write_all(contents)
-        .map_err(|error| Error::Io(format!("failed to write Schwab state file {}: {error}", path.display())))?;
-    file.sync_all()
-        .map_err(|error| Error::Io(format!("failed to flush Schwab state file {}: {error}", path.display())))?;
-    Ok(())
 }

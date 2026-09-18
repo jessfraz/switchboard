@@ -217,17 +217,27 @@ EOF
         )
     }
 
+    fn script_invocation(script: &TempScript, args: &[&str], stdio_mode: CliStdioMode) -> CliInvocation {
+        // Fresh executable fixtures can hit ETXTBSY during parallel tests on
+        // Linux. The shell reads the fixture without taking an executable lock.
+        let script_path = script.path().to_str().expect("fixture path should be UTF-8");
+        CliInvocation {
+            program: "/bin/sh".into(),
+            args: std::iter::once(script_path)
+                .chain(args.iter().copied())
+                .map(str::to_owned)
+                .collect(),
+            runtime: ProcessContext::new(),
+            stdio_mode,
+        }
+    }
+
     #[test]
     fn capture_mode_collects_stdout() {
         let script = temp_script("echo captured-output");
         let executor = ProcessCliExecutor;
         let output = executor
-            .execute(CliInvocation {
-                program: script.path().to_path_buf(),
-                args: vec!["alpha".into(), "beta".into()],
-                runtime: ProcessContext::new(),
-                stdio_mode: CliStdioMode::Capture,
-            })
+            .execute(script_invocation(&script, &["alpha", "beta"], CliStdioMode::Capture))
             .expect("capture mode should succeed");
 
         assert_eq!(output.stdout, "captured-output\n");
@@ -242,12 +252,7 @@ EOF
                 r#"printf '%s\n' '{{"error":"{code}","error_description":"fixture blocker"}}' >&2
 exit 1"#
             ));
-            let result = ProcessCliExecutor.execute(CliInvocation {
-                program: script.path().to_path_buf(),
-                args: vec!["identity".into()],
-                runtime: ProcessContext::new(),
-                stdio_mode: CliStdioMode::Capture,
-            });
+            let result = ProcessCliExecutor.execute(script_invocation(&script, &["identity"], CliStdioMode::Capture));
             if consent {
                 assert!(matches!(
                     result,
@@ -274,12 +279,8 @@ exit 1"#
 printf '%s\n' 'gh: {message} (HTTP {status})' >&2
 exit 1"#
             ));
-            let result = ProcessCliExecutor.execute(CliInvocation {
-                program: script.path().to_path_buf(),
-                args: vec!["api".into(), "user".into()],
-                runtime: ProcessContext::new(),
-                stdio_mode: CliStdioMode::Capture,
-            });
+            let result =
+                ProcessCliExecutor.execute(script_invocation(&script, &["api", "user"], CliStdioMode::Capture));
             if authentication {
                 assert!(matches!(
                     result,
@@ -299,12 +300,7 @@ exit 1"#
         let script = temp_script("echo inherited-output");
         let executor = ProcessCliExecutor;
         let output = executor
-            .execute(CliInvocation {
-                program: script.path().to_path_buf(),
-                args: vec!["auth".into(), "login".into()],
-                runtime: ProcessContext::new(),
-                stdio_mode: CliStdioMode::Inherit,
-            })
+            .execute(script_invocation(&script, &["auth", "login"], CliStdioMode::Inherit))
             .expect("inherit mode should succeed");
 
         assert!(output.stdout.is_empty());

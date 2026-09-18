@@ -1,11 +1,12 @@
 use std::{
     env, fs,
-    io::Write,
     path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use switchboard_cli_support::private_file::write_private_file;
 
 use crate::{Error, GlobalArgs, Result};
 
@@ -61,29 +62,17 @@ impl StateStore {
     }
 
     pub(crate) fn save(&self, state: &MomenceState) -> Result<()> {
-        let parent = self
-            .path
+        self.path
             .parent()
             .ok_or_else(|| Error::Config(format!("invalid Momence state path {}", self.path.display())))?;
-        fs::create_dir_all(parent).map_err(|error| {
-            Error::Io(format!(
-                "failed to create Momence state directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-
-        let temp_path = self.path.with_extension("tmp");
         let contents = serde_json::to_vec_pretty(state)
             .map_err(|error| Error::Config(format!("failed to serialize Momence state: {error}")))?;
-        write_private_file(&temp_path, &contents)?;
-        fs::rename(&temp_path, &self.path).map_err(|error| {
+        write_private_file(&self.path, &contents).map_err(|error| {
             Error::Io(format!(
-                "failed to move Momence state into place at {}: {error}",
+                "failed to save Momence state at {}: {error}",
                 self.path.display()
             ))
-        })?;
-
-        Ok(())
+        })
     }
 }
 
@@ -202,30 +191,30 @@ fn required_string_field(value: &Value, keys: &[&str]) -> Result<String> {
         })
 }
 
-fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+    use super::*;
+
+    #[test]
+    fn saving_state_preserves_an_existing_temporary_file() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("valid clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("momence-state-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&root).expect("create fixture directory");
+        let path = root.join("config.json");
+        let existing_temp = path.with_extension("tmp");
+        fs::write(&existing_temp, b"another writer owns this").expect("write existing temporary file");
+        let store = StateStore::new(path);
+        store.save(&MomenceState::default()).expect("save state");
+        assert_eq!(
+            fs::read(&existing_temp).expect("read existing temporary file"),
+            b"another writer owns this"
+        );
+        assert!(store.load().expect("load saved state").access_token.is_none());
+        fs::remove_dir_all(root).expect("remove fixture");
     }
-
-    let mut file = options
-        .open(path)
-        .map_err(|error| Error::Io(format!("failed to open Momence state file {}: {error}", path.display())))?;
-    file.write_all(contents).map_err(|error| {
-        Error::Io(format!(
-            "failed to write Momence state file {}: {error}",
-            path.display()
-        ))
-    })?;
-    file.sync_all().map_err(|error| {
-        Error::Io(format!(
-            "failed to flush Momence state file {}: {error}",
-            path.display()
-        ))
-    })?;
-    Ok(())
 }

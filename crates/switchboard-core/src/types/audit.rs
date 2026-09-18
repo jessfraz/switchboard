@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -15,6 +17,29 @@ pub enum AuditOutcome {
     Failed,
     Compensated,
     Blocked,
+}
+
+impl AuditOutcome {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Executed => "executed",
+            Self::Failed => "failed",
+            Self::Compensated => "compensated",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+impl FromStr for AuditOutcome {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        Self::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(value))
+            .map_err(|_| Error::InvalidArguments(format!("unknown audit outcome: {value}")))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

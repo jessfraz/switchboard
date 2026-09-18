@@ -1,12 +1,13 @@
 use std::{
     env, fs,
-    io::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+
+use switchboard_cli_support::private_file::write_private_file;
 
 use crate::{
     cache::{PlaidCacheStore, DEFAULT_CACHE_DB_FILE},
@@ -106,29 +107,17 @@ impl StateStore {
     }
 
     pub(crate) fn save(&self, state: &PlaidState) -> Result<()> {
-        let parent = self
-            .path
+        self.path
             .parent()
             .ok_or_else(|| Error::Config(format!("invalid Plaid state path {}", self.path.display())))?;
-        fs::create_dir_all(parent).map_err(|error| {
-            Error::Io(format!(
-                "failed to create Plaid state directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-
-        let temp_path = self.path.with_extension("tmp");
         let contents = serde_json::to_vec_pretty(state)
             .map_err(|error| Error::Config(format!("failed to serialize Plaid state: {error}")))?;
-        write_private_file(&temp_path, &contents)?;
-        fs::rename(&temp_path, &self.path).map_err(|error| {
+        write_private_file(&self.path, &contents).map_err(|error| {
             Error::Io(format!(
-                "failed to move Plaid state into place at {}: {error}",
+                "failed to save Plaid state at {}: {error}",
                 self.path.display()
             ))
-        })?;
-
-        Ok(())
+        })
     }
 }
 
@@ -351,24 +340,4 @@ fn resolve_cache_db_path(explicit: Option<&Path>, state_path: &Path) -> PathBuf 
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
         .join(DEFAULT_CACHE_DB_FILE)
-}
-
-fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-
-    let mut file = options
-        .open(path)
-        .map_err(|error| Error::Io(format!("failed to open Plaid state file {}: {error}", path.display())))?;
-    file.write_all(contents)
-        .map_err(|error| Error::Io(format!("failed to write Plaid state file {}: {error}", path.display())))?;
-    file.sync_all()
-        .map_err(|error| Error::Io(format!("failed to flush Plaid state file {}: {error}", path.display())))?;
-    Ok(())
 }

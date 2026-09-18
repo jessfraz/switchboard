@@ -2,11 +2,12 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use switchboard_core::{
-    CoverageStatus, Error, ExecutionTarget, Failure, FailurePhase, PlannedAction, ReadCoverage, Result, ToolArgument,
-    ToolArguments, ToolName, ToolOutput, ToolRef, ToolRefKind,
+    CoverageStatus, Error, ExecutionTarget, Failure, PlannedAction, ReadCoverage, Result, ToolArgument, ToolArguments,
+    ToolName, ToolOutput, ToolRef, ToolRefKind,
 };
 
 use crate::google::{
+    fanout::{read_messages, READ_CONCURRENCY},
     thread::{Attachment, Part},
     GoogleWorkspaceAdapter,
 };
@@ -193,7 +194,7 @@ impl GoogleWorkspaceAdapter {
             unknown: false,
         };
         let mut blocked = false;
-        for chunk in sources.chunks(4) {
+        for chunk in sources.chunks(READ_CONCURRENCY) {
             // Preserve the caller's deadline. Direct context reads also stop
             // scheduling after two minutes; the current wave retains its normal
             // bounded subprocess timeout without mutating process-global state.
@@ -210,24 +211,9 @@ impl GoogleWorkspaceAdapter {
                 );
                 blocked = true;
             }
-            let results = if blocked {
-                chunk.iter().map(|_| Ok(None)).collect::<Vec<_>>()
-            } else {
-                std::thread::scope(|scope| {
-                    let handles = chunk
-                        .iter()
-                        .map(|source| scope.spawn(move || self.read_context_message(target, action, source).map(Some)))
-                        .collect::<Vec<_>>();
-                    handles
-                        .into_iter()
-                        .map(|handle| {
-                            handle
-                                .join()
-                                .unwrap_or_else(|_| Err(Error::Execution("message context worker failed".into())))
-                        })
-                        .collect::<Vec<_>>()
-                })
-            };
+            let results = read_messages(chunk, &mut blocked, "message context worker failed", |source| {
+                self.read_context_message(target, action, source)
+            });
             for (source, result) in chunk.iter().zip(results) {
                 let mut row = ContextMessage {
                     gmail_message_id: source.id.clone(),
@@ -288,7 +274,6 @@ impl GoogleWorkspaceAdapter {
                     }
                     Err(error) => {
                         let failure = Failure::from_error(&error).with_namespace(action.namespace.clone());
-                        blocked |= failure.phase == FailurePhase::Authentication;
                         row.failure = Some(failure.clone());
                         collection.failures.push(failure);
                     }

@@ -7,6 +7,7 @@ members = [
     "crates/plaid-cli",
     "crates/schwab-cli",
     "crates/switchboard-cli",
+    "crates/switchboard-cli-support",
     "crates/switchboard-core",
     "crates/switchboard-providers",
     "crates/switchboard-store",

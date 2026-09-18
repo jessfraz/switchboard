@@ -115,7 +115,7 @@ impl Presentation {
             return self.json(&output::DispatchResponse::from(outcome));
         }
         match outcome {
-            DispatchOutcome::Executed(value) if !self.full || !self.fields.is_empty() => self.human(value),
+            DispatchOutcome::Executed(value) => Ok(self.human(value)),
             _ => Ok(output::render_dispatch_human(outcome)),
         }
     }
@@ -128,12 +128,7 @@ impl Presentation {
         // typed envelope directly, without an intermediate JSON string or parse.
         let mut value = serde_json::to_value(output::versioned(result)).context("failed to serialize result view")?;
         Self::project_envelope(&mut value, &Projection::new(&self.fields));
-        if self.full {
-            serde_json::to_string_pretty(&value)
-        } else {
-            serde_json::to_string(&value)
-        }
-        .context("failed to serialize result view")
+        switchboard_cli_support::output::to_json(&value, !self.full).context("failed to serialize result view")
     }
 
     fn project_envelope(value: &mut Value, projection: &Projection) {
@@ -160,45 +155,25 @@ impl Presentation {
         }
     }
 
-    fn human(&self, value: &ToolOutput) -> Result<String> {
-        let mut rendered = format!("{} [{}]\n", value.summary, value.namespace);
-        let fields = serde_json::to_value(&value.fields).context("failed to serialize provider fields")?;
+    fn human(&self, value: &ToolOutput) -> String {
+        let projected;
         let fields = if self.fields.is_empty() {
-            fields
+            &value.fields
         } else {
-            Projection::new(&self.fields).select(&fields)
+            let projection = Projection::new(&self.fields);
+            projected = value
+                .fields
+                .iter()
+                .filter_map(|(key, child)| projection.select_member(key, child).map(|value| (key.clone(), value)))
+                .collect();
+            &projected
         };
-        if let Value::Object(fields) = fields {
-            for (key, field) in fields {
-                if !self.full && matches!(key.as_str(), "argv" | "auth" | "backend" | "cli_version") {
-                    continue;
-                }
-                render_value(&mut rendered, &key, &field, 0, self.full);
-            }
-        }
-        if let Some(id) = &value.operation_id {
-            rendered.push_str(&format!("Operation: {id}\n"));
-        }
-        if let Some(receipt) = &value.verification {
-            rendered.push_str(&format!("Verification: {:?}: {}\n", receipt.status, receipt.summary));
-        }
-        if let Some(coverage) = &value.coverage {
-            rendered.push_str(&format!("Coverage: {:?}\n", coverage.status));
-            if let Some(cursor) = &coverage.next_cursor {
-                rendered.push_str(&format!("Next cursor: {cursor}\n"));
-            }
-        }
-        let reference_limit = if self.full { usize::MAX } else { 20 };
-        for reference in value.refs.iter().take(reference_limit) {
-            rendered.push_str(&format!("{}\n", output::render_ref_human(reference)));
-        }
-        if value.refs.len() > reference_limit {
-            rendered.push_str(&format!(
-                "{} more references; use --full or --json\n",
-                value.refs.len() - reference_limit
-            ));
-        }
-        Ok(rendered)
+        let format = if self.full {
+            output::HumanOutputFormat::Full
+        } else {
+            output::HumanOutputFormat::Compact
+        };
+        output::render_output_view(value, fields, format)
     }
 }
 
@@ -261,68 +236,19 @@ impl Projection {
             Value::Object(object) => Value::Object(
                 object
                     .iter()
-                    .filter_map(|(key, child)| {
-                        if retained_metadata(key) {
-                            Some((key.clone(), child.clone()))
-                        } else {
-                            self.children
-                                .get(key)
-                                .map(|selection| (key.clone(), selection.select(child)))
-                        }
-                    })
+                    .filter_map(|(key, child)| self.select_member(key, child).map(|value| (key.clone(), value)))
                     .collect(),
             ),
             _ => Value::Null,
         }
     }
-}
 
-fn render_value(rendered: &mut String, label: &str, value: &Value, depth: usize, full: bool) {
-    let indent = "  ".repeat(depth);
-    match value {
-        Value::Null => {}
-        Value::String(text) => {
-            let limit = if full { usize::MAX } else { 2000 };
-            let shown = text.chars().take(limit).collect::<String>();
-            rendered.push_str(&format!("{indent}{label}: {shown}"));
-            if shown.len() < text.len() {
-                rendered.push_str(" … [display shortened; use --full or --json]");
-            }
-            rendered.push('\n');
+    fn select_member(&self, key: &str, child: &Value) -> Option<Value> {
+        if retained_metadata(key) {
+            Some(child.clone())
+        } else {
+            self.children.get(key).map(|selection| selection.select(child))
         }
-        Value::Array(rows) => {
-            rendered.push_str(&format!("{indent}{label}: {} item(s)\n", rows.len()));
-            let limit = if full || matches!(label, "failures" | "warnings") {
-                usize::MAX
-            } else {
-                20
-            };
-            for (index, row) in rows.iter().take(limit).enumerate() {
-                render_value(rendered, &format!("{}", index + 1), row, depth + 1, full);
-            }
-            if rows.len() > limit {
-                rendered.push_str(&format!(
-                    "{indent}{} more item(s); use --full or --json\n",
-                    rows.len() - limit
-                ));
-            }
-        }
-        Value::Object(object) => {
-            rendered.push_str(&format!("{indent}{label}:\n"));
-            for (key, child) in object {
-                if !full
-                    && key == "body_html"
-                    && object
-                        .get("body_text")
-                        .and_then(Value::as_str)
-                        .is_some_and(|body| !body.is_empty())
-                {
-                    continue;
-                }
-                render_value(rendered, key, child, depth + 1, full);
-            }
-        }
-        _ => rendered.push_str(&format!("{indent}{label}: {value}\n")),
     }
 }
 
@@ -446,6 +372,35 @@ mod tests {
             serde_json::from_str(&compact).expect("decode compact response");
         let full: BTreeMap<String, serde_json::Value> = serde_json::from_str(&full).expect("decode full response");
         assert_eq!(compact, full);
+    }
+
+    #[test]
+    fn human_views_preserve_effects_receipts_and_coverage_with_selected_fields() {
+        let mut value = output();
+        value.effect = Some(
+            switchboard_core::OperationEffect::new(true)
+                .with_undo_summary("Restore the previous labels")
+                .expect("valid undo summary"),
+        );
+        value.verification = Some(Box::new(switchboard_core::VerificationReceipt::new(
+            switchboard_core::VerificationStatus::Verified,
+            "Labels confirmed by readback",
+            Vec::new(),
+        )));
+        let outcome = DispatchOutcome::Executed(value);
+        for full in [false, true] {
+            for fields in [Vec::new(), vec!["messages.subject".into()]] {
+                let rendered = Presentation { full, fields }
+                    .dispatch(&outcome, false)
+                    .expect("render human response");
+                assert!(rendered.contains("undoable: true"));
+                assert!(rendered.contains("Restore the previous labels"));
+                assert!(rendered.contains("Verification: Verified: Labels confirmed by readback"));
+                assert!(rendered.contains("Coverage: Unknown"));
+                assert!(rendered.contains("Next cursor: next-page"));
+                assert!(rendered.contains("Another message was unavailable"));
+            }
+        }
     }
 
     #[test]

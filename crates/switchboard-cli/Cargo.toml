@@ -21,6 +21,7 @@ name = "switchboard"
 path = "src/main.rs"
 
 [dependencies]
+switchboard-cli-support = { path = "../switchboard-cli-support" }
 anyhow.workspace = true
 clap.workspace = true
 clap_complete.workspace = true

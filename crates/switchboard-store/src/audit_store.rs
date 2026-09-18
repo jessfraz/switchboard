@@ -105,9 +105,9 @@ impl AuditStore for SqliteAuditStore {
                     event.namespace.as_str(),
                     event.auth_ref.as_str(),
                     &event.summary,
-                    backend_kind_identifier(event.backend),
+                    event.backend.as_str(),
                     event.approval_required,
-                    audit_outcome_identifier(&event.outcome),
+                    event.outcome.as_str(),
                     event.operation_id.as_ref().map(OperationId::as_str),
                     event.compensates_operation_id.as_ref().map(OperationId::as_str),
                 ],
@@ -178,48 +178,16 @@ fn row_to_audit_event(row: &Row<'_>) -> rusqlite::Result<StoredAuditEvent> {
     })
 }
 
-fn audit_outcome_identifier(outcome: &AuditOutcome) -> &'static str {
-    match outcome {
-        AuditOutcome::Planned => "planned",
-        AuditOutcome::Approved => "approved",
-        AuditOutcome::Rejected => "rejected",
-        AuditOutcome::Executed => "executed",
-        AuditOutcome::Failed => "failed",
-        AuditOutcome::Compensated => "compensated",
-        AuditOutcome::Blocked => "blocked",
-    }
-}
-
 fn parse_audit_outcome(value: &str) -> Result<AuditOutcome> {
-    match value {
-        "planned" => Ok(AuditOutcome::Planned),
-        "approved" => Ok(AuditOutcome::Approved),
-        "rejected" => Ok(AuditOutcome::Rejected),
-        "executed" => Ok(AuditOutcome::Executed),
-        "failed" => Ok(AuditOutcome::Failed),
-        "compensated" => Ok(AuditOutcome::Compensated),
-        "blocked" => Ok(AuditOutcome::Blocked),
-        _ => Err(Error::Audit(format!("unknown audit outcome in audit store: {value}"))),
-    }
-}
-
-fn backend_kind_identifier(backend: BackendKind) -> &'static str {
-    match backend {
-        BackendKind::Cli => "cli",
-        BackendKind::Api => "api",
-        BackendKind::Local => "local",
-        BackendKind::Bridge => "bridge",
-    }
+    value
+        .parse()
+        .map_err(|_| Error::Audit(format!("unknown audit outcome in audit store: {value}")))
 }
 
 fn parse_backend_kind(value: &str) -> Result<BackendKind> {
-    match value {
-        "cli" => Ok(BackendKind::Cli),
-        "api" => Ok(BackendKind::Api),
-        "local" => Ok(BackendKind::Local),
-        "bridge" => Ok(BackendKind::Bridge),
-        _ => Err(Error::Audit(format!("unknown backend kind in audit store: {value}"))),
-    }
+    value
+        .parse()
+        .map_err(|_| Error::Audit(format!("unknown backend kind in audit store: {value}")))
 }
 
 fn to_sqlite_error(error: impl std::fmt::Display) -> rusqlite::Error {
@@ -267,6 +235,25 @@ mod tests {
 
         let fetched = store.get(&events[0].id).expect("stored event should be retrievable");
         assert_eq!(fetched.id, events[0].id);
+
+        let connection = rusqlite::Connection::open(&path).expect("database should reopen");
+        for (column, valid, label) in [
+            ("backend", event.backend.as_str(), "backend kind"),
+            ("outcome", event.outcome.as_str(), "audit outcome"),
+        ] {
+            let update = format!("UPDATE audit_events SET {column} = ?1 WHERE event_id = ?2");
+            connection
+                .execute(&update, ["invalid", fetched.id.as_str()])
+                .expect("malformed identifier should be stored for this test");
+            let error =
+                SqliteAuditStore::get_event(&connection, &fetched.id).expect_err("invalid identifier should fail");
+            assert!(error
+                .to_string()
+                .contains(&format!("unknown {label} in audit store: invalid")));
+            connection
+                .execute(&update, [valid, fetched.id.as_str()])
+                .expect("valid identifier should be restored");
+        }
     }
 
     fn unique_test_path(prefix: &str) -> PathBuf {

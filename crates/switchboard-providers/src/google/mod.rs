@@ -1,5 +1,6 @@
 mod calendar;
 mod context;
+mod fanout;
 mod materializer;
 mod search;
 mod thread;

@@ -6,8 +6,7 @@ use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, ApprovalState, BackendKind, DispatchOutcome, NamespaceId, OperationEffect, OperationId,
     OperationOutcome, RegisteredTool, ResolvedNamespace, StoredAuditEvent, StoredOperation, ToolArgument,
-    ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRef, ToolSurface,
-    ToolUndoSupport,
+    ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolName, ToolOutput, ToolRef, ToolSurface, ToolUndoSupport,
 };
 
 use crate::catalog::{ToolCatalogDetail, ToolCatalogEntry, ToolCatalogStatus};
@@ -41,7 +40,7 @@ pub(crate) fn render_audit_events_human(events: &[StoredAuditEvent]) -> String {
             event.id,
             event.tool,
             event.namespace,
-            render_audit_outcome(&event.outcome),
+            event.outcome.as_str(),
             event.recorded_at
         ));
     }
@@ -66,7 +65,7 @@ pub(crate) fn render_audit_selection_human(selection: &AuditSelection) -> String
                     output.push_str(&format!(
                         "- {} outcome={} recorded_at={} summary={}\n",
                         event.id,
-                        render_audit_outcome(&event.outcome),
+                        event.outcome.as_str(),
                         event.recorded_at,
                         event.summary
                     ));
@@ -81,7 +80,7 @@ pub(crate) fn render_audit_event_human(event: &StoredAuditEvent) -> String {
     let mut output = String::new();
     output.push_str(&format!("Audit Event: {}\n", event.id));
     output.push_str(&format!("Recorded at: {}\n", event.recorded_at));
-    output.push_str(&format!("Outcome: {}\n", render_audit_outcome(&event.outcome)));
+    output.push_str(&format!("Outcome: {}\n", event.outcome.as_str()));
     output.push_str(&format!("Tool: {}\n", event.tool));
     output.push_str(&format!("Namespace: {}\n", event.namespace));
     output.push_str(&format!("Auth: {}\n", event.auth_ref));
@@ -102,7 +101,7 @@ pub(crate) fn render_tools_human(tools: &[RegisteredTool]) -> String {
     for tool in tools {
         let mut qualifiers = vec![
             tool.provider.to_string(),
-            render_tool_kind(tool.kind).to_owned(),
+            tool.kind.as_str().to_owned(),
             tool.backend.to_string(),
             render_tool_status(crate::catalog::tool_catalog_status(tool)).to_owned(),
         ];
@@ -127,7 +126,7 @@ pub(crate) fn render_tool_detail_human(detail: &ToolCatalogDetail) -> String {
     output.push_str(&format!("Tool: {}\n", detail.name));
     output.push_str(&format!("Provider: {}\n", detail.provider));
     output.push_str(&format!("Status: {}\n", render_tool_status(detail.status)));
-    output.push_str(&format!("Kind: {}\n", render_tool_kind(detail.kind)));
+    output.push_str(&format!("Kind: {}\n", detail.kind.as_str()));
     output.push_str(&format!("Backend: {}\n", detail.backend));
     output.push_str(&format!("Surface: {}\n", render_tool_surface(detail.surface)));
     output.push_str(&format!(
@@ -218,8 +217,8 @@ pub(crate) fn render_operations_human(operations: &[StoredOperation]) -> String 
             operation.id,
             operation.tool,
             operation.namespace,
-            render_approval_state(operation.approval.state),
-            render_operation_status(operation.status)
+            operation.approval.state.as_str(),
+            operation.status.as_str()
         ));
     }
 
@@ -233,11 +232,8 @@ pub(crate) fn render_stored_operation_human(operation: &StoredOperation) -> Stri
     output.push_str(&format!("Namespace: {}\n", operation.namespace));
     output.push_str(&format!("Summary: {}\n", operation.summary));
     output.push_str(&format!("Backend: {}\n", operation.backend));
-    output.push_str(&format!("Status: {}\n", render_operation_status(operation.status)));
-    output.push_str(&format!(
-        "Approval: {}\n",
-        render_approval_state(operation.approval.state)
-    ));
+    output.push_str(&format!("Status: {}\n", operation.status.as_str()));
+    output.push_str(&format!("Approval: {}\n", operation.approval.state.as_str()));
     if let Some(operation_id) = &operation.compensates_operation_id {
         output.push_str(&format!("Compensates: {operation_id}\n"));
     }
@@ -295,17 +291,38 @@ pub(crate) fn render_dispatch_human(outcome: &DispatchOutcome) -> String {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum HumanOutputFormat {
+    Compact,
+    Full,
+}
+
 pub(crate) fn render_output_human(output: &ToolOutput) -> String {
-    let mut rendered = String::new();
-    rendered.push_str(&format!("Executed: {}\n", output.summary));
-    rendered.push_str(&format!("Tool: {}\n", output.tool));
-    rendered.push_str(&format!("Namespace: {}\n", output.namespace));
+    render_output_view(output, &output.fields, HumanOutputFormat::Full)
+}
+
+pub(crate) fn render_output_view(
+    output: &ToolOutput,
+    fields: &BTreeMap<String, JsonValue>,
+    format: HumanOutputFormat,
+) -> String {
+    let full = format == HumanOutputFormat::Full;
+    let mut rendered = if full {
+        format!(
+            "Executed: {}\nTool: {}\nNamespace: {}\n",
+            output.summary, output.tool, output.namespace
+        )
+    } else {
+        format!("{} [{}]\n", output.summary, output.namespace)
+    };
     if let Some(operation_id) = &output.operation_id {
         rendered.push_str(&format!("Operation ID: {operation_id}\n"));
     }
-    if !output.fields.is_empty() {
+    if full && !fields.is_empty() {
         rendered.push_str("Fields:\n");
-        for (key, value) in &output.fields {
+    }
+    for (key, value) in fields {
+        if full {
             match value {
                 JsonValue::String(value) => rendered.push_str(&format!("- {key}: {value}\n")),
                 _ => {
@@ -317,12 +334,24 @@ pub(crate) fn render_output_human(output: &ToolOutput) -> String {
                     }
                 }
             }
+        } else if !matches!(key.as_str(), "argv" | "auth" | "backend" | "cli_version") {
+            render_value(&mut rendered, key, value, 0);
         }
     }
     if !output.refs.is_empty() {
-        rendered.push_str("Refs:\n");
-        for tool_ref in &output.refs {
-            rendered.push_str(&format!("- {}\n", render_ref_human(tool_ref)));
+        if full {
+            rendered.push_str("Refs:\n");
+        }
+        let reference_limit = if full { usize::MAX } else { 20 };
+        for tool_ref in output.refs.iter().take(reference_limit) {
+            let prefix = if full { "- " } else { "" };
+            rendered.push_str(&format!("{prefix}{}\n", render_ref_human(tool_ref)));
+        }
+        if output.refs.len() > reference_limit {
+            rendered.push_str(&format!(
+                "{} more references; use --full or --json\n",
+                output.refs.len() - reference_limit
+            ));
         }
     }
     if let Some(effect) = &output.effect {
@@ -339,6 +368,54 @@ pub(crate) fn render_output_human(output: &ToolOutput) -> String {
     }
 
     rendered
+}
+
+fn render_value(rendered: &mut String, label: &str, value: &JsonValue, depth: usize) {
+    let indent = "  ".repeat(depth);
+    match value {
+        JsonValue::Null => {}
+        JsonValue::String(text) => {
+            let limit = 2000;
+            let shown = text.chars().take(limit).collect::<String>();
+            rendered.push_str(&format!("{indent}{label}: {shown}"));
+            if shown.len() < text.len() {
+                rendered.push_str(" … [display shortened; use --full or --json]");
+            }
+            rendered.push('\n');
+        }
+        JsonValue::Array(rows) => {
+            rendered.push_str(&format!("{indent}{label}: {} item(s)\n", rows.len()));
+            let limit = if matches!(label, "failures" | "warnings") {
+                usize::MAX
+            } else {
+                20
+            };
+            for (index, row) in rows.iter().take(limit).enumerate() {
+                render_value(rendered, &format!("{}", index + 1), row, depth + 1);
+            }
+            if rows.len() > limit {
+                rendered.push_str(&format!(
+                    "{indent}{} more item(s); use --full or --json\n",
+                    rows.len() - limit
+                ));
+            }
+        }
+        JsonValue::Object(object) => {
+            rendered.push_str(&format!("{indent}{label}:\n"));
+            for (key, child) in object {
+                if key == "body_html"
+                    && object
+                        .get("body_text")
+                        .and_then(JsonValue::as_str)
+                        .is_some_and(|body| !body.is_empty())
+                {
+                    continue;
+                }
+                render_value(rendered, key, child, depth + 1);
+            }
+        }
+        _ => rendered.push_str(&format!("{indent}{label}: {value}\n")),
+    }
 }
 
 pub(crate) fn render_ref_human(tool_ref: &ToolRef) -> String {
@@ -389,13 +466,6 @@ pub(crate) fn render_tool_arguments_human(arguments: &ToolArguments, indent: &st
     rendered
 }
 
-pub(crate) fn render_tool_kind(kind: ToolKind) -> &'static str {
-    match kind {
-        ToolKind::Read => "read",
-        ToolKind::Write => "write",
-    }
-}
-
 pub(crate) fn render_tool_surface(surface: ToolSurface) -> &'static str {
     match surface {
         ToolSurface::Curated => "curated",
@@ -440,41 +510,8 @@ pub(crate) fn render_tool_argument_value_kind(argument: &ToolArgumentSpec) -> &'
     }
 }
 
-pub(crate) fn render_approval_state(state: ApprovalState) -> &'static str {
-    match state {
-        ApprovalState::NotRequired => "not_required",
-        ApprovalState::Pending => "pending",
-        ApprovalState::Approved => "approved",
-        ApprovalState::Rejected => "rejected",
-    }
-}
-
-pub(crate) fn render_operation_status(status: switchboard_core::OperationStatus) -> &'static str {
-    match status {
-        switchboard_core::OperationStatus::Planned => "planned",
-        switchboard_core::OperationStatus::Executing => "executing",
-        switchboard_core::OperationStatus::Uncertain => "uncertain",
-        switchboard_core::OperationStatus::Verified => "verified",
-        switchboard_core::OperationStatus::Applied => "applied",
-        switchboard_core::OperationStatus::Failed => "failed",
-        switchboard_core::OperationStatus::Compensated => "compensated",
-    }
-}
-
 pub(crate) fn operation_needs_attention(operation: &StoredOperation) -> bool {
     operation.status == switchboard_core::OperationStatus::Planned && operation.approval.state == ApprovalState::Pending
-}
-
-pub(crate) fn render_audit_outcome(outcome: &switchboard_core::AuditOutcome) -> &'static str {
-    match outcome {
-        switchboard_core::AuditOutcome::Planned => "planned",
-        switchboard_core::AuditOutcome::Approved => "approved",
-        switchboard_core::AuditOutcome::Rejected => "rejected",
-        switchboard_core::AuditOutcome::Executed => "executed",
-        switchboard_core::AuditOutcome::Failed => "failed",
-        switchboard_core::AuditOutcome::Compensated => "compensated",
-        switchboard_core::AuditOutcome::Blocked => "blocked",
-    }
 }
 
 pub(crate) fn render_json_dispatch(outcome: &DispatchOutcome) -> Result<String> {
@@ -543,13 +580,7 @@ pub(crate) fn render_json<T>(value: &T, pretty: bool) -> Result<String>
 where
     T: Serialize,
 {
-    let versioned = versioned(value);
-    if pretty {
-        serde_json::to_string_pretty(&versioned)
-    } else {
-        serde_json::to_string(&versioned)
-    }
-    .context("failed to serialize JSON output")
+    switchboard_cli_support::output::to_json(&versioned(value), !pretty).context("failed to serialize JSON output")
 }
 
 pub(crate) fn versioned<T: Serialize>(result: &T) -> impl Serialize + '_ {

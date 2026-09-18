@@ -23,6 +23,7 @@ use clap::Parser;
 use reqwest::Url;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use switchboard_cli_support::output::render_json;
 
 pub(crate) use crate::{
     api_support::{
@@ -31,7 +32,6 @@ pub(crate) use crate::{
         resolve_id_argument, ApiResourceCapability, CapabilitySummary, DynamicArgs, OAuthTokenResponse,
     },
     error::{Error, Result},
-    output::render_json,
 };
 use crate::{
     args::{Cli, Commands, FinishCommand, LoginCommand},

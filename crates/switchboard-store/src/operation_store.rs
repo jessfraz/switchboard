@@ -153,10 +153,10 @@ impl SqliteOperationStore {
              updated_at = CURRENT_TIMESTAMP WHERE operation_id = ?1",
                 params![
                     id.as_str(),
-                    approval_state_identifier(operation.approval.state),
+                    operation.approval.state.as_str(),
                     operation.approval.actor,
                     operation.approval.note,
-                    operation_status_identifier(operation.status),
+                    operation.status.as_str(),
                     encode_effect(operation.effect.as_ref())?,
                     operation.failure_reason,
                     verification
@@ -211,14 +211,14 @@ impl OperationStore for SqliteOperationStore {
                     operation.tool.as_str(),
                     operation.namespace.as_str(),
                     operation.auth_ref.as_str(),
-                    tool_kind_identifier(operation.kind),
+                    operation.kind.as_str(),
                     &operation.summary,
-                    backend_kind_identifier(operation.backend),
+                    operation.backend.as_str(),
                     operation.approval_required,
                     operation.approval_reason.as_deref(),
                     operation.compensates_operation_id.as_ref().map(OperationId::as_str),
-                    approval_state_identifier(operation.approval.state),
-                    operation_status_identifier(operation.status),
+                    operation.approval.state.as_str(),
+                    operation.status.as_str(),
                     args_json,
                 ],
             )
@@ -395,90 +395,28 @@ fn decode_effect(effect_json: Option<&str>) -> Result<Option<OperationEffect>> {
         .transpose()
 }
 
-fn tool_kind_identifier(kind: ToolKind) -> &'static str {
-    match kind {
-        ToolKind::Read => "read",
-        ToolKind::Write => "write",
-    }
-}
-
-fn backend_kind_identifier(backend: BackendKind) -> &'static str {
-    match backend {
-        BackendKind::Cli => "cli",
-        BackendKind::Api => "api",
-        BackendKind::Local => "local",
-        BackendKind::Bridge => "bridge",
-    }
-}
-
-fn operation_status_identifier(status: OperationStatus) -> &'static str {
-    match status {
-        OperationStatus::Planned => "planned",
-        OperationStatus::Executing => "executing",
-        OperationStatus::Uncertain => "uncertain",
-        OperationStatus::Verified => "verified",
-        OperationStatus::Applied => "applied",
-        OperationStatus::Failed => "failed",
-        OperationStatus::Compensated => "compensated",
-    }
-}
-
-fn approval_state_identifier(state: ApprovalState) -> &'static str {
-    match state {
-        ApprovalState::NotRequired => "not_required",
-        ApprovalState::Pending => "pending",
-        ApprovalState::Approved => "approved",
-        ApprovalState::Rejected => "rejected",
-    }
-}
-
 fn parse_tool_kind(value: &str) -> Result<ToolKind> {
-    match value {
-        "read" => Ok(ToolKind::Read),
-        "write" => Ok(ToolKind::Write),
-        _ => Err(Error::Operation(format!(
-            "unknown tool kind in operation store: {value}"
-        ))),
-    }
+    value
+        .parse()
+        .map_err(|_| Error::Operation(format!("unknown tool kind in operation store: {value}")))
 }
 
 fn parse_backend_kind(value: &str) -> Result<BackendKind> {
-    match value {
-        "cli" => Ok(BackendKind::Cli),
-        "api" => Ok(BackendKind::Api),
-        "local" => Ok(BackendKind::Local),
-        "bridge" => Ok(BackendKind::Bridge),
-        _ => Err(Error::Operation(format!(
-            "unknown backend kind in operation store: {value}"
-        ))),
-    }
+    value
+        .parse()
+        .map_err(|_| Error::Operation(format!("unknown backend kind in operation store: {value}")))
 }
 
 fn parse_operation_status(value: &str) -> Result<OperationStatus> {
-    match value {
-        "planned" => Ok(OperationStatus::Planned),
-        "executing" => Ok(OperationStatus::Executing),
-        "uncertain" => Ok(OperationStatus::Uncertain),
-        "verified" => Ok(OperationStatus::Verified),
-        "applied" => Ok(OperationStatus::Applied),
-        "failed" => Ok(OperationStatus::Failed),
-        "compensated" => Ok(OperationStatus::Compensated),
-        _ => Err(Error::Operation(format!(
-            "unknown operation status in operation store: {value}"
-        ))),
-    }
+    value
+        .parse()
+        .map_err(|_| Error::Operation(format!("unknown operation status in operation store: {value}")))
 }
 
 fn parse_approval_state(value: &str) -> Result<ApprovalState> {
-    match value {
-        "not_required" => Ok(ApprovalState::NotRequired),
-        "pending" => Ok(ApprovalState::Pending),
-        "approved" => Ok(ApprovalState::Approved),
-        "rejected" => Ok(ApprovalState::Rejected),
-        _ => Err(Error::Operation(format!(
-            "unknown approval state in operation store: {value}"
-        ))),
-    }
+    value
+        .parse()
+        .map_err(|_| Error::Operation(format!("unknown approval state in operation store: {value}")))
 }
 
 fn to_sqlite_error(error: impl std::fmt::Display) -> rusqlite::Error {
@@ -599,6 +537,40 @@ mod tests {
             .expect("test setup should succeed");
         assert!(store.get(&operation.id).is_err());
         assert!(store.list().is_err());
+        connection
+            .execute(
+                "UPDATE operations SET args_json = ?1 WHERE operation_id = ?2",
+                [
+                    serde_json::to_string(&operation.args).expect("arguments should serialize"),
+                    operation.id.to_string(),
+                ],
+            )
+            .expect("valid arguments should be restored");
+        for (column, valid, label) in [
+            ("kind", operation.kind.as_str(), "tool kind"),
+            ("backend", operation.backend.as_str(), "backend kind"),
+            ("status", operation.status.as_str(), "operation status"),
+            ("approval_state", operation.approval.state.as_str(), "approval state"),
+        ] {
+            let update = format!("UPDATE operations SET {column} = ?1 WHERE operation_id = ?2");
+            connection
+                .execute(&update, ["invalid", operation.id.as_str()])
+                .expect("malformed identifier should be stored for this test");
+            let expected = format!("unknown {label} in operation store: invalid");
+            assert!(store
+                .get(&operation.id)
+                .expect_err("invalid identifier should fail")
+                .to_string()
+                .contains(&expected));
+            assert!(store
+                .list()
+                .expect_err("invalid identifier should fail")
+                .to_string()
+                .contains(&expected));
+            connection
+                .execute(&update, [valid, operation.id.as_str()])
+                .expect("valid identifier should be restored");
+        }
     }
 
     #[test]

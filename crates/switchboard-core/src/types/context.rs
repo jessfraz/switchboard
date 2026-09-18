@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Display},
     path::PathBuf,
+    str::FromStr,
 };
 
 use serde::{Deserialize, Serialize};
@@ -33,16 +34,29 @@ pub enum BackendKind {
     Bridge,
 }
 
-impl Display for BackendKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = match self {
+impl BackendKind {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
             Self::Cli => "cli",
             Self::Api => "api",
             Self::Local => "local",
             Self::Bridge => "bridge",
-        };
+        }
+    }
+}
 
-        write!(f, "{value}")
+impl FromStr for BackendKind {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        Self::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(value))
+            .map_err(|_| Error::InvalidArguments(format!("unknown backend kind: {value}")))
+    }
+}
+
+impl Display for BackendKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

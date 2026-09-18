@@ -182,11 +182,7 @@ where
 
 fn print_json(value: &impl Serialize, pretty: bool) -> Result<(), CallError> {
     let mut output = std::io::stdout().lock();
-    if pretty {
-        serde_json::to_writer_pretty(&mut output, value).map_err(|_| CallError::Output)?;
-    } else {
-        serde_json::to_writer(&mut output, value).map_err(|_| CallError::Output)?;
-    }
+    switchboard_cli_support::output::write_json(&mut output, value, !pretty).map_err(|_| CallError::Output)?;
     writeln!(output).map_err(|_| CallError::Output)
 }
 
