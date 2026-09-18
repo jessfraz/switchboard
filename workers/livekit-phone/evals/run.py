@@ -143,10 +143,10 @@ async def run(args: argparse.Namespace) -> None:
     from livekit_phone.runtime import Call
 
     startup = args.scenario in GREETING_SCENARIOS
-    if startup and not hasattr(Call, "_resolve_greeting"):
+    if startup and not hasattr(Call, "_create_greeting_detector"):
         raise ValueError(
             "Startup scenarios require a source snapshot with the production "
-            "greeting resolver; older baseline sources are unsupported."
+            "greeting detector factory; older baseline sources are unsupported."
         )
     root = private_output(args.output)
     destination = root / f"{args.label}-{args.scenario}-{args.repeat}"
@@ -183,6 +183,7 @@ async def run(args: argparse.Namespace) -> None:
         api_secret="unused",
         trunk_id="unused",
         openai_api_key=os.environ["OPENAI_API_KEY"],
+        voice=args.voice,
     )
     failure: str | None = None
     completed = False
@@ -191,6 +192,7 @@ async def run(args: argparse.Namespace) -> None:
         # event handlers. Starting the audio session here never dials its room.
         call = Call(request, config, stop, EventSink(io.StringIO()), http)
         models = call.models
+        models.classifier.on("metrics_collected", diagnostics.on_classifier_metrics)
         session = models.session
         session.on("function_tools_executed", diagnostics.on_tools)
         synchronizer = TranscriptSynchronizer(
@@ -264,6 +266,9 @@ async def run(args: argparse.Namespace) -> None:
             await source.aclose()
             await output.aclose()
             await models.aclose()
+            models.classifier.off(
+                "metrics_collected", diagnostics.on_classifier_metrics
+            )
             await call.client.aclose()
             diagnostics.capture_history(session.history)
             diagnostics.detach()
@@ -343,6 +348,7 @@ def main() -> None:
         required=True,
     )
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--voice", default="marin")
     args = parser.parse_args()
     # Private from creation, including subprocess-generated fixtures and SDK logs.
     os.umask(0o077)

@@ -68,9 +68,10 @@ with `xhigh` for deeper delegated reasoning, and `cedar` for a different voice.
 GPT-Live handles audio and transcripts directly through the official OpenAI
 endpoint, with the backend model handling delegated reasoning and local tools.
 Answering-machine detection reuses those native transcripts and calls the same
-backend model directly through OpenAI Responses, with `low` reasoning and
-`store=false`. Choose a backend that supports Responses tool calls and `low`
-reasoning. This separate greeting check does not change the configured reasoning
+backend model directly through OpenAI Responses and `store=false`. The default
+Luna classifier uses `none` reasoning for lower latency; other models retain
+`low`. Choose a backend that supports Responses tool calls and that reasoning
+level. This separate greeting check does not change the configured reasoning
 effort for delegated work. No LiveKit Inference services or credits are used;
 LiveKit credentials and billing still apply to room/SIP transport. Keys belong
 in 1Password and must be supplied by the supervising process, not written to
@@ -163,12 +164,15 @@ delivered. If no agent transcript arrives within 20 seconds after detection,
 the worker stops. Its spoken wording and objection handling are still
 model-driven.
 
-Before rejecting a call as voicemail or unavailable, the worker checks the
-complete latest greeting through the same OpenAI backend. New speech invalidates
-that decision, so a person answering after a voicemail announcement can continue
-the call. Speech stays paused during confirmation. Failed or cancelled detection
-interrupts queued speech before releasing that pause, preventing a queued
-opening from becoming a voicemail message.
+Before rejecting a call as voicemail or unavailable, or accepting a verdict
+that predates newer speech, the worker checks the complete latest greeting
+through the same OpenAI backend. New speech invalidates that decision. This
+handles both a person answering after voicemail and a recorded "Hello?" that
+continues into a mailbox greeting. Speech stays paused during confirmation.
+Failed or cancelled detection interrupts queued speech before releasing that
+pause, preventing a queued opening from becoming a voicemail message. The
+transcript-based detection fallback waits two seconds; actual startup also
+depends on transcript delivery and classification time.
 
 Answering-machine detection is closed after its initial verdict so it cannot
 suppress subsequent conversation turns. Keypad tools remain available even if
@@ -222,10 +226,11 @@ source versions:
 ```sh
 uv run --frozen --no-sync python -m evals.run \
   --output "$HOME/.local/share/phone/audio-evals" \
-  --label candidate --scenario turns --repeat 1
+  --label candidate --scenario turns --repeat 1 --voice vesper
 ```
 
 Run `turns`, `hold`, and `outcome`, repeating each to check model variability.
+Select the deployed voice with `--voice`; omitted, it uses Marin.
 For a baseline, add `--source-root /private/path/to/baseline/src` and use
 `--label baseline`. Each result directory is unique and cannot be overwritten.
 Keep API credentials in the invoking process environment, never in source or
@@ -247,13 +252,22 @@ finish once the pending outcome is established. Passing a run means it finished
 without a harness/lifecycle error; prompt quality requires reviewing the audio
 and transcript as well as the measurements.
 
-The startup scenarios `voicemail`, `pickup`, and `screening` additionally use
-real roomless AMD and the production greeting resolver. They require a source
-snapshot containing that resolver; older baseline snapshots are unsupported.
-`voicemail` passes when the call rejects the mailbox and plays no agent audio
+The startup scenarios `human`, `voicemail`, `pickup`, and `screening` additionally
+use real roomless AMD and the production greeting detector and resolver. They
+require a source snapshot containing the detector factory; older baseline
+snapshots are unsupported. `paused_voicemail` begins with a human-sounding
+"Hello?" before continuing its recorded greeting. `paused_screening` and
+`delayed_pickup` exercise gaps within screening and before a human joins.
+Voicemail scenarios pass when the call rejects the mailbox and plays no agent audio
 through gate release and two further seconds. `pickup` and `screening` require
 an audible opening after release. Their report retains preliminary and resolved
 categories, the last phase, and diagnostic metadata even when startup fails.
+Startup timing separates the first input transcript, numeric classifier request
+timings, AMD prediction, confirmation, gate release, and first audible PCM.
+These measurements identify local gating delays without relying on transcript
+receipt times as a proxy for played audio. Ignore the `after_backchannel`
+response delay: that observation window intentionally waits for the next
+scripted question and does not measure the time to answer a question.
 A rejected voicemail is an evaluation pass with a failed call outcome.
 
 These tests do not exercise SIP answer supervision, packet loss,

@@ -42,13 +42,16 @@ def create_models(
     """Construct clients without opening network connections."""
     # Never honor ambient endpoint overrides when sending call audio or secrets.
     # AMD returns verdicts via tools, which Astra supports through Responses.
-    # Greeting checks need little reasoning, even with a deeper call backend.
+    # The default Luna classifier supports no reasoning. Other configured
+    # backends can require it, including Astra, so retain low for those models.
     classifier = ResponsesLLM(
         model=config.backend_model,
         api_key=config.openai_api_key,
         base_url="https://api.openai.com/v1",
         use_websocket=False,
-        reasoning=ReasoningOptions(effort="low"),
+        reasoning=ReasoningOptions(
+            effort="none" if config.backend_model == "gpt-5.6-luna" else "low"
+        ),
         store=False,
     )
     responses_options = ResponsesDelegationOptions(

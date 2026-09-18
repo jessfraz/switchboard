@@ -6,14 +6,22 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from livekit.agents import AMD, AMDCategory, AMDPredictionEvent
+from livekit.agents import AMDCategory, AMDPredictionEvent
 
 from evals.media import Clip, PacedInput, PacedOutput, PlayedClip, Timeline
 
 if TYPE_CHECKING:
     from livekit_phone.runtime import Call
 
-GREETING_SCENARIOS = ("voicemail", "pickup", "screening")
+GREETING_SCENARIOS = (
+    "human",
+    "voicemail",
+    "pickup",
+    "screening",
+    "paused_voicemail",
+    "paused_screening",
+    "delayed_pickup",
+)
 
 
 @dataclass
@@ -21,7 +29,10 @@ class GreetingResult:
     phase: str = "waiting_for_prediction"
     preliminary: str | None = None
     resolved: str | None = None
+    prediction_received_at: float | None = None
+    confirmation_completed_at: float | None = None
     gate_released_at: float | None = None
+    first_agent_audio_at: float | None = None
     agent_audio_seconds: float = 0.0
     failure: str | None = None
     passed: bool = False
@@ -51,12 +62,7 @@ async def run_greeting(
     from livekit_phone.greeting import silence_greeting
 
     call.answered.set()
-    detector = AMD(
-        call.session,
-        llm=call.models.classifier,
-        stt=None,
-        ivr_detection=False,
-    )
+    detector = call._create_greeting_detector()
     verdict: asyncio.Future[AMDPredictionEvent] = (
         asyncio.get_running_loop().create_future()
     )
@@ -64,6 +70,7 @@ async def run_greeting(
     @detector.on("amd_prediction")
     def on_prediction(prediction: AMDPredictionEvent) -> None:
         if not verdict.done():
+            result.prediction_received_at = timeline.elapsed()
             verdict.set_result(prediction)
 
     async def resolve() -> AMDCategory:
@@ -71,6 +78,7 @@ async def run_greeting(
         result.preliminary = prediction.category.value
         result.phase = "confirming_greeting"
         category = await call._resolve_greeting(prediction)
+        result.confirmation_completed_at = timeline.elapsed()
         result.resolved = category.value
         return category
 
@@ -119,7 +127,7 @@ async def run_greeting(
                 ),
                 "audio_before_gate_release",
             )
-            if name == "voicemail":
+            if name in ("voicemail", "paused_voicemail"):
                 result.phase = "checking_voicemail_silence"
                 await asyncio.sleep(2)
                 _require(
@@ -145,6 +153,14 @@ async def run_greeting(
                 )
                 await call._open_conversation()
                 _require(result, output.first_voice.is_set(), "opening_was_not_audible")
+                _require(
+                    result,
+                    not any(
+                        start < windows[-1].end
+                        for start, _ in timeline.activity("agent")
+                    ),
+                    "opening_overlapped_greeting",
+                )
             result.passed = True
             result.phase = "finished"
     except TimeoutError:
@@ -154,6 +170,6 @@ async def run_greeting(
         if playback is not None:
             playback.cancel()
             await asyncio.gather(playback, return_exceptions=True)
-        result.agent_audio_seconds = sum(
-            end - start for start, end in timeline.activity("agent")
-        )
+        activity = timeline.activity("agent")
+        result.first_agent_audio_at = activity[0][0] if activity else None
+        result.agent_audio_seconds = sum(end - start for start, end in activity)

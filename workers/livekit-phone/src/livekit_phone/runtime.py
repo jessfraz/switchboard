@@ -250,15 +250,7 @@ class Call:
         self.session.output.transcription = self.transcript_sync.text_output
         if self.stop.event.is_set():
             return
-        detector = AMD(
-            self.session,
-            llm=self.models.classifier,
-            stt=None,
-            participant_identity=self.recipient_identity,
-            # The agent owns persistent DTMF tools. SDK IVR activity wakes the
-            # model after five seconds of silence, including legitimate holds.
-            ivr_detection=False,
-        )
+        detector = self._create_greeting_detector()
         verdict: asyncio.Future[AMDPredictionEvent] = (
             asyncio.get_running_loop().create_future()
         )
@@ -318,16 +310,38 @@ class Call:
         await self._open_conversation()
         await self.stop.event.wait()
 
+    def _create_greeting_detector(self) -> AMD:
+        return AMD(
+            self.session,
+            llm=self.models.classifier,
+            stt=None,
+            participant_identity=self.recipient_identity,
+            # The agent owns persistent DTMF tools. SDK IVR activity wakes the
+            # model after five seconds of silence, including legitimate holds.
+            ivr_detection=False,
+            # GPT-Live supplies grouped transcripts, not acoustic end-of-turn
+            # events. Bound AMD's fallback while reconfirming stale verdicts.
+            detection_options={"max_endpointing_delay": 2.0},
+        )
+
     async def _resolve_greeting(self, prediction: AMDPredictionEvent) -> AMDCategory:
         category = prediction.category
-        if category in (AMDCategory.MACHINE_VM, AMDCategory.MACHINE_UNAVAILABLE):
-            greeting = self.greeting
-            if greeting is None:
-                raise RuntimeError("greeting detection already finished")
-            greeting.update_speaking(self.session.user_state == "speaking")
-            # AMD can settle an older verdict while newer speech is being
-            # classified. Keep its playout gate held until confirmation; calling
-            # execute() would release it and act on that older verdict.
+        greeting = self.greeting
+        if greeting is None:
+            raise RuntimeError("greeting detection already finished")
+        greeting.update_speaking(self.session.user_state == "speaking")
+        snapshot = greeting.snapshot(prediction.transcript)
+        stale = snapshot.speaking or (
+            " ".join(snapshot.transcript.split())
+            != " ".join(prediction.transcript.split())
+        )
+        if stale or category in (
+            AMDCategory.MACHINE_VM,
+            AMDCategory.MACHINE_UNAVAILABLE,
+        ):
+            # AMD may settle an older verdict while newer speech is being
+            # classified, including "human" before a voicemail continuation.
+            # Keep playout gated until the current greeting is confirmed.
             category = await confirm_greeting(
                 greeting, prediction, self.models.classifier
             )

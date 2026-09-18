@@ -13,6 +13,7 @@ from evals.media import SAMPLE_RATE, Clip
 
 SPEECH = {
     "greeting": "Thanks for calling Example Shop. How can I help?",
+    "human": "Hello?",
     "voicemail": (
         "You have reached the Example Shop message service. "
         "Record your message after the signal."
@@ -26,6 +27,9 @@ SPEECH = {
         "Please tell me your name and why you are calling, "
         "so I can see if Pat is available."
     ),
+    "screening_start": "Please tell me your name",
+    "screening_end": "and why you are calling, so I can see if Pat is available.",
+    "live_pickup": "Hello, this is Pat. I just picked up. How may I help you?",
     "interrupt": "Sorry, what is the order number?",
     "question_start": "Before I look that up, could you tell me the customer's name",
     "question_middle": "and whether the damage was to the packaging",
@@ -89,6 +93,15 @@ async def make_clips(directory: Path) -> dict[str, Clip]:
         + bytes(round(SAMPLE_RATE * 0.9) * 2)
         + clips["question_end"].pcm,
     )
+    for name, first, pause, last in (
+        ("paused_voicemail", "human", 2.0, "voicemail"),
+        ("paused_screening", "screening_start", 1.5, "screening_end"),
+        ("delayed_pickup", "voicemail", 1.0, "live_pickup"),
+    ):
+        clips[name] = Clip(
+            name,
+            clips[first].pcm + bytes(round(SAMPLE_RATE * pause) * 2) + clips[last].pcm,
+        )
     notes = (261.63, 329.63, 392.00, 329.63, 293.66, 349.23, 440.0, 349.23)
     music = bytearray()
     for sample in range(12 * SAMPLE_RATE):

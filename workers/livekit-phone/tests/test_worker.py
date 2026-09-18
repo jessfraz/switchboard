@@ -220,8 +220,17 @@ def test_gpt_live_configuration_requires_openai_credentials() -> None:
 
 
 @pytest.mark.parametrize("effort", [None, BackendReasoningEffort.XHIGH])
+@pytest.mark.parametrize(
+    ("backend_model", "classifier_reasoning"),
+    [
+        ("gpt-6-astra", ReasoningOptions(effort="low")),
+        ("gpt-5.6-luna", ReasoningOptions(effort="none")),
+    ],
+)
 def test_real_sdk_models_use_openai_and_close_owned_clients(
     effort: BackendReasoningEffort | None,
+    backend_model: str,
+    classifier_reasoning: ReasoningOptions,
 ) -> None:
     async def construct() -> None:
         config = Config(
@@ -230,7 +239,7 @@ def test_real_sdk_models_use_openai_and_close_owned_clients(
             api_secret="offline-not-a-secret-at-least-32-characters",
             trunk_id="trunk",
             openai_api_key="offline-not-a-real-key",
-            backend_model="gpt-6-astra",
+            backend_model=backend_model,
             backend_reasoning_effort=effort,
         )
         async with aiohttp.ClientSession() as http_session:
@@ -248,9 +257,7 @@ def test_real_sdk_models_use_openai_and_close_owned_clients(
                 assert models.classifier.provider == "api.openai.com"
                 assert models.classifier.model == config.backend_model
                 assert models.classifier._opts.store is False
-                assert models.classifier._opts.reasoning == ReasoningOptions(
-                    effort="low"
-                )
+                assert models.classifier._opts.reasoning == classifier_reasoning
                 assert models.session.turn_detection == "realtime_llm"
                 classifier_client = models.classifier._client
                 assert classifier_client is not None
@@ -268,7 +275,7 @@ def test_real_sdk_models_use_openai_and_close_owned_clients(
                 realtime_model = model.duplex_model
                 assert isinstance(realtime_model, GPTLiveModel)
                 expected = ResponsesDelegationOptions(
-                    model="gpt-6-astra",
+                    model=backend_model,
                     instructions="Offline construction only.",
                 )
                 if effort is not None:

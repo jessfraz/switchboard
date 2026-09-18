@@ -1,4 +1,4 @@
-"""Confirm a terminal answering-machine verdict against the latest greeting."""
+"""Confirm stale or terminal answering-machine verdicts against the latest greeting."""
 
 from __future__ import annotations
 

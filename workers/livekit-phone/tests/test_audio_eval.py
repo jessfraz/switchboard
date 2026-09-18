@@ -5,14 +5,48 @@ from __future__ import annotations
 import asyncio
 import struct
 import wave
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 from livekit import rtc
+from livekit.agents.metrics import LLMMetrics
 
+from evals.diagnostics import ClassifierTiming, Diagnostics
 from evals.media import SAMPLE_RATE, PacedOutput, Timeline
 from evals.metrics import measure_window
 from evals.run import private_output
+
+
+def test_diagnostics_keeps_numeric_timing_without_provider_content() -> None:
+    diagnostics = Diagnostics(lambda: 12.5)
+    diagnostics.on_classifier_metrics(
+        LLMMetrics(
+            label="private-provider-label",
+            request_id="private-request-id",
+            timestamp=100,
+            duration=1.4,
+            ttft=1.2,
+            cancelled=False,
+            completion_tokens=3,
+            prompt_tokens=10,
+            prompt_cached_tokens=0,
+            total_tokens=13,
+            tokens_per_second=2,
+        )
+    )
+    diagnostics.on_provider_event(
+        {
+            "type": "session.input_transcript.delta",
+            "delta": "private-conversation-text",
+            "event_id": "private-event-id",
+        }
+    )
+    assert diagnostics.report.classifier_timings == [
+        ClassifierTiming(12.5, 1.4, 1.2, False)
+    ]
+    assert diagnostics.report.first_input_transcript_at == 12.5
+    assert "private-" not in str(asdict(diagnostics.report))
 
 
 def test_stereo_recording_preserves_channels_and_silence(tmp_path: Path) -> None:
