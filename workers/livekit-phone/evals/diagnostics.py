@@ -10,7 +10,6 @@ from types import CoroutineType, FrameType, GeneratorType
 
 from livekit.agents import Agent, FunctionToolsExecutedEvent
 from livekit.agents.llm import ChatContext, FunctionCall, FunctionCallOutput
-from livekit.agents.metrics import LLMMetrics
 from livekit.plugins.openai.realtime.gpt_live_model import GPTLiveSession
 
 _SESSION_EVENTS = frozenset(
@@ -106,14 +105,6 @@ class StackLocation:
     line: int
 
 
-@dataclass(frozen=True)
-class ClassifierTiming:
-    completed_at: float
-    duration: float
-    ttft: float
-    cancelled: bool
-
-
 @dataclass
 class DiagnosticReport:
     provider_events_attached: bool = False
@@ -123,7 +114,7 @@ class DiagnosticReport:
     history_tools: list[ToolMetadata] = field(default_factory=list)
     pending_tasks: list[list[StackLocation]] = field(default_factory=list)
     first_input_transcript_at: float | None = None
-    classifier_timings: list[ClassifierTiming] = field(default_factory=list)
+    session_ready_at: float | None = None
 
 
 class Diagnostics:
@@ -138,6 +129,8 @@ class Diagnostics:
             self._duplex = duplex
             duplex.on("openai_server_event_received", self.on_provider_event)
             self.report.provider_events_attached = True
+            if duplex.session_id is not None:
+                self.report.session_ready_at = self._elapsed()
 
     def detach(self) -> None:
         if self._duplex is not None:
@@ -146,6 +139,8 @@ class Diagnostics:
 
     def on_provider_event(self, raw: object) -> None:
         event = _allowed(_get(raw, "type"), _SESSION_EVENTS)
+        if event == "session.started":
+            self.report.session_ready_at = self._elapsed()
         if (
             event == "session.input_transcript.delta"
             and self.report.first_input_transcript_at is None
@@ -174,13 +169,6 @@ class Diagnostics:
                     self._elapsed(), event, backend_event, target, function, status
                 )
             )
-
-    def on_classifier_metrics(self, metrics: LLMMetrics) -> None:
-        self.report.classifier_timings.append(
-            ClassifierTiming(
-                self._elapsed(), metrics.duration, metrics.ttft, metrics.cancelled
-            )
-        )
 
     def on_tools(self, event: FunctionToolsExecutedEvent) -> None:
         for call, result in event.zipped():

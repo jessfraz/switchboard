@@ -10,9 +10,6 @@ import aiohttp
 from google.protobuf.duration_pb2 import Duration
 from livekit import api, rtc
 from livekit.agents import (
-    AMD,
-    AMDCategory,
-    AMDPredictionEvent,
     APIConnectionError,
     APIStatusError,
     APITimeoutError,
@@ -24,13 +21,12 @@ from livekit.agents import (
     room_io,
 )
 from livekit.agents.voice import TranscriptSynchronizer
-from livekit.agents.voice.speech_handle import SpeechHandle
+from livekit.plugins.openai.realtime.gpt_live_model import GPTLiveSession
 
 from livekit_phone.agent import PhoneAgent, call_instructions
 from livekit_phone.config import Config, ConfigurationError
-from livekit_phone.control import Stop, transcript_event
-from livekit_phone.greeting import Greeting, confirm_greeting, silence_greeting
-from livekit_phone.models import create_models
+from livekit_phone.control import Stop, is_voicemail_signoff, transcript_event
+from livekit_phone.models import create_models, wait_for_voice_ready
 from livekit_phone.protocol import (
     Completed,
     Error,
@@ -88,33 +84,42 @@ class Call:
         self.room_created = False
         self.answered = asyncio.Event()
         self.first_agent_utterance = asyncio.Event()
-        self.opening_speech: SpeechHandle | None = None
-        self.greeting: Greeting | None = Greeting()
+        self.conversation_started = asyncio.Event()
         self._register_events()
 
     def _register_events(self) -> None:
         @self.session.on("speech_created")
         def on_speech(event: SpeechCreatedEvent) -> None:
-            if not self.first_agent_utterance.is_set():
-                self.opening_speech = event.speech_handle
+            self.conversation_started.set()
 
         @self.session.on("user_input_transcribed")
         def on_input(event: UserInputTranscribedEvent) -> None:
-            if self.greeting is not None and self.answered.is_set():
-                self.greeting.update_transcript(event)
+            if event.transcript.strip():
+                self.conversation_started.set()
 
         @self.session.on("user_state_changed")
         def on_user_state(event: UserStateChangedEvent) -> None:
-            if self.greeting is not None and self.answered.is_set():
-                self.greeting.update_speaking(event.new_state == "speaking")
+            if event.new_state == "speaking":
+                self.conversation_started.set()
 
         @self.session.on("conversation_item_added")
         def on_item(event: ConversationItemAddedEvent) -> None:
             transcript = transcript_event(event)
             if transcript:
                 self.output.emit(transcript)
+                if self.output.closed:
+                    self.stop.request("cancelled")
+                self.conversation_started.set()
                 if transcript.speaker == "agent":
                     self.first_agent_utterance.set()
+                # The SDK commits this only after playout. This exact, fully
+                # delivered sign-off also ends the call if delegation is omitted.
+                if is_voicemail_signoff(transcript):
+                    self.stop.request(
+                        "completed",
+                        "No person was reached; voicemail was recognized "
+                        "and the call ended.",
+                    )
             if self.output.closed:
                 self.stop.request("cancelled")
 
@@ -225,8 +230,9 @@ class Call:
             await self.room.connect(self.config.url, token)
         if self.stop.event.is_set():
             return
+        agent = PhoneAgent(self.request, self.stop)
         await self.session.start(
-            agent=PhoneAgent(self.request, self.stop),
+            agent=agent,
             room=self.room,
             room_options=room_io.RoomOptions(
                 participant_identity=self.recipient_identity,
@@ -248,130 +254,59 @@ class Call:
         )
         self.session.output.audio = self.transcript_sync.audio_output
         self.session.output.transcription = self.transcript_sync.text_output
+        duplex = agent.duplex_session
+        if not isinstance(duplex, GPTLiveSession):
+            raise RuntimeError("the voice session did not create a GPT-Live connection")
+        async with asyncio.timeout(10):
+            await wait_for_voice_ready(duplex)
         if self.stop.event.is_set():
             return
-        detector = self._create_greeting_detector()
-        verdict: asyncio.Future[AMDPredictionEvent] = (
-            asyncio.get_running_loop().create_future()
+        self.output.emit(Lifecycle(type="dialing"))
+        self.dial_started = True
+        # Never retry this mutation. If its reply is lost, the provider may
+        # still be dialing; cleanup reports the resulting uncertainty.
+        await self.client.sip.create_sip_participant(
+            api.CreateSIPParticipantRequest(
+                sip_trunk_id=self.config.trunk_id,
+                sip_call_to=self.request.destination,
+                room_name=self.room_name,
+                participant_identity=self.recipient_identity,
+                participant_name="Business recipient",
+                wait_until_answered=False,
+                ringing_timeout=Duration(seconds=45),
+                max_call_duration=Duration(seconds=self.request.max_duration_seconds),
+                media_encryption=api.SIP_MEDIA_ENCRYPT_REQUIRE,
+                hide_phone_number=True,
+            )
         )
-
-        @detector.on("amd_prediction")
-        def on_prediction(prediction: AMDPredictionEvent) -> None:
-            if not verdict.done():
-                verdict.set_result(prediction)
-
-        async with detector:
-            accepted = False
-            try:
-                self.output.emit(Lifecycle(type="dialing"))
-                self.dial_started = True
-                # Never retry this mutation. If its reply is lost, the provider may
-                # still be dialing; cleanup reports the resulting uncertainty.
-                await self.client.sip.create_sip_participant(
-                    api.CreateSIPParticipantRequest(
-                        sip_trunk_id=self.config.trunk_id,
-                        sip_call_to=self.request.destination,
-                        room_name=self.room_name,
-                        participant_identity=self.recipient_identity,
-                        participant_name="Business recipient",
-                        wait_until_answered=False,
-                        ringing_timeout=Duration(seconds=45),
-                        max_call_duration=Duration(
-                            seconds=self.request.max_duration_seconds
-                        ),
-                        media_encryption=api.SIP_MEDIA_ENCRYPT_REQUIRE,
-                        hide_phone_number=True,
-                    )
-                )
-                self.dial_resolved = True
-                if self.stop.event.is_set():
-                    return
-                participant = self.room.remote_participants.get(self.recipient_identity)
-                if (
-                    participant
-                    and participant.attributes.get("sip.callStatus") == "active"
-                ):
-                    self.answered.set()
-                async with asyncio.timeout(50):
-                    await self.answered.wait()
-                self.output.emit(Lifecycle(type="connected"))
-                await self._resolve_greeting(await verdict)
-                accepted = not self.stop.event.is_set()
-            finally:
-                if not accepted:
-                    await silence_greeting(self.session)
-
-        self.greeting = None
-
-        # A live AMD detector suppresses automatic replies after a machine
-        # verdict. Release it before navigating menus or talking to a person.
+        self.dial_resolved = True
         if self.stop.event.is_set():
             return
+        participant = self.room.remote_participants.get(self.recipient_identity)
+        if participant and participant.attributes.get("sip.callStatus") == "active":
+            self.answered.set()
+        async with asyncio.timeout(50):
+            await self.answered.wait()
+        self.output.emit(Lifecycle(type="connected"))
         await self._open_conversation()
         await self.stop.event.wait()
 
-    def _create_greeting_detector(self) -> AMD:
-        return AMD(
-            self.session,
-            llm=self.models.classifier,
-            stt=None,
-            participant_identity=self.recipient_identity,
-            # The agent owns persistent DTMF tools. SDK IVR activity wakes the
-            # model after five seconds of silence, including legitimate holds.
-            ivr_detection=False,
-            # GPT-Live supplies grouped transcripts, not acoustic end-of-turn
-            # events. Bound AMD's fallback while reconfirming stale verdicts.
-            detection_options={"max_endpointing_delay": 2.0},
-        )
-
-    async def _resolve_greeting(self, prediction: AMDPredictionEvent) -> AMDCategory:
-        category = prediction.category
-        greeting = self.greeting
-        if greeting is None:
-            raise RuntimeError("greeting detection already finished")
-        greeting.update_speaking(self.session.user_state == "speaking")
-        snapshot = greeting.snapshot(prediction.transcript)
-        stale = snapshot.speaking or (
-            " ".join(snapshot.transcript.split())
-            != " ".join(prediction.transcript.split())
-        )
-        if stale or category in (
-            AMDCategory.MACHINE_VM,
-            AMDCategory.MACHINE_UNAVAILABLE,
-        ):
-            # AMD may settle an older verdict while newer speech is being
-            # classified, including "human" before a voicemail continuation.
-            # Keep playout gated until the current greeting is confirmed.
-            category = await confirm_greeting(
-                greeting, prediction, self.models.classifier
-            )
-        if category in (AMDCategory.MACHINE_VM, AMDCategory.MACHINE_UNAVAILABLE):
-            # Context teardown resumes AMD's playout gate. Disable the sink
-            # first so queued speech cannot leave a voicemail.
-            self.session.output.set_audio_enabled(False)
-            self.output.emit(
-                Error(code="no_person_reached", message="No person was reached.")
-            )
-            self.stop.request("failed", "No person reached; no message was left.")
-        return category
-
     async def _open_conversation(self) -> None:
-        # AMD gates playout, not GPT-Live generation. Preserve an opening
-        # already queued for a person or interactive menu; interrupting it can
-        # discard the native reply. Explicitly start only when none is pending.
-        opening = self.opening_speech
-        if not self.first_agent_utterance.is_set() and (
-            opening is None or opening.done() or opening.interrupted
-        ):
-            self.session.generate_reply(
-                instructions=(
-                    "Begin the conversation now. Answer the latest question or "
-                    "interactive prompt if there is one; otherwise give the brief "
-                    "opening. Do not repeat information already delivered."
+        # Native replies can start before the answer event arrives. Any input or
+        # pending speech owns the opening; a timer must never start a second one.
+        try:
+            async with asyncio.timeout(2.0):
+                await self.conversation_started.wait()
+        except TimeoutError:
+            if not self.stop.event.is_set() and not self.conversation_started.is_set():
+                self.session.generate_reply(
+                    instructions=(
+                        "If the recipient has spoken, listen until they finish "
+                        "and respond naturally to their greeting or question. "
+                        "Only if the answered line has stayed quiet, say a brief "
+                        "'Hello?' then listen. Do not repeat an opening."
+                    )
                 )
-            )
-        async with asyncio.timeout(20):
-            await self.first_agent_utterance.wait()
 
     async def cleanup(self) -> bool:
         confirmed = not self.dial_started or self.recipient_gone

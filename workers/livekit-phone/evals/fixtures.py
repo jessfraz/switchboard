@@ -19,9 +19,8 @@ SPEECH = {
         "Record your message after the signal."
     ),
     "pickup": (
-        "You have reached the Example Shop message service. "
-        "Record your message after the signal. "
-        "Hello, Pat at Example Shop speaking. I just picked up. How may I help you?"
+        "One moment while I see if Pat can take your call. "
+        "Hello, Pat at Example Shop speaking. How may I help you?"
     ),
     "screening": (
         "Please tell me your name and why you are calling, "
@@ -29,6 +28,7 @@ SPEECH = {
     ),
     "screening_start": "Please tell me your name",
     "screening_end": "and why you are calling, so I can see if Pat is available.",
+    "connecting": "One moment while I connect your call.",
     "live_pickup": "Hello, this is Pat. I just picked up. How may I help you?",
     "interrupt": "Sorry, what is the order number?",
     "question_start": "Before I look that up, could you tell me the customer's name",
@@ -96,11 +96,15 @@ async def make_clips(directory: Path) -> dict[str, Clip]:
     for name, first, pause, last in (
         ("paused_voicemail", "human", 2.0, "voicemail"),
         ("paused_screening", "screening_start", 1.5, "screening_end"),
-        ("delayed_pickup", "voicemail", 1.0, "live_pickup"),
+        ("delayed_pickup", "connecting", 1.0, "live_pickup"),
     ):
         clips[name] = Clip(
             name,
             clips[first].pcm + bytes(round(SAMPLE_RATE * pause) * 2) + clips[last].pcm,
+        )
+    for name, pause in (("silent_answer", 4.0), ("boundary_greeting", 1.7)):
+        clips[name] = Clip(
+            name, bytes(round(SAMPLE_RATE * pause) * 2) + clips["human"].pcm
         )
     notes = (261.63, 329.63, 392.00, 329.63, 293.66, 349.23, 440.0, 349.23)
     music = bytearray()

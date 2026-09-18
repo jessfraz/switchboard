@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import aiohttp
 from livekit.agents import AgentSession, TurnHandlingOptions
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
-from livekit.plugins.openai.responses import LLM as ResponsesLLM
-from openai.types import Reasoning as ReasoningOptions
+from livekit.plugins.openai.realtime.gpt_live_model import GPTLiveSession
 from openai.types.shared_params import Reasoning
 
 from livekit_phone.config import Config
@@ -18,19 +18,30 @@ from livekit_phone.config import Config
 @dataclass
 class CallModels:
     session: AgentSession[None]
-    classifier: ResponsesLLM
 
     async def aclose(self) -> None:
-        # AgentSession closes streams, but these model clients are caller-owned.
-        # GPT-Live uses a separate text model solely for answering-machine checks.
-        models = (self.session.llm, self.classifier)
-        results = await asyncio.gather(
-            *(model.aclose() for model in models if model is not None),
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, BaseException):
-                raise result
+        # AgentSession closes streams, but the model client is caller-owned.
+        if self.session.llm is not None:
+            await self.session.llm.aclose()
+
+
+async def wait_for_voice_ready(duplex: GPTLiveSession) -> None:
+    """Wait for the provider to accept this session before dialing a recipient."""
+    ready = asyncio.Event()
+
+    def on_event(event: object) -> None:
+        if isinstance(event, Mapping) and event.get("type") == "session.started":
+            ready.set()
+
+    duplex.on("openai_server_event_received", on_event)
+    try:
+        # Subscribe before checking: the acknowledgement can arrive while the
+        # agent starts. The public ID covers a session already acknowledged.
+        if duplex.session_id is not None:
+            return
+        await ready.wait()
+    finally:
+        duplex.off("openai_server_event_received", on_event)
 
 
 def create_models(
@@ -41,19 +52,6 @@ def create_models(
 ) -> CallModels:
     """Construct clients without opening network connections."""
     # Never honor ambient endpoint overrides when sending call audio or secrets.
-    # AMD returns verdicts via tools, which Astra supports through Responses.
-    # The default Luna classifier supports no reasoning. Other configured
-    # backends can require it, including Astra, so retain low for those models.
-    classifier = ResponsesLLM(
-        model=config.backend_model,
-        api_key=config.openai_api_key,
-        base_url="https://api.openai.com/v1",
-        use_websocket=False,
-        reasoning=ReasoningOptions(
-            effort="none" if config.backend_model == "gpt-5.6-luna" else "low"
-        ),
-        store=False,
-    )
     responses_options = ResponsesDelegationOptions(
         model=config.backend_model,
         instructions=backend_instructions,
@@ -75,5 +73,8 @@ def create_models(
         ),
         turn_handling=TurnHandlingOptions(turn_detection="realtime_llm"),
         user_away_timeout=None,
+        # Outbound SIP needs no microphone echo warmup. Make that SDK default
+        # explicit so early interruptions also reach the model in audio evals.
+        aec_warmup_duration=None,
     )
-    return CallModels(session=session, classifier=classifier)
+    return CallModels(session=session)

@@ -10,6 +10,18 @@ from livekit.agents.llm import ChatMessage
 
 from livekit_phone.protocol import CompletionReason, Transcript
 
+VOICEMAIL_SIGNOFF = "Oh, sorry, voicemail. Bye."
+
+
+def is_voicemail_signoff(transcript: Transcript) -> bool:
+    """Recognize the complete delivered sign-off, never a mention or partial turn."""
+    if transcript.speaker != "agent" or transcript.interrupted:
+        return False
+    punctuation = str.maketrans(".,!?", "    ")
+    spoken = transcript.text.casefold().translate(punctuation).split()
+    expected = VOICEMAIL_SIGNOFF.casefold().translate(punctuation).split()
+    return spoken == expected
+
 
 @dataclass
 class Stop:

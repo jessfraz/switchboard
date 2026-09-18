@@ -20,11 +20,21 @@ from pathlib import Path
 from livekit.agents import ConversationItemAddedEvent
 from livekit.agents.utils import http_context
 from livekit.agents.voice import TranscriptSynchronizer
+from livekit.plugins.openai.realtime.gpt_live_model import GPTLiveSession
 
 from evals.diagnostics import Diagnostics
 from evals.fixtures import make_clips
 from evals.greetings import GREETING_SCENARIOS, GreetingResult, run_greeting
-from evals.media import Clip, PacedInput, PacedOutput, PlayedClip, Timeline
+from evals.media import (
+    Clip,
+    PacedInput,
+    PacedOutput,
+    PlayedClip,
+    Timeline,
+    wait_answer,
+    wait_quiet,
+    wait_voice,
+)
 from evals.metrics import measure_window
 
 TASK = (
@@ -51,28 +61,6 @@ class Utterance:
     text: str
     received_at: float
     interrupted: bool
-
-
-async def wait_voice(output: PacedOutput, since: float) -> None:
-    async with asyncio.timeout(25):
-        while output.last_voice_end <= since:
-            output.voice_changed.clear()
-            await output.voice_changed.wait()
-
-
-async def wait_quiet(timeline: Timeline, output: PacedOutput) -> None:
-    async with asyncio.timeout(25):
-        while (remaining := 1.4 - (timeline.elapsed() - output.last_voice_end)) > 0:
-            output.voice_changed.clear()
-            try:
-                await asyncio.wait_for(output.voice_changed.wait(), timeout=remaining)
-            except TimeoutError:
-                return
-
-
-async def wait_answer(timeline: Timeline, output: PacedOutput, since: float) -> None:
-    await wait_voice(output, since)
-    await wait_quiet(timeline, output)
 
 
 async def scenario(
@@ -139,15 +127,11 @@ async def run(args: argparse.Namespace) -> None:
     from livekit_phone.agent import PhoneAgent
     from livekit_phone.config import Config
     from livekit_phone.control import Stop, transcript_event
+    from livekit_phone.models import wait_for_voice_ready
     from livekit_phone.protocol import EventSink, Start
     from livekit_phone.runtime import Call
 
     startup = args.scenario in GREETING_SCENARIOS
-    if startup and not hasattr(Call, "_create_greeting_detector"):
-        raise ValueError(
-            "Startup scenarios require a source snapshot with the production "
-            "greeting detector factory; older baseline sources are unsupported."
-        )
     root = private_output(args.output)
     destination = root / f"{args.label}-{args.scenario}-{args.repeat}"
     destination.mkdir(mode=0o700)  # Never overwrite evidence from an earlier run.
@@ -158,11 +142,6 @@ async def run(args: argparse.Namespace) -> None:
         ).hexdigest()
         for name in ("agent.py", "models.py", "runtime.py")
     }
-    greeting_module = args.source_root / "livekit_phone" / "greeting.py"
-    if greeting_module.is_file():
-        source_hashes["greeting.py"] = hashlib.sha256(
-            greeting_module.read_bytes()
-        ).hexdigest()
     greeting_result = GreetingResult() if startup else None
     timeline = Timeline()
     diagnostics = Diagnostics(timeline.elapsed)
@@ -192,7 +171,6 @@ async def run(args: argparse.Namespace) -> None:
         # event handlers. Starting the audio session here never dials its room.
         call = Call(request, config, stop, EventSink(io.StringIO()), http)
         models = call.models
-        models.classifier.on("metrics_collected", diagnostics.on_classifier_metrics)
         session = models.session
         session.on("function_tools_executed", diagnostics.on_tools)
         synchronizer = TranscriptSynchronizer(
@@ -217,6 +195,12 @@ async def run(args: argparse.Namespace) -> None:
                 phone_agent = PhoneAgent(request, stop)
                 await session.start(phone_agent, record=False, session_host=False)
                 diagnostics.attach(phone_agent)
+                # Use the same pre-dial readiness boundary as production.
+                duplex = phone_agent.duplex_session
+                if not isinstance(duplex, GPTLiveSession):
+                    raise TypeError("Expected a GPT-Live voice session")
+                async with asyncio.timeout(10):
+                    await wait_for_voice_ready(duplex)
                 if greeting_result is not None:
                     await run_greeting(
                         args.scenario,
@@ -266,9 +250,6 @@ async def run(args: argparse.Namespace) -> None:
             await source.aclose()
             await output.aclose()
             await models.aclose()
-            models.classifier.off(
-                "metrics_collected", diagnostics.on_classifier_metrics
-            )
             await call.client.aclose()
             diagnostics.capture_history(session.history)
             diagnostics.detach()

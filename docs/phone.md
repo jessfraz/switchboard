@@ -9,7 +9,8 @@ needed. Rust's `CallBackend` / `ActiveCall` traits isolate the provider SDK.
 - macOS or Linux, Rust, `uv`, Python 3.12 or 3.13, `age`, and [1Password CLI].
 - A [LiveKit project][LiveKit credentials], URL, and API key/secret for room/SIP
   transport. GPT-Live sends all inference directly to OpenAI, including
-  delegated reasoning and answering-machine detection. No LiveKit Inference
+  delegated reasoning. Greetings and voicemail are handled conversationally,
+  without blocking speech for a separate classifier. No LiveKit Inference
   credits are used.
 - An [outbound SIP trunk] and authorized caller ID. For Twilio, follow its
   [Elastic SIP Trunking setup][Twilio setup], enable Secure Trunking, and
@@ -17,9 +18,9 @@ needed. Rust's `CallBackend` / `ActiveCall` traits isolate the provider SDK.
   trunk ID. Carrier billing is separate.
 - An age X25519 public recipient, with its private identity backed up securely.
 - An [OpenAI API key] with access to `gpt-live-1` and the chosen
-  backend, which must support Responses tool calls and `low` reasoning for
-  answering-machine checks. The [GPT-Live plugin] currently requires alpha
-  access; funding an account alone does not grant it. OpenAI billing is separate
+  backend, which must support Responses tool calls. The [GPT-Live plugin]
+  currently requires alpha access; funding an account alone does not grant it.
+  OpenAI billing is separate
   too.
 
 The defaults are GPT-Live 1, delegated GPT-5.6 Luna, and the Marin voice.

@@ -375,3 +375,25 @@ class PacedOutput(io.AudioOutput):
         async with self._lock:
             pass
         await asyncio.sleep(0)
+
+
+async def wait_voice(output: PacedOutput, since: float) -> None:
+    async with asyncio.timeout(25):
+        while output.last_voice_end <= since:
+            output.voice_changed.clear()
+            await output.voice_changed.wait()
+
+
+async def wait_quiet(timeline: Timeline, output: PacedOutput) -> None:
+    async with asyncio.timeout(25):
+        while (remaining := 1.4 - (timeline.elapsed() - output.last_voice_end)) > 0:
+            output.voice_changed.clear()
+            try:
+                await asyncio.wait_for(output.voice_changed.wait(), timeout=remaining)
+            except TimeoutError:
+                return
+
+
+async def wait_answer(timeline: Timeline, output: PacedOutput, since: float) -> None:
+    await wait_voice(output, since)
+    await wait_quiet(timeline, output)

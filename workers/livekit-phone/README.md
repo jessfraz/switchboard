@@ -67,12 +67,9 @@ When omitted, the API's model default applies. For example, use `gpt-6-astra`
 with `xhigh` for deeper delegated reasoning, and `cedar` for a different voice.
 GPT-Live handles audio and transcripts directly through the official OpenAI
 endpoint, with the backend model handling delegated reasoning and local tools.
-Answering-machine detection reuses those native transcripts and calls the same
-backend model directly through OpenAI Responses and `store=false`. The default
-Luna classifier uses `none` reasoning for lower latency; other models retain
-`low`. Choose a backend that supports Responses tool calls and that reasoning
-level. This separate greeting check does not change the configured reasoning
-effort for delegated work. No LiveKit Inference services or credits are used;
+Choose a backend that supports Responses tool calls and any configured reasoning
+level. GPT-Live handles greetings and voicemail directly, without a separate
+classifier delaying speech. No LiveKit Inference services or credits are used;
 LiveKit credentials and billing still apply to room/SIP transport. Keys belong
 in 1Password and must be supplied by the supervising process, not written to
 this source directory.
@@ -117,8 +114,9 @@ Events are `ready`, `dialing`, `connected`, `transcript`, `error`, and finally
 `interrupted`. Early media transcripts can arrive while dialing. Completed
 events have `reason`, `remote_hangup_confirmed`, and an optional `summary`.
 `completed` means the conversation ended normally, not that the requested
-information was necessarily obtained. Voicemail and unavailable destinations
-produce `failed` without leaving a message.
+information was necessarily obtained. A recognized voicemail ends normally
+with a summary that no person was reached. Unavailable destinations produce
+`failed`.
 
 The subprocess emits committed SDK conversation messages, not token deltas.
 A local transcript synchronizer truncates interrupted agent messages to the
@@ -157,33 +155,29 @@ are task-specific constraints, not hardcoded restrictions on every call.
 The agent must not invent missing details or agree to commitments outside the
 brief. It continues within those constraints without in-call approval pauses.
 The voice conversation and menu choices are model-driven and require real-call
-evaluation before relying on their behavior. The worker preserves any native
-opening queued during answering-machine detection, including answers to call
-screening. It explicitly starts an opening only when none is pending or already
-delivered. If no agent transcript arrives within 20 seconds after detection,
-the worker stops. Its spoken wording and objection handling are still
-model-driven.
+evaluation before relying on their behavior. The worker waits for the voice
+provider to be ready before dialing, with a ten-second setup deadline.
+GPT-Live responds to the recipient
+as audio arrives. On an answered line with no observed speech, a single short
+"Hello?" fallback starts after two seconds; any native response or recipient
+input suppresses it. A long greeting, menu, or hold does not time out merely
+because the agent has not spoken.
 
-Before rejecting a call as voicemail or unavailable, or accepting a verdict
-that predates newer speech, the worker checks the complete latest greeting
-through the same OpenAI backend. New speech invalidates that decision. This
-handles both a person answering after voicemail and a recorded "Hello?" that
-continues into a mailbox greeting. Speech stays paused during confirmation.
-Failed or cancelled detection interrupts queued speech before releasing that
-pause, preventing a queued opening from becoming a voicemail message. The
-transcript-based detection fallback waits two seconds; actual startup also
-depends on transcript delivery and classification time.
+Conversation takes priority over waiting to rule out voicemail. An introduction
+may begin before a recording becomes apparent. Once voicemail is recognized,
+the assistant gives a brief sign-off such as "Oh, sorry, voicemail. Bye," then
+ends the call without dictating the request as a voicemail message. This
+recognition is model-driven. The complete, uninterrupted voicemail sign-off
+also ends the call locally if the model omits its hangup delegation. Merely
+mentioning voicemail, user speech, or an interrupted sign-off does not do so.
 
-Answering-machine detection is closed after its initial verdict so it cannot
-suppress subsequent conversation turns. Keypad tools remain available even if
-a menu appears after talking to a human. GPT-Live waits natively on hold,
-during a transfer, or while someone checks information, since its backend
-always speaks after a delegated tool result.
-Transfers are not completed tasks. The SDK's IVR silence wakeups are disabled
-so waiting does not
-trigger a new response every five seconds. Automated menus get an explicit
-first response. The SDK owns model retries; only a terminal session failure
-produces a fatal diagnostic, using its typed error category without provider
+Keypad tools remain available if a menu appears after talking to a human.
+GPT-Live waits natively on hold, during a transfer, or while someone checks
+information, since its backend speaks after delegated tool results. Transfers
+are not completed tasks. SDK IVR silence wakeups are disabled so waiting does
+not trigger a response every five seconds. The SDK owns model retries; only a
+terminal session failure produces a fatal diagnostic, using its typed error
+category without provider
 error text. A recipient hangup before any committed agent speech is reported
 as a failed call.
 
@@ -252,34 +246,34 @@ finish once the pending outcome is established. Passing a run means it finished
 without a harness/lifecycle error; prompt quality requires reviewing the audio
 and transcript as well as the measurements.
 
-The startup scenarios `human`, `voicemail`, `pickup`, and `screening` additionally
-use real roomless AMD and the production greeting detector and resolver. They
-require a source snapshot containing the detector factory; older baseline
-snapshots are unsupported. `paused_voicemail` begins with a human-sounding
-"Hello?" before continuing its recorded greeting. `paused_screening` and
-`delayed_pickup` exercise gaps within screening and before a human joins.
-Voicemail scenarios pass when the call rejects the mailbox and plays no agent audio
-through gate release and two further seconds. `pickup` and `screening` require
-an audible opening after release. Their report retains preliminary and resolved
-categories, the last phase, and diagnostic metadata even when startup fails.
-Startup timing separates the first input transcript, numeric classifier request
-timings, AMD prediction, confirmation, gate release, and first audible PCM.
-These measurements identify local gating delays without relying on transcript
-receipt times as a proxy for played audio. Ignore the `after_backchannel`
-response delay: that observation window intentionally waits for the next
-scripted question and does not measure the time to answer a question.
-A rejected voicemail is an evaluation pass with a failed call outcome.
+The startup scenarios use the production opening helper with real audio and
+GPT-Live. `human` fails if the first audible response starts more than 1.5 seconds
+after the short greeting ends. `voicemail` and `paused_voicemail` require the
+call to end within eight seconds after the announcement, allowing an initial
+introduction and a brief sign-off. Inspect their transcripts for a concise
+voicemail response. `pickup` and `delayed_pickup` use connection announcements
+followed by a live person; `screening` and `paused_screening` ask who is calling.
+Those interactive scenarios require speech without premature disconnection.
+`silent_answer` and `boundary_greeting` exercise the quiet-line fallback and a
+recipient starting to speak near its deadline. Provider setup completes before
+fixture speech begins, matching the voice connection before dialing; its ready
+time is reported separately. Microphone echo warmup is disabled explicitly,
+matching the SDK default for outbound SIP and preserving early interruptions.
+
+Reports retain first audible PCM, response delay, audio duration, call ending,
+and diagnostic metadata. Transcript receipt is not a proxy for audio delivery.
+Ignore the `after_backchannel` response delay: that window intentionally waits
+for the next scripted question and does not measure an answer's latency.
 
 These tests do not exercise SIP answer supervision, packet loss,
 keypad delivery, acoustic echo, or a human recipient. Follow them with an
 explicitly authorized call to an owned number using private request input.
 
-The implementation follows the official [Agents quickstart], [AMD guide], and
+The implementation follows the official [Agents quickstart] and
 [recording controls]. Local source inspection additionally verified standalone
 HTTP context requirements and transcript synchronization in the pinned SDK.
 
 [Agents quickstart]: https://docs.livekit.io/agents/start/voice-ai/
-[AMD guide]: https://docs.livekit.io/telephony/features/answering-machine-detection/
 [recording controls]: https://docs.livekit.io/deploy/observability/insights/
 [secure trunking configuration]: https://docs.livekit.io/telephony/features/secure-trunking/
 [GPT-Live session storage]: https://developers.openai.com/api/docs/guides/live-conversations#store-and-fork-a-session

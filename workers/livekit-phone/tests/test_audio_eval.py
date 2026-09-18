@@ -10,9 +10,8 @@ from pathlib import Path
 
 import pytest
 from livekit import rtc
-from livekit.agents.metrics import LLMMetrics
 
-from evals.diagnostics import ClassifierTiming, Diagnostics
+from evals.diagnostics import Diagnostics
 from evals.media import SAMPLE_RATE, PacedOutput, Timeline
 from evals.metrics import measure_window
 from evals.run import private_output
@@ -20,20 +19,8 @@ from evals.run import private_output
 
 def test_diagnostics_keeps_numeric_timing_without_provider_content() -> None:
     diagnostics = Diagnostics(lambda: 12.5)
-    diagnostics.on_classifier_metrics(
-        LLMMetrics(
-            label="private-provider-label",
-            request_id="private-request-id",
-            timestamp=100,
-            duration=1.4,
-            ttft=1.2,
-            cancelled=False,
-            completion_tokens=3,
-            prompt_tokens=10,
-            prompt_cached_tokens=0,
-            total_tokens=13,
-            tokens_per_second=2,
-        )
+    diagnostics.on_provider_event(
+        {"type": "session.started", "session": {"id": "private-session-id"}}
     )
     diagnostics.on_provider_event(
         {
@@ -42,10 +29,8 @@ def test_diagnostics_keeps_numeric_timing_without_provider_content() -> None:
             "event_id": "private-event-id",
         }
     )
-    assert diagnostics.report.classifier_timings == [
-        ClassifierTiming(12.5, 1.4, 1.2, False)
-    ]
     assert diagnostics.report.first_input_transcript_at == 12.5
+    assert diagnostics.report.session_ready_at == 12.5
     assert "private-" not in str(asdict(diagnostics.report))
 
 

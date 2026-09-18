@@ -12,20 +12,19 @@ import sys
 import aiohttp
 import pytest
 from livekit.agents import (
-    AMD,
     APIStatusError,
     CloseEvent,
     ConversationItemAddedEvent,
     ErrorEvent,
     SpeechCreatedEvent,
+    UserInputTranscribedEvent,
+    UserStateChangedEvent,
 )
 from livekit.agents.llm import ChatMessage, DuplexRealtimeAdapter
 from livekit.agents.llm.realtime import RealtimeModelError
 from livekit.agents.voice.events import CloseReason
 from livekit.agents.voice.speech_handle import SpeechHandle
 from livekit.plugins.openai.realtime import GPTLiveModel, ResponsesDelegationOptions
-from livekit.plugins.openai.responses import LLM as ResponsesLLM
-from openai.types import Reasoning as ReasoningOptions
 from openai.types.shared_params import Reasoning
 
 from livekit_phone.config import (
@@ -35,10 +34,11 @@ from livekit_phone.config import (
     VoiceEngine,
 )
 from livekit_phone.control import Stop, transcript_event
-from livekit_phone.models import create_models
+from livekit_phone.models import create_models, wait_for_voice_ready
 from livekit_phone.protocol import (
     MAX_COMMAND_BYTES,
     Completed,
+    CompletionReason,
     EventSink,
     Start,
     parse_command,
@@ -220,17 +220,10 @@ def test_gpt_live_configuration_requires_openai_credentials() -> None:
 
 
 @pytest.mark.parametrize("effort", [None, BackendReasoningEffort.XHIGH])
-@pytest.mark.parametrize(
-    ("backend_model", "classifier_reasoning"),
-    [
-        ("gpt-6-astra", ReasoningOptions(effort="low")),
-        ("gpt-5.6-luna", ReasoningOptions(effort="none")),
-    ],
-)
+@pytest.mark.parametrize("backend_model", ["gpt-6-astra", "gpt-5.6-luna"])
 def test_real_sdk_models_use_openai_and_close_owned_clients(
     effort: BackendReasoningEffort | None,
     backend_model: str,
-    classifier_reasoning: ReasoningOptions,
 ) -> None:
     async def construct() -> None:
         config = Config(
@@ -253,25 +246,7 @@ def test_real_sdk_models_use_openai_and_close_owned_clients(
                 assert model.provider == "api.openai.com"
                 assert models.session.stt is None
                 assert models.session.tts is None
-                assert isinstance(models.classifier, ResponsesLLM)
-                assert models.classifier.provider == "api.openai.com"
-                assert models.classifier.model == config.backend_model
-                assert models.classifier._opts.store is False
-                assert models.classifier._opts.reasoning == classifier_reasoning
                 assert models.session.turn_detection == "realtime_llm"
-                classifier_client = models.classifier._client
-                assert classifier_client is not None
-                async with AMD(
-                    models.session,
-                    llm=models.classifier,
-                    stt=None,
-                    ivr_detection=False,
-                ) as detector:
-                    # The real AMD accepts this client and reuses native
-                    # transcripts instead of creating an inference STT.
-                    assert detector._classifier is not None
-                    assert detector._classifier._llm is models.classifier
-                    assert detector._stt is None
                 realtime_model = model.duplex_model
                 assert isinstance(realtime_model, GPTLiveModel)
                 expected = ResponsesDelegationOptions(
@@ -286,22 +261,82 @@ def test_real_sdk_models_use_openai_and_close_owned_clients(
                 await models.aclose()
             # Closing the models must not steal the shared HTTP context.
             assert not http_session.closed
-            assert classifier_client.is_closed()
 
     asyncio.run(construct())
 
 
-@pytest.mark.parametrize("opening_precedes_detection", [False, True])
-def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
-    opening_precedes_detection: bool,
-) -> None:
+@pytest.mark.parametrize(
+    "outcome", ["already_ready", "acknowledged", "timeout", "cancelled"]
+)
+def test_voice_readiness_owns_only_its_pending_listener(outcome: str) -> None:
+    async def wait() -> None:
+        async with aiohttp.ClientSession() as http_session:
+            model = GPTLiveModel(
+                api_key="offline-not-a-real-key", http_session=http_session
+            )
+            duplex = model.session()
+            # Cancel before yielding: the SDK starts connecting immediately.
+            # Its real event emitter and decoder remain usable offline.
+            duplex._main_atask.cancel()
+            unrelated_events: list[object] = []
+            duplex.on("openai_server_event_received", unrelated_events.append)
+            started = {"type": "session.started", "session": {"id": "offline-ready"}}
+            try:
+                if outcome == "already_ready":
+                    duplex._handle_event(started)
+                    assert duplex.session_id == "offline-ready"
+                    async with asyncio.timeout(0.05):
+                        await wait_for_voice_ready(duplex)
+                else:
+                    waiting = asyncio.create_task(wait_for_voice_ready(duplex))
+                    try:
+                        await asyncio.sleep(0)
+                        assert not waiting.done()
+                        assert len(duplex._events["openai_server_event_received"]) == 2
+                        duplex.emit(
+                            "openai_server_event_received", {"type": "session.updated"}
+                        )
+                        await asyncio.sleep(0)
+                        assert not waiting.done()
+                        if outcome == "acknowledged":
+                            # Match the SDK receive loop: raw event first, then
+                            # its decoder publishes the session's public ID.
+                            duplex.emit("openai_server_event_received", started)
+                            duplex._handle_event(started)
+                            await waiting
+                        elif outcome == "timeout":
+                            with pytest.raises(TimeoutError):
+                                async with asyncio.timeout(0.05):
+                                    await waiting
+                        else:
+                            waiting.cancel()
+                            with pytest.raises(asyncio.CancelledError):
+                                await waiting
+                    finally:
+                        waiting.cancel()
+                        await asyncio.gather(waiting, return_exceptions=True)
+                assert duplex._events["openai_server_event_received"] == {
+                    unrelated_events.append
+                }
+            finally:
+                duplex.off("openai_server_event_received", unrelated_events.append)
+                await duplex.aclose()
+                await model.aclose()
+            assert not http_session.closed
+
+    asyncio.run(wait())
+
+
+@pytest.mark.parametrize(
+    "event_kind", ["transcript", "speaking", "pending", "committed"]
+)
+def test_native_conversation_suppresses_silent_line_prompt(event_kind: str) -> None:
     async def open_conversation() -> None:
         config = Config(
             url="wss://test.livekit.cloud",
             api_key="key",
             api_secret="offline-not-a-secret-at-least-32-characters",
             trunk_id="trunk",
-            voice_engine=VoiceEngine.GPT_LIVE,
             openai_api_key="offline-not-a-real-key",
         )
         output = io.StringIO()
@@ -309,24 +344,25 @@ def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
             call = Call(
                 start_request(), config, Stop(), EventSink(output), http_session
             )
-            recipient = ConversationItemAddedEvent(
-                item=ChatMessage(role="user", content=["Hello."])
-            )
-            greeting = ConversationItemAddedEvent(
-                item=ChatMessage(
-                    role="assistant",
-                    content=["Hi, I'm Caller's assistant, calling on their behalf."],
-                )
-            )
-            # Drive the actual registered SDK event path, preserving the first
-            # recipient utterance. No model or provider connection is started.
-            call.session.emit("conversation_item_added", recipient)
-            assert not call.first_agent_utterance.is_set()
+            opening = asyncio.create_task(call._open_conversation())
             try:
-                if opening_precedes_detection:
-                    call.session.emit("conversation_item_added", greeting)
-                    await call._open_conversation()
-                else:
+                await asyncio.sleep(0)
+                assert not opening.done()
+                # The real, unstarted SDK rejects generate_reply. Any initial
+                # native activity must suppress that extra conversation turn.
+                if event_kind == "transcript":
+                    call.session.emit(
+                        "user_input_transcribed",
+                        UserInputTranscribedEvent(transcript="Hello", is_final=False),
+                    )
+                elif event_kind == "speaking":
+                    call.session.emit(
+                        "user_state_changed",
+                        UserStateChangedEvent(
+                            old_state="listening", new_state="speaking"
+                        ),
+                    )
+                elif event_kind == "pending":
                     call.session.emit(
                         "speech_created",
                         SpeechCreatedEvent(
@@ -335,25 +371,122 @@ def test_gpt_live_opening_observes_native_speech_without_starting_another_reply(
                             source="generate_reply",
                         ),
                     )
-                    opening = asyncio.create_task(call._open_conversation())
-                    await asyncio.sleep(0)
-                    assert not opening.done()
-                    call.session.emit("conversation_item_added", greeting)
-                    await opening
-                assert call.first_agent_utterance.is_set()
-                # This real, unstarted session rejects say/generate_reply. The
-                # A committed or pending native opening must not start another.
-                assert [
-                    json.loads(line)["speaker"]
-                    for line in output.getvalue().splitlines()
-                ] == [
-                    "recipient",
-                    "agent",
-                ]
+                else:
+                    call.session.emit(
+                        "conversation_item_added",
+                        ConversationItemAddedEvent(
+                            item=ChatMessage(
+                                role="assistant",
+                                content=["Hi, I'm Caller's assistant."],
+                            )
+                        ),
+                    )
+                await asyncio.wait_for(opening, timeout=0.25)
+                assert call.first_agent_utterance.is_set() == (
+                    event_kind == "committed"
+                )
             finally:
+                opening.cancel()
+                await asyncio.gather(opening, return_exceptions=True)
                 assert await call.cleanup()
 
     asyncio.run(open_conversation())
+
+
+@pytest.mark.parametrize(
+    ("message", "cancelled", "expected_reason"),
+    [
+        (
+            ChatMessage(role="assistant", content=["Oh, sorry, voicemail. Bye."]),
+            False,
+            "completed",
+        ),
+        (
+            ChatMessage(role="assistant", content=[" OH! Sorry,  voicemail.\nBYE! "]),
+            False,
+            "completed",
+        ),
+        (
+            ChatMessage(role="user", content=["Oh, sorry, voicemail. Bye."]),
+            False,
+            None,
+        ),
+        (
+            ChatMessage(
+                role="assistant",
+                content=["Oh, sorry, voicemail. Bye."],
+                interrupted=True,
+            ),
+            False,
+            None,
+        ),
+        (
+            ChatMessage(role="assistant", content=['"Oh, sorry, voicemail. Bye."']),
+            False,
+            None,
+        ),
+        (
+            ChatMessage(
+                role="assistant",
+                content=["Oh, sorry, voicemail. Bye. Actually, hello again."],
+            ),
+            False,
+            None,
+        ),
+        (
+            ChatMessage(
+                role="assistant", content=["Sorry, I thought it was voicemail."]
+            ),
+            False,
+            None,
+        ),
+        (
+            ChatMessage(role="assistant", content=["Oh, sorry, voicemail. Bye."]),
+            True,
+            "cancelled",
+        ),
+    ],
+)
+def test_only_delivered_voicemail_signoff_ends_call(
+    message: ChatMessage,
+    cancelled: bool,
+    expected_reason: CompletionReason | None,
+) -> None:
+    async def deliver() -> None:
+        config = Config(
+            url="wss://test.livekit.cloud",
+            api_key="key",
+            api_secret="offline-not-a-secret-at-least-32-characters",
+            trunk_id="trunk",
+            openai_api_key="offline-not-a-real-key",
+        )
+        stop = Stop()
+        if cancelled:
+            stop.request("cancelled")
+        async with aiohttp.ClientSession() as http_session:
+            call = Call(
+                start_request(), config, stop, EventSink(io.StringIO()), http_session
+            )
+            try:
+                # This is the production SDK event path after audio playout.
+                # It must not depend on a second model deciding to invoke a tool.
+                call.session.emit(
+                    "conversation_item_added", ConversationItemAddedEvent(item=message)
+                )
+                assert stop.event.is_set() == (expected_reason is not None)
+                if expected_reason is not None:
+                    assert stop.reason == expected_reason
+                if expected_reason == "completed":
+                    assert stop.summary == (
+                        "No person was reached; voicemail was recognized "
+                        "and the call ended."
+                    )
+                else:
+                    assert stop.summary is None
+            finally:
+                assert await call.cleanup()
+
+    asyncio.run(deliver())
 
 
 def test_events_are_valid_ndjson_without_null_summary() -> None:
