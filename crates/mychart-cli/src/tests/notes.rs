@@ -167,18 +167,24 @@ fn notes_search_matches_note_body_text() {
     assert_eq!(output.notes.len(), 1);
     assert_eq!(output.notes[0].id.as_deref(), Some("note-1"));
     assert_eq!(output.notes[0].match_source.as_deref(), Some("body"));
-    assert!(output.notes[0]
-        .body_excerpt
-        .as_deref()
-        .is_some_and(|excerpt| excerpt.contains("migraine")));
-    assert!(!output.notes[0]
-        .body_excerpt
-        .as_deref()
-        .is_some_and(|excerpt| excerpt.contains("<ClinicalDocument")));
-    assert!(!output.notes[0]
-        .body_excerpt
-        .as_deref()
-        .is_some_and(|excerpt| excerpt.contains("Casey Alex Morgan")));
+    assert!(
+        output.notes[0]
+            .body_excerpt
+            .as_deref()
+            .is_some_and(|excerpt| excerpt.contains("migraine"))
+    );
+    assert!(
+        !output.notes[0]
+            .body_excerpt
+            .as_deref()
+            .is_some_and(|excerpt| excerpt.contains("<ClinicalDocument"))
+    );
+    assert!(
+        !output.notes[0]
+            .body_excerpt
+            .as_deref()
+            .is_some_and(|excerpt| excerpt.contains("Casey Alex Morgan"))
+    );
 }
 
 #[test]
