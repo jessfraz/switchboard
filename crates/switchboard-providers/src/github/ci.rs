@@ -142,6 +142,7 @@ impl GitHubAdapter {
         let started = Instant::now();
         let budget = Duration::from_secs(options.wait);
         let mut snapshot = self.ci_snapshot(target, &options);
+        let mut snapshot_duration = started.elapsed();
         let mut poll_delay = Duration::from_secs(2);
         loop {
             let state = snapshot.state();
@@ -164,12 +165,20 @@ impl GitHubAdapter {
             // Each snapshot reads three endpoints. Back off while CI is unchanged.
             std::thread::sleep(poll_delay.min(remaining));
             poll_delay = (poll_delay * 2).min(Duration::from_secs(10));
-            if started.elapsed() >= budget
-                || switchboard_core::process::remaining_timeout(Duration::from_secs(1)).is_err()
+            let remaining = match switchboard_core::process::remaining_timeout(budget.saturating_sub(started.elapsed()))
             {
+                Ok(remaining) => remaining,
+                Err(error) if error.kind() == std::io::ErrorKind::TimedOut => break,
+                Err(error) => return Err(Error::Execution(format!("invalid CI deadline: {error}"))),
+            };
+            // Leave room for all three reads, including ordinary latency changes.
+            // Ending the wait is normal; starting a poll we cannot finish is not.
+            if remaining < snapshot_duration.saturating_mul(2).max(Duration::from_secs(1)) {
                 break;
             }
+            let poll_started = Instant::now();
             let next = self.ci_snapshot(target, &options);
+            snapshot_duration = poll_started.elapsed();
             if next
                 .failures
                 .iter()

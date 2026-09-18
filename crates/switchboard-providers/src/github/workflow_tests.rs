@@ -409,3 +409,62 @@ fn ci_runtime_stops_after_native_github_auth_rejection() {
     assert_eq!(output.coverage.expect("coverage").status, CoverageStatus::Unknown);
     env::remove_var("SWITCHBOARD_GH_BIN");
 }
+
+#[test]
+fn ci_wait_does_not_start_a_snapshot_near_the_inherited_deadline() {
+    let _guard = lock_env();
+    let pending = RUNS
+        .replace("\"completed\"", "\"in_progress\"")
+        .replace("\"success\"", "null");
+    let runs = format!(
+        "if [ -e \"$(dirname \"$0\")/polled\" ]; then sleep 2; else touch \"$(dirname \"$0\")/polled\"; sleep 0.4; fi; printf '%s\\n' '{pending}'"
+    );
+    let fixture = script_with_runs(
+        "exit 94",
+        "printf '%s\\n' '{\"total_count\":0,\"check_runs\":[]}'",
+        &runs,
+    );
+    env::set_var("SWITCHBOARD_GH_BIN", fixture.path());
+    let previous_deadline = env::var_os("SWITCHBOARD_DEADLINE_UNIX_MS");
+    let deadline = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock")
+        .as_millis()
+        + 3_000;
+    env::set_var("SWITCHBOARD_DEADLINE_UNIX_MS", deadline.to_string());
+    let started = std::time::Instant::now();
+    let adapter = GitHubAdapter::new().expect("catalog");
+    let output = execute(
+        &adapter,
+        "github.ci.status",
+        &[("repo", "example/repo"), ("commit", SHA), ("wait", "10")],
+    );
+    match previous_deadline {
+        Some(value) => env::set_var("SWITCHBOARD_DEADLINE_UNIX_MS", value),
+        None => env::remove_var("SWITCHBOARD_DEADLINE_UNIX_MS"),
+    }
+    env::remove_var("SWITCHBOARD_GH_BIN");
+    let output = output.expect("bounded CI wait");
+    #[derive(Deserialize)]
+    struct Fields {
+        ci: Ci,
+        failures: Vec<switchboard_core::Failure>,
+    }
+    #[derive(Deserialize)]
+    struct Ci {
+        status: String,
+        runs: Vec<Run>,
+    }
+    #[derive(Deserialize)]
+    struct Run {
+        id: u64,
+    }
+    let fields: Fields =
+        serde_json::from_value(serde_json::to_value(&output.fields).expect("fields")).expect("CI fields");
+    assert_eq!(fields.ci.status, "pending");
+    assert!(fields.failures.is_empty());
+    assert_eq!(fields.ci.runs[0].id, 11);
+    assert_eq!(output.coverage.expect("coverage").status, CoverageStatus::Complete);
+    assert_eq!(fixture.capture_contents().lines().count(), 3);
+    assert!(started.elapsed() < std::time::Duration::from_millis(3_500));
+}
