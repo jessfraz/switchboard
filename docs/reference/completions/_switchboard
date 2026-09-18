@@ -16,6 +16,8 @@ _switchboard() {
     local context curcontext="$curcontext" state line
     _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 '-V[Print version]' \
@@ -31,14 +33,19 @@ _switchboard() {
         case $line[1] in
             (read-batch)
 _arguments "${_arguments_options[@]}" : \
-'--input=[JSON object containing an items array of {id, tool, namespace, args}]:INPUT:_files' \
+'(--tool)--input=[JSON object containing an items array; use - to read stdin]:INPUT:_files' \
+'--tool=[Curated read tool shared by each --args-json request]:TOOL:_default' \
+'--ns=[Namespace shared by each --args-json request]:NAMESPACE:_default' \
+'*--args-json=[One request'\''s arguments as an object; repeat for multiple queries or IDs]:OBJECT:_default' \
 '--checkpoint=[Durable results; successful pages are saved after each bounded wave]:CHECKPOINT:_files' \
+'--resume=[Resume a checkpoint without the original input; bare --resume uses --checkpoint]::CHECKPOINT:_default' \
 '--concurrency=[]:CONCURRENCY:_default' \
 '--deadline-seconds=[]:DEADLINE_SECONDS:_default' \
 '--max-pages=[]:MAX_PAGES:_default' \
 '--config=[]:PATH:_files' \
-'--resume[]' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -46,6 +53,8 @@ _arguments "${_arguments_options[@]}" : \
 (ns)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_switchboard__subcmd__ns_commands" \
@@ -61,7 +70,9 @@ _arguments "${_arguments_options[@]}" : \
             (list)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -74,7 +85,9 @@ esac
 _arguments "${_arguments_options[@]}" : \
 '--ns=[Inspect one namespace instead of all configured namespaces]:NAMESPACE:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -82,6 +95,8 @@ _arguments "${_arguments_options[@]}" : \
 (auth)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_switchboard__subcmd__auth_commands" \
@@ -99,7 +114,9 @@ _arguments "${_arguments_options[@]}" : \
 '--ns=[]:NAMESPACE:_default' \
 '--run-id=[Share the one-recovery-attempt budget across commands in this task]:RUN_ID:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -108,8 +125,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--ns=[]:NAMESPACE:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--verify[Verify the saved CLI session through a live read before changing config]' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -121,6 +140,8 @@ esac
 (tools)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_switchboard__subcmd__tools_commands" \
@@ -138,9 +159,12 @@ _arguments "${_arguments_options[@]}" : \
 '--provider=[Filter by provider identifier, for example google or github]:PROVIDER:_default' \
 '--ns=[Filter by a configured namespace without resolving credentials]:NAMESPACE:_default' \
 '--search=[Search tool names and summaries (case insensitive)]:SEARCH:_default' \
+'--limit=[Maximum matching commands to show (default\: 8; --full shows all)]:LIMIT:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
 '--executable[Include only tools with an implemented execution path]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -149,7 +173,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--ns=[Use this configured namespace in examples]:NAMESPACE:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':tool:_default' \
@@ -162,6 +188,8 @@ esac
 (audit)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_switchboard__subcmd__audit_commands" \
@@ -178,7 +206,9 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '--operation-id=[]:OPERATION_ID:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -186,7 +216,9 @@ _arguments "${_arguments_options[@]}" : \
 (show)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':selector:_default' \
@@ -199,6 +231,8 @@ esac
 (op)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ":: :_switchboard__subcmd__op_commands" \
@@ -214,8 +248,10 @@ _arguments "${_arguments_options[@]}" : \
             (list)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--pending[]' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
@@ -223,7 +259,9 @@ _arguments "${_arguments_options[@]}" : \
 (show)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \
@@ -234,8 +272,10 @@ _arguments "${_arguments_options[@]}" : \
 '--actor=[]:ACTOR:_default' \
 '--note=[]:NOTE:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--apply[]' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \
@@ -246,7 +286,9 @@ _arguments "${_arguments_options[@]}" : \
 '--actor=[]:ACTOR:_default' \
 '--note=[]:NOTE:_default' \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \
@@ -255,7 +297,9 @@ _arguments "${_arguments_options[@]}" : \
 (apply)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \
@@ -264,7 +308,9 @@ _arguments "${_arguments_options[@]}" : \
 (verify)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \
@@ -273,8 +319,10 @@ _arguments "${_arguments_options[@]}" : \
 (undo)
 _arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--apply[]' \
 '--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 ':id:_default' \

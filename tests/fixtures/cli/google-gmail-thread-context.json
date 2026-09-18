@@ -1,0 +1,68 @@
+{
+  "id": "thread-1",
+  "messages": [
+    {
+      "id": "message-1",
+      "threadId": "thread-1",
+      "payload": {
+        "partId": "",
+        "mimeType": "text/plain",
+        "body": {
+          "size": 20
+        }
+      }
+    },
+    {
+      "id": "message-2",
+      "threadId": "thread-1",
+      "payload": {
+        "partId": "",
+        "mimeType": "text/plain",
+        "body": {
+          "size": 20
+        }
+      }
+    },
+    {
+      "id": "message-3",
+      "threadId": "thread-1",
+      "payload": {
+        "partId": "",
+        "mimeType": "multipart/mixed",
+        "parts": [
+          {
+            "partId": "0",
+            "mimeType": "text/plain",
+            "body": {
+              "size": 30
+            }
+          },
+          {
+            "partId": "1",
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "partId": "1.0",
+                "mimeType": "application/pdf",
+                "filename": "receipt.pdf",
+                "body": {
+                  "size": 123,
+                  "attachmentId": "attachment-1"
+                }
+              },
+              {
+                "partId": "1.1",
+                "mimeType": "image/png",
+                "filename": "logo.png",
+                "body": {
+                  "size": 456,
+                  "attachmentId": "attachment-2"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

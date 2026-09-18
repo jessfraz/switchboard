@@ -1120,8 +1120,16 @@ fn undo_creates_compensating_delete_and_marks_original_operation_compensated() {
 fn tools_list_includes_curated_and_raw_tools() {
     let environment = TestEnvironment::new();
     let config_path = environment.path_string();
-    let cli = Cli::try_parse_from(["switchboard", "--config", &config_path, "tools", "list", "--json"])
-        .expect("cli should parse");
+    let cli = Cli::try_parse_from([
+        "switchboard",
+        "--config",
+        &config_path,
+        "tools",
+        "list",
+        "--json",
+        "--full",
+    ])
+    .expect("cli should parse");
 
     let output = run(cli).expect("tools list should succeed");
     let value: JsonToolCatalogList = parse_json(&output);
@@ -1173,6 +1181,7 @@ fn tools_describe_raw_google_tool_explains_passthrough_usage() {
         "switchboard",
         "--config",
         &config_path,
+        "--full",
         "tools",
         "describe",
         "google.cli.write",
@@ -1196,6 +1205,7 @@ fn tools_describe_mychart_write_prefers_ucla_preset_login() {
         "switchboard",
         "--config",
         &config_path,
+        "--full",
         "tools",
         "describe",
         "mychart.cli.write",
@@ -1240,6 +1250,7 @@ fn tools_describe_mychart_auth_login_redirects_to_ucla_preset_login() {
         "switchboard",
         "--config",
         &config_path,
+        "--full",
         "tools",
         "describe",
         "mychart.cli.auth.login",
@@ -1303,6 +1314,7 @@ fn tools_describe_curated_tool_includes_typed_arguments() {
         "switchboard",
         "--config",
         &config_path,
+        "--full",
         "tools",
         "describe",
         "google.mail.draft",
@@ -2016,7 +2028,9 @@ fn aggregate_json_preserves_partial_metadata_status_and_successful_accounts() {
     struct AccountOutput {
         status: String,
     }
-    let rendered = crate::output::render_json_operation(&outcome).expect("report should render");
+    let rendered = crate::presentation::Presentation::default()
+        .operation(&outcome, true)
+        .expect("report should render");
     let report: Report = serde_json::from_str(&rendered).expect("report should decode");
     assert_eq!(report.status, "partial");
     assert_eq!(report.results.len(), 2);
@@ -2096,7 +2110,7 @@ fn human_output_renders_structured_fields_without_flattening_them_into_nonsense(
         ]),
     );
 
-    let rendered = super::render_output_human(&output);
+    let rendered = crate::output::render_output_human(&output);
 
     assert!(rendered.contains("- status: ok"));
     assert!(rendered.contains("- events:"));
@@ -2122,7 +2136,7 @@ fn human_output_renders_refs_without_hiding_them_in_json_soup() {
         .expect("tool ref label should build"),
     );
 
-    let rendered = super::render_output_human(&output);
+    let rendered = crate::output::render_output_human(&output);
 
     assert!(rendered.contains("Refs:"));
     assert!(rendered.contains("google:message id=1960abc456work"));

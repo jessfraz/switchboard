@@ -1,82 +1,95 @@
 # LLM Getting Started
 
-This page is for model callers and agent authors, not for people looking for a marketing overview.
+Run familiar commands directly. Prefer curated tools, explicit namespaces, and
+`--json`. JSON is compact by default; `--full` pretty-prints the complete view.
+Use `--fields` to select paths inside result fields while keeping references,
+coverage, failures, and write receipts visible.
 
-## Rules that matter
-
-- Prefer `--json` for reads.
-- Prefer curated tools before raw passthrough tools.
-- Pass `--ns` explicitly for writes.
-- Repeat `--ns` only for aggregate reads.
-- Draft writes first. Use `--draft` or the equivalent planning mode before `--apply`.
-- Treat `*.cli.read` and `*.cli.write` as escape hatches, not defaults.
-- Google namespaces get isolated file-backed state automatically. Preserve an
-  explicit `state_dir` when reusing an existing login.
-- Invoke Switchboard without Google credential-storage environment prefixes.
-  It sets the file backend and namespace directory itself.
-
-## Mental model
-
-- `switchboard` is the stable local contract.
-- Provider CLIs and APIs are the unstable implementation detail.
-- Namespaces pin provider, account label, auth, and isolated provider state.
-- Policy decides whether a write is allowed, denied, or needs approval.
-- Audit records what was planned, approved, rejected, applied, or compensated.
-
-## Discovery loop
+## Discover only what is missing
 
 ```sh
-switchboard doctor --json
-switchboard tools list --json
-switchboard tools describe github.repository.search --json
-switchboard tools describe google.cli.read --json
+switchboard tools list --provider google --search mail --json
+switchboard google.mail.search --help --json
 ```
 
-## Read pattern
+Listings default to eight executable matches, with configured namespaces and
+runnable examples. Use `--limit` to change the limit or `--full` for the complete
+catalog, including planning-only tools. Describe/help returns arguments and
+examples; add `--full` for output schemas, scopes, and native fallback details.
+Discovery does not authenticate. Use `doctor --ns NS --json` to investigate an
+actual setup failure, not as a preamble to every task.
+
+## Read task context in one invocation
 
 ```sh
-switchboard github.notifications.list --ns github.personal --json
-switchboard google.mail.search --ns google.work --query 'from:finance newer_than:7d' --json
-switchboard google.calendar.list --ns google.work --ns google.personal --json
+switchboard google.mail.search --ns google.personal \
+  --query 'from:appointments@example.invalid newer_than:30d' \
+  --hydrate --max 5 --body-limit 4000 --json
+
+switchboard google.mail.thread --ns google.personal --thread-id THREAD_ID \
+  --max-messages 20 --body-limit 4000 --json
+
+switchboard github.pull_request.context --ns github.personal \
+  --repo owner/repo --number 123 --include discussion,files,checks --json
+
+switchboard github.issue.context --ns github.personal \
+  --repo owner/repo --number 123 --include discussion,linked-prs --json
 ```
 
-## Write pattern
+These commands consolidate caller round trips; provider requests can still fan
+out internally. Check `coverage` and failures before calling a result complete.
+Increase explicit bounds or fetch a specific item if text or lists were cut.
+`--full` changes presentation, not provider limits.
+
+## Batch independent reads without scratch files
 
 ```sh
-switchboard google.calendar.create \
-  --ns google.work \
-  --title "Vet visit" \
-  --start "2026-04-01T09:00:00-07:00" \
-  --end "2026-04-01T10:00:00-07:00" \
-  --draft
+switchboard read-batch --tool google.mail.search --ns google.personal \
+  --args-json '{"query":"from:appointments@example.invalid","hydrate":true,"max":5}' \
+  --args-json '{"query":"from:receipts@example.invalid","hydrate":true,"max":5}' \
+  --fields messages.subject,messages.body_text --json
 
-switchboard op approve op_1234abcd --actor codex --note "looks right"
-switchboard op apply op_1234abcd --json
+switchboard read-batch --resume /absolute/path/from/checkpoint-field.json --json
 ```
 
-## Raw passthrough pattern
+The response includes a private checkpoint path and exact `resume_argv`.
+Pagination follows cursors within page/time limits; successful pages survive a
+failure. `--input -` accepts mixed-tool JSON from stdin. See
+[bounded reads and result contracts](../reliability.md).
+
+## Watch the requested commit
 
 ```sh
-switchboard google.cli.read --ns google.work --json -- calendar +agenda --format json --today
-switchboard github.cli.write --ns github.personal --draft -- --repo owner/repo issue comment 123 --body "needs tests"
+switchboard github.ci.status --ns github.personal --repo owner/repo \
+  --commit 0123456789abcdef0123456789abcdef01234567 --wait 30 --json
 ```
 
-## Failure modes to avoid
+Pass the returned `fields.ci.cursor` as `--cursor` to wait for a change. Unchanged
+snapshots keep status/counts but omit repeated run/check arrays. The full 40-digit
+SHA is required; absent, unknown, and truncated checks never become success.
 
-- Use `switchboard doctor --ns google.personal --json` for config, binary,
-  cache, and credential-file diagnostics. It does not authenticate or expose
-  secrets. Saved-file presence alone does not establish a valid login.
-- Google defaults to `google_cli` when no matching auth block exists. This mode
-  uses the namespace's saved login without fetching OAuth secrets from
-  1Password. Explicit `google_oauth` and `google_oauth_file` still resolve their
-  configured secrets.
-- For a missing Google login, stage `google.cli.write --ns <namespace> --draft
-  -- auth login`, then approve/apply the operation. Switchboard supplies shared
-  scope defaults and checks the account after login.
-- Do not repeat biometric-unlock prefixes on every call. Switchboard's
-  `[one_password]` configuration controls the default integration mode, while
-  respecting explicit 1Password authentication settings.
-- Do not assume current shell auth equals the right namespace.
-- Do not collapse multiple account contexts into one namespace.
-- Do not skip planning for writes just because the provider CLI supports a direct mutation.
-- Do not scrape `--help` when `tools list --json` or `catalog.json` already gives structured metadata.
+## Writes and authentication
+
+Use one unique `SWITCHBOARD_RUN_ID` across a task. Switchboard resolves cached
+credentials first and keeps namespaces isolated. Resolve necessary identity
+checks serially before parallel reads. Do not repeat credential-storage or
+biometric prefixes on every command.
+
+Draft writes before execution. When the user already authorized the exact
+mutation, `--approve-and-apply` persists the plan, approves that operation, and
+applies it in one invocation. It does not grant permission to perform a write.
+Email remains draft-only unless the user explicitly authorizes sending.
+
+```sh
+switchboard google.calendar.create --ns google.personal \
+  --title 'Appointment' --start '2026-10-01T09:00:00-05:00' \
+  --end '2026-10-01T10:00:00-05:00' --draft --json
+
+switchboard op approve OPERATION_ID --actor codex
+switchboard op apply OPERATION_ID --json
+```
+
+Retain operation IDs. Preserve partial JSON even on a nonzero exit. Inspect and
+verify uncertain writes before retrying; a missing receipt does not prove the
+remote write failed. Use `*.cli.read`/`*.cli.write` only when curated coverage is
+insufficient, retaining the same namespace and approval boundaries.

@@ -132,7 +132,14 @@ fn output_schema(tool: &RegisteredTool) -> OutputSchema {
         let message = OutputSchema::object(
             [
                 ("gmail_message_id", OutputSchema::value(&["string"])),
-                ("from", OutputSchema::value(&["string", "null"])),
+                ("gmail_thread_id", OutputSchema::value(&["string", "null"])),
+                ("body_text", OutputSchema::value(&["string"])),
+                ("body_truncated", OutputSchema::value(&["boolean"])),
+                (
+                    "coverage",
+                    OutputSchema::enumeration(&["complete", "truncated", "unknown"]),
+                ),
+                ("from", OutputSchema::value(&["string", "object", "null"])),
                 ("subject", OutputSchema::value(&["string", "null"])),
                 ("date", OutputSchema::value(&["string", "null"])),
                 (
@@ -144,7 +151,7 @@ fn output_schema(tool: &RegisteredTool) -> OutputSchema {
                     },
                 ),
             ],
-            &["gmail_message_id", "from", "subject", "date", "labels"],
+            &["gmail_message_id"],
         );
         OutputSchema::object(
             [
@@ -308,17 +315,14 @@ impl ToolCatalogDetail {
                 shell_command(&fallback.argv)
             ));
         }
-        let examples = if raw {
+        if raw {
             notes.push(
                 "put switchboard flags before --, everything after -- is forwarded to the provider CLI unchanged"
                     .to_owned(),
             );
             notes.push("for scripted calls, --argv-json accepts one JSON array of argv tokens".to_owned());
             notes.extend(raw_tool_notes(tool));
-            raw_tool_examples(tool, &example_namespace)
-        } else {
-            curated_tool_examples(tool, &example_namespace)
-        };
+        }
 
         Self {
             name: tool.name.clone(),
@@ -334,12 +338,23 @@ impl ToolCatalogDetail {
             arguments: tool.arguments.clone(),
             available_namespaces,
             notes,
-            examples,
+            examples: tool_examples(tool, namespaces.first().map(|namespace| &namespace.id)),
             scope_guidance,
             output_schema: output_schema(tool),
             pagination,
             raw_fallback,
         }
+    }
+}
+
+pub(crate) fn tool_examples(tool: &RegisteredTool, namespace: Option<&NamespaceId>) -> Vec<String> {
+    let namespace = namespace
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("{}.default", tool.provider));
+    if tool.surface == ToolSurface::Raw {
+        raw_tool_examples(tool, &namespace)
+    } else {
+        curated_tool_examples(tool, &namespace)
     }
 }
 
@@ -361,6 +376,9 @@ fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> 
             argv.push(example_value(&argument.name, argument.value_kind).into());
         }
     }
+    if tool.name.as_str() == "google.mail.search" {
+        argv.extend(["--hydrate".into(), "--max".into(), "5".into()]);
+    }
     if tool.name.as_str() == "google.drive.search" {
         argv.extend(["--query".into(), "name contains 'example'".into()]);
     }
@@ -376,6 +394,7 @@ fn example_value(name: &str, kind: ToolArgumentValueKind) -> &str {
         "max" | "limit" => "20",
         "repo" => "owner/repo",
         "number" => "123",
+        "commit" => "0123456789abcdef0123456789abcdef01234567",
         "to" | "email" => "recipient@example.invalid",
         "subject" | "summary" | "title" => "Example reminder",
         "body" | "text" | "task" => "Ask for opening hours",
@@ -407,7 +426,7 @@ fn shell_command(argv: &[String]) -> String {
 
 fn scope_guidance(tool: &RegisteredTool) -> Vec<String> {
     let guidance = match tool.name.as_str() {
-        "google.mail.search" | "google.mail.read" => "Gmail read access: gmail.readonly or gmail.modify.",
+        "google.mail.search" | "google.mail.read" | "google.mail.thread" => "Gmail read access: gmail.readonly or gmail.modify.",
         "google.mail.draft" => "Gmail draft access: gmail.compose or gmail.modify.",
         "google.calendar.list" => "Calendar read access: calendar.readonly or calendar.",
         "google.calendar.create" | "google.calendar.delete" => "Calendar event write access: calendar.events or calendar.",

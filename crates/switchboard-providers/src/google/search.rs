@@ -3,6 +3,7 @@ use switchboard_core::{
     CoverageStatus, Error, ExecutionTarget, PlannedAction, ReadCoverage, Result, ToolOutput, ToolRef, ToolRefKind,
 };
 
+use crate::google::context::{ContextLimits, ContextSource};
 use crate::{cli::CliStdioMode, google::GoogleWorkspaceAdapter};
 
 #[derive(Serialize)]
@@ -37,6 +38,8 @@ struct SearchPage {
 #[derive(Deserialize)]
 struct MessageId {
     id: String,
+    #[serde(rename = "threadId")]
+    thread_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -94,6 +97,7 @@ impl MessageMetadata {
 
 impl GoogleWorkspaceAdapter {
     pub(super) fn search(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+        crate::google::context::validate_args(action.tool.as_str(), &action.args)?;
         let query = action
             .args
             .value("query")
@@ -107,6 +111,11 @@ impl GoogleWorkspaceAdapter {
         if !(1..=500).contains(&max_results) {
             return Err(Error::InvalidArguments("--max must be between 1 and 500".into()));
         }
+        let context_limits = action
+            .args
+            .has_flag("hydrate")
+            .then(|| ContextLimits::from_args(&action.args))
+            .transpose()?;
         let params = SearchParams {
             user_id: "me",
             q: query,
@@ -115,6 +124,41 @@ impl GoogleWorkspaceAdapter {
             include_spam_trash: query.contains("in:anywhere"),
         };
         let page: SearchPage = self.read_json(target, &["gmail", "users", "messages", "list"], &params)?;
+        if page.messages.len() > max_results as usize {
+            return Err(Error::Execution(
+                "Gmail exceeded the requested message page limit".into(),
+            ));
+        }
+        if let Some(limits) = context_limits {
+            let sources = page
+                .messages
+                .into_iter()
+                .map(|message| ContextSource::message(message.id, message.thread_id))
+                .collect::<Vec<_>>();
+            let result = self.read_context(target, action, &sources, limits)?;
+            let has_more = page.next_page_token.is_some();
+            let mut output = ToolOutput::new(
+                action.tool.clone(),
+                action.namespace.clone(),
+                format!(
+                    "Read {} of {} matching Gmail messages for {}",
+                    result.read_count(),
+                    result.messages.len(),
+                    action.namespace
+                ),
+            );
+            output.coverage = Some(result.coverage(page.next_page_token));
+            result.append_refs(target, &mut output)?;
+            return Ok(output
+                .with_field("status", if result.failures.is_empty() { "ok" } else { "partial" })
+                .with_field("query", query)
+                .with_value_field("count", encode(&result.messages.len())?)
+                .with_value_field("read_count", encode(&result.read_count())?)
+                .with_value_field("messages", encode(&result.messages)?)
+                .with_value_field("has_more", encode(&has_more)?)
+                .with_value_field("result_size_estimate", encode(&page.result_size_estimate)?)
+                .with_value_field("failures", encode(&result.failures)?));
+        }
         let mut output = ToolOutput::new(
             action.tool.clone(),
             action.namespace.clone(),

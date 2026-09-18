@@ -1,4 +1,9 @@
+mod api;
+mod ci;
+mod context;
 mod materializer;
+#[cfg(test)]
+mod workflow_tests;
 
 use switchboard_core::{
     Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolDescriptor, ToolKind,
@@ -44,6 +49,15 @@ impl Adapter for GitHubAdapter {
         request: &ToolRequest,
         descriptor: &ToolDescriptor,
     ) -> Result<PlannedAction> {
+        match request.tool.as_str() {
+            "github.pull_request.context" | "github.issue.context" => {
+                context::ContextOptions::parse(&request.tool, &request.args)?;
+            }
+            "github.ci.status" => {
+                ci::CiOptions::parse(&request.args)?;
+            }
+            _ => {}
+        }
         let command = self
             .catalog
             .find_command(request.tool.as_str())
@@ -59,6 +73,11 @@ impl Adapter for GitHubAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+        match action.tool.as_str() {
+            "github.pull_request.context" | "github.issue.context" => return self.context(target, action),
+            "github.ci.status" => return self.ci_status(target, action),
+            _ => {}
+        }
         if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 return self.backend.execute(target, action, executable);

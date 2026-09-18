@@ -64,9 +64,9 @@ This repo is real, but still in the "tighten the public surface" phase.
 | --- | --- | --- |
 | Source install | Ready | Build from source or use Nix today |
 | Prebuilt release binaries | Wired, awaiting first tag | `cargo-dist` release pipeline is configured for checksummed archives plus shell and PowerShell installers |
-| GitHub curated reads | Executable | Notifications, PR read/search, issue read, repository search |
+| GitHub curated reads | Executable | Notifications, bounded PR/issue context, exact-commit CI, search/read |
 | GitHub curated writes | Mixed | Comment tools plan cleanly, apply path is still evolving |
-| Google curated reads | Mixed | Mail search/read and calendar list execute, drive search is planning-only |
+| Google curated reads | Mixed | Hydrated mail search, thread context, mail read and calendar list execute; drive search is planning-only |
 | Google curated writes | Mixed | Mail draft and calendar create/delete execute, mail send is planning-only |
 | MyChart raw CLI tools | Executable | Namespace-scoped `mychart-cli` passthrough, including inventory-backed raw leaf commands |
 | Phone calls | Implemented, live validation pending | Local Rust CLI, replaceable LiveKit worker, encrypted transcripts; see [setup](docs/phone.md) |
@@ -77,6 +77,12 @@ This workspace also contains adjacent CLIs. The public polish and open-source ha
 See [results, recovery, and readback](docs/reliability.md) for the versioned
 outcome contract, uncertain writes, verification boundaries, resumable reads,
 and execution timings.
+
+For fewer caller round trips, start with [the concise CLI workflows](docs/llms/getting-started.md):
+hydrated mail search, bounded mail/PR/issue context, inline read batches with
+automatic checkpoints, and bounded CI waits. Discovery returns a short executable
+list by default; `--full` exposes the complete catalog and schemas. Execution
+supports compact JSON and `--fields` projections without changing stored receipts.
 
 ## Install Today
 

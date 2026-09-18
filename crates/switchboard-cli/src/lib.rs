@@ -22,9 +22,11 @@ pub mod catalog;
 mod args;
 mod auth;
 mod batch;
+mod deadline;
 mod discovery;
 mod doctor;
 mod output;
+mod presentation;
 
 #[cfg(test)]
 mod test_support;
@@ -33,10 +35,9 @@ use crate::{
     args::{AuditRuntimeCommand, AuditSelector, Cli, CommandKind, StoredOperationCommand},
     output::{
         operation_needs_attention, render_audit_events_human, render_audit_selection_human, render_clap_error,
-        render_dispatch_human, render_json, render_json_dispatch, render_json_operation, render_namespaces_human,
-        render_operation_human, render_operations_human, render_output_human, render_stored_operation_human,
-        AuditEventResponse, AuditListResponse, AuditOperationResponse, AuditSelection, NamespaceListResponse,
-        StoredOperationListResponse, StoredOperationResponse,
+        render_dispatch_human, render_json, render_json_dispatch, render_namespaces_human, render_operations_human,
+        render_stored_operation_human, AuditEventResponse, AuditListResponse, AuditOperationResponse, AuditSelection,
+        NamespaceListResponse, StoredOperationListResponse, StoredOperationResponse,
     },
 };
 
@@ -160,22 +161,26 @@ where
     }
 }
 
-fn run(cli: Cli) -> Result<String> {
+fn run(mut cli: Cli) -> Result<String> {
     let config_path = cli.config.clone();
     let json_requested = cli.json_requested();
+    if let args::Commands::Tool(tokens) = &mut cli.command {
+        cli.presentation.extract(tokens)?;
+    }
+    cli.presentation.validate()?;
+    let presentation = cli.presentation;
     let command = cli.command.into_runtime_command()?;
+    presentation.validate_command(&command)?;
     if let CommandKind::Doctor(arguments) = command {
         return doctor::run(config_path.as_deref(), arguments);
     }
     if let CommandKind::ToolCatalog(command) = command {
-        return discovery::run(config_path.as_deref(), command);
+        return discovery::run(config_path.as_deref(), command, presentation.full);
     }
     if let CommandKind::Auth(arguments) = command {
         return auth::run(config_path.as_deref(), arguments);
     }
-    if let CommandKind::ReadBatch(arguments) = &command {
-        arguments.configure_deadline()?;
-    }
+    let _deadline = deadline::Deadline::configure(&command)?;
     let switchboard = load_switchboard(config_path.as_deref());
     let switchboard = match switchboard {
         Ok(switchboard) => switchboard,
@@ -186,7 +191,7 @@ fn run(cli: Cli) -> Result<String> {
     match command {
         CommandKind::Doctor(arguments) => doctor::run(config_path.as_deref(), arguments),
         CommandKind::Auth(arguments) => auth::run(config_path.as_deref(), arguments),
-        CommandKind::ReadBatch(arguments) => batch::run(&switchboard, arguments),
+        CommandKind::ReadBatch(arguments) => batch::run(&switchboard, config_path.as_deref(), arguments, &presentation),
         CommandKind::NamespaceList => {
             let namespaces = switchboard.list_namespaces();
             if json_requested {
@@ -195,26 +200,18 @@ fn run(cli: Cli) -> Result<String> {
                 Ok(render_namespaces_human(&namespaces))
             }
         }
-        CommandKind::ToolCatalog(command) => discovery::run(config_path.as_deref(), command),
+        CommandKind::ToolCatalog(command) => discovery::run(config_path.as_deref(), command, presentation.full),
         CommandKind::Audit(command) => run_audit_command(&switchboard, command),
         CommandKind::Operation(request) => {
             let outcome = switchboard.execute_operation(request)?;
 
-            let text = if json_requested {
-                render_json_operation(&outcome)?
-            } else {
-                render_operation_human(&outcome)
-            };
+            let text = presentation.operation(&outcome, json_requested)?;
             output::require_complete(text, output::operation_complete(&outcome))
         }
         CommandKind::ApproveAndApply(request) => {
             let output = approve_and_apply(&switchboard, request)?;
             let complete = output::output_complete(&output);
-            let text = if json_requested {
-                render_json_dispatch(&DispatchOutcome::Executed(output))?
-            } else {
-                render_output_human(&output)
-            };
+            let text = presentation.dispatch(&DispatchOutcome::Executed(output), json_requested)?;
             output::require_complete(text, complete)
         }
         CommandKind::StoredOperation(command) => run_stored_operation_command(&switchboard, command),

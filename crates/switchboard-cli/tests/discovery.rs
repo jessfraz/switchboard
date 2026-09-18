@@ -110,7 +110,7 @@ impl Drop for Fixture {
 #[test]
 fn external_help_works_without_namespace_config_auth_or_database() {
     let fixture = Fixture::new();
-    let output = fixture.run(&["google.mail.search", "--help", "--json"]);
+    let output = fixture.run(&["google.mail.search", "--help", "--json", "--full"]);
     assert!(
         output.status.success(),
         "stdout={} stderr={}",
@@ -215,4 +215,69 @@ fn raw_delimiter_keeps_native_help_out_of_switchboard_discovery() {
         failed.failure.namespace, None,
         "native --ns must not identify Switchboard's account"
     );
+}
+
+#[test]
+fn discovery_defaults_to_bounded_actionable_results_with_opt_in_full_schema() {
+    #[derive(Deserialize)]
+    struct Matches {
+        total: usize,
+        omitted: usize,
+        tools: Vec<Match>,
+    }
+    #[derive(Deserialize)]
+    struct Match {
+        name: String,
+        example: String,
+    }
+    #[derive(Deserialize)]
+    struct Brief {
+        tool: BriefTool,
+    }
+    #[derive(Deserialize)]
+    struct BriefTool {
+        arguments: Vec<ToolArgumentSpec>,
+        examples: Vec<String>,
+        output_schema: Option<Schema>,
+    }
+    let fixture = Fixture::new();
+    let result = fixture.run(&[
+        "tools",
+        "list",
+        "--provider",
+        "google",
+        "--search",
+        "mail",
+        "--executable",
+        "--limit",
+        "3",
+        "--json",
+    ]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let matches: Matches = serde_json::from_slice(&result.stdout).expect("decode short catalog");
+    assert_eq!(matches.tools.len(), 3);
+    assert_eq!(matches.total, matches.tools.len() + matches.omitted);
+    assert!(matches.omitted > 0);
+    assert!(matches
+        .tools
+        .iter()
+        .all(|tool| !tool.name.is_empty() && tool.example.starts_with("switchboard ")));
+    assert!(
+        result.stdout.len() < 2500,
+        "bounded discovery should fit a small context budget"
+    );
+    let brief = fixture.run(&["google.mail.read", "--help", "--json"]);
+    assert!(brief.status.success());
+    let brief: Brief = serde_json::from_slice(&brief.stdout).expect("decode short help");
+    assert!(!brief.tool.arguments.is_empty());
+    assert!(!brief.tool.examples.is_empty());
+    assert!(brief.tool.output_schema.is_none());
+    let full = fixture.run(&["google.mail.read", "--help", "--full", "--json"]);
+    assert!(full.status.success());
+    let full: Brief = serde_json::from_slice(&full.stdout).expect("decode full help");
+    assert!(full.tool.output_schema.is_some());
+    assert!(fs::read_dir(&fixture.root)
+        .expect("read fixture directory")
+        .next()
+        .is_none());
 }

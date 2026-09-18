@@ -1,6 +1,8 @@
 mod calendar;
+mod context;
 mod materializer;
 mod search;
+mod thread;
 mod verification;
 
 use std::fs;
@@ -139,6 +141,7 @@ impl Adapter for GoogleWorkspaceAdapter {
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let request = Self::request_with_google_auth_defaults(target, request)?;
         let request = Self::prepare_verifiable_upload(&request)?;
+        context::validate_args(request.tool.as_str(), &request.args)?;
         let summary = command.summarize.summarize(&target.namespace, &request)?;
         Ok(PlannedAction::new(
             &request,
@@ -153,12 +156,18 @@ impl Adapter for GoogleWorkspaceAdapter {
         if action.tool.as_str() == "google.mail.search" {
             return self.search(target, action);
         }
+        if action.tool.as_str() == "google.mail.thread" {
+            return self.thread(target, action);
+        }
         if action.tool.as_str() == "google.calendar.create" {
             return self.create_calendar_event(target, action);
         }
         if let Some(command) = self.catalog.find_command(action.tool.as_str()) {
             if let Some(executable) = command.executable.as_ref() {
                 let mut output = self.backend.execute(target, action, executable)?;
+                if action.tool.as_str() == "google.mail.read" {
+                    output.coverage = Some(switchboard_core::ReadCoverage::page(None));
+                }
                 self.capture_verification_refs(target, action, &mut output)
                     .map_err(|error| {
                         Error::Execution(format!(
@@ -384,6 +393,7 @@ mod tests {
             .expect("execution should succeed");
         let fields: MailReadFields = parse_output_fields(&output);
 
+        assert_eq!(output.coverage, Some(switchboard_core::ReadCoverage::page(None)));
         assert_eq!(output.refs.len(), 2);
         assert_eq!(output.refs[0].id, "1960abc456work");
         assert_eq!(output.refs[1].id, "1960thread123work");
@@ -981,7 +991,7 @@ mod tests {
             .replace("__AUTH_STATUS_USER__", auth_user)
     }
 
-    fn planning_target() -> PlanningTarget {
+    pub(super) fn planning_target() -> PlanningTarget {
         planning_target_with_state_dir(PathBuf::from("/tmp/gws-work"))
     }
 
@@ -1011,7 +1021,7 @@ mod tests {
         }
     }
 
-    fn execution_target() -> ExecutionTarget {
+    pub(super) fn execution_target() -> ExecutionTarget {
         execution_target_with_state_dir(PathBuf::from("/tmp/gws-work"))
     }
 

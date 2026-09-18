@@ -4,13 +4,19 @@
 .SH NAME
 switchboard \- Rust\-first local automation plane
 .SH SYNOPSIS
-\fBswitchboard\fR [\fB\-\-config\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+\fBswitchboard\fR [\fB\-\-config\fR] [\fB\-\-full\fR] [\fB\-\-fields\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
 Rust\-first local automation plane
 .SH OPTIONS
 .TP
 \fB\-\-config\fR \fI<PATH>\fR
 
+.TP
+\fB\-\-full\fR
+Show full diagnostic output and pretty\-printed JSON
+.TP
+\fB\-\-fields\fR \fI<FIELDS>\fR
+Select comma\-separated paths within result fields; arrays apply each path to every row
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help

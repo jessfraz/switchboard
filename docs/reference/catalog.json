@@ -1,29 +1,29 @@
 {
   "stats": {
-    "tool_count": 780,
-    "curated_count": 18,
+    "tool_count": 784,
+    "curated_count": 22,
     "raw_count": 762,
-    "stable_count": 14,
+    "stable_count": 18,
     "planning_only_count": 4,
     "undoable_count": 1
   },
   "providers": [
     {
       "provider": "github",
-      "tool_count": 198,
-      "curated_count": 7,
+      "tool_count": 201,
+      "curated_count": 10,
       "raw_count": 191,
-      "stable_count": 5,
+      "stable_count": 8,
       "planning_only_count": 2,
       "undoable_count": 0,
       "doc_path": "docs/reference/providers/github.md"
     },
     {
       "provider": "google",
-      "tool_count": 515,
-      "curated_count": 8,
+      "tool_count": 516,
+      "curated_count": 9,
       "raw_count": 507,
-      "stable_count": 6,
+      "stable_count": 7,
       "planning_only_count": 2,
       "undoable_count": 1,
       "doc_path": "docs/reference/providers/google.md"
@@ -60,6 +60,176 @@
     }
   ],
   "tools": [
+    {
+      "name": "github.ci.status",
+      "provider": "github",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Read CI status for an exact commit",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "commit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--commit"
+        },
+        {
+          "name": "cursor",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--cursor"
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--limit"
+        },
+        {
+          "name": "repo",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--repo"
+        },
+        {
+          "name": "wait",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--wait"
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint.",
+        "Raw fallback (native command discovery; select the corresponding method and arguments): switchboard github.cli.read --ns github.default --json -- --help"
+      ],
+      "examples": [
+        "switchboard github.ci.status --ns github.default --json --commit 0123456789abcdef0123456789abcdef01234567 --repo owner/repo"
+      ],
+      "scope_guidance": [
+        "Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "raw_fallback": {
+        "argv": [
+          "switchboard",
+          "github.cli.read",
+          "--ns",
+          "github.default",
+          "--json",
+          "--",
+          "--help"
+        ],
+        "purpose": "native command discovery; select the corresponding method and arguments"
+      },
+      "doc_path": "reference/#tool=github.ci.status"
+    },
     {
       "name": "github.cli.agent-task.create",
       "provider": "github",
@@ -27122,6 +27292,176 @@
       "doc_path": "reference/#tool=github.issue.comment"
     },
     {
+      "name": "github.issue.context",
+      "provider": "github",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Read bounded issue context",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "body-limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--body-limit"
+        },
+        {
+          "name": "include",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--include"
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--limit"
+        },
+        {
+          "name": "number",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--number"
+        },
+        {
+          "name": "repo",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--repo"
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint.",
+        "Raw fallback (native command discovery; select the corresponding method and arguments): switchboard github.cli.read --ns github.default --json -- --help"
+      ],
+      "examples": [
+        "switchboard github.issue.context --ns github.default --json --number 123 --repo owner/repo"
+      ],
+      "scope_guidance": [
+        "Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "raw_fallback": {
+        "argv": [
+          "switchboard",
+          "github.cli.read",
+          "--ns",
+          "github.default",
+          "--json",
+          "--",
+          "--help"
+        ],
+        "purpose": "native command discovery; select the corresponding method and arguments"
+      },
+      "doc_path": "reference/#tool=github.issue.context"
+    },
+    {
       "name": "github.issue.read",
       "provider": "github",
       "kind": "read",
@@ -27570,6 +27910,176 @@
         "purpose": "native command discovery; select the corresponding method and arguments"
       },
       "doc_path": "reference/#tool=github.pull_request.comment"
+    },
+    {
+      "name": "github.pull_request.context",
+      "provider": "github",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Read bounded pull request context",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "body-limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--body-limit"
+        },
+        {
+          "name": "include",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--include"
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--limit"
+        },
+        {
+          "name": "number",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--number"
+        },
+        {
+          "name": "repo",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--repo"
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint.",
+        "Raw fallback (native command discovery; select the corresponding method and arguments): switchboard github.cli.read --ns github.default --json -- --help"
+      ],
+      "examples": [
+        "switchboard github.pull_request.context --ns github.default --json --number 123 --repo owner/repo"
+      ],
+      "scope_guidance": [
+        "Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "raw_fallback": {
+        "argv": [
+          "switchboard",
+          "github.cli.read",
+          "--ns",
+          "github.default",
+          "--json",
+          "--",
+          "--help"
+        ],
+        "purpose": "native command discovery; select the corresponding method and arguments"
+      },
+      "doc_path": "reference/#tool=github.pull_request.context"
     },
     {
       "name": "github.pull_request.read",
@@ -100695,12 +101205,28 @@
       "status": "stable",
       "arguments": [
         {
+          "name": "body-limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--body-limit"
+        },
+        {
           "name": "cursor",
           "transport": "option",
           "value_kind": "string",
           "required": false,
           "repeated": false,
           "forwarded_flag": "--cursor"
+        },
+        {
+          "name": "hydrate",
+          "transport": "flag",
+          "value_kind": "boolean",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--hydrate"
         },
         {
           "name": "labels",
@@ -100735,7 +101261,7 @@
         "Raw fallback (read example; replace query, limit, and pageToken as needed): switchboard google.cli.read --ns google.default --json -- gmail users messages list --params '{\"userId\":\"me\",\"q\":\"newer_than:7d\",\"maxResults\":20}'"
       ],
       "examples": [
-        "switchboard google.mail.search --ns google.default --json --query newer_than:7d"
+        "switchboard google.mail.search --ns google.default --json --query newer_than:7d --hydrate --max 5"
       ],
       "scope_guidance": [
         "Gmail read access: gmail.readonly or gmail.modify."
@@ -100824,6 +101350,26 @@
                     "object"
                   ],
                   "properties": {
+                    "body_text": {
+                      "type": [
+                        "string"
+                      ]
+                    },
+                    "body_truncated": {
+                      "type": [
+                        "boolean"
+                      ]
+                    },
+                    "coverage": {
+                      "type": [
+                        "string"
+                      ],
+                      "enum": [
+                        "complete",
+                        "truncated",
+                        "unknown"
+                      ]
+                    },
                     "date": {
                       "type": [
                         "string",
@@ -100833,12 +101379,19 @@
                     "from": {
                       "type": [
                         "string",
+                        "object",
                         "null"
                       ]
                     },
                     "gmail_message_id": {
                       "type": [
                         "string"
+                      ]
+                    },
+                    "gmail_thread_id": {
+                      "type": [
+                        "string",
+                        "null"
                       ]
                     },
                     "labels": {
@@ -100860,11 +101413,7 @@
                     }
                   },
                   "required": [
-                    "gmail_message_id",
-                    "from",
-                    "subject",
-                    "date",
-                    "labels"
+                    "gmail_message_id"
                   ]
                 }
               },
@@ -101132,6 +101681,168 @@
         "purpose": "native command discovery; select the corresponding method and arguments"
       },
       "doc_path": "reference/#tool=google.mail.send"
+    },
+    {
+      "name": "google.mail.thread",
+      "provider": "google",
+      "kind": "read",
+      "backend": "cli",
+      "summary": "Read bounded Gmail thread context",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "body-limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--body-limit"
+        },
+        {
+          "name": "max-attachments",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--max-attachments"
+        },
+        {
+          "name": "max-messages",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--max-messages"
+        },
+        {
+          "name": "thread-id",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--thread-id"
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Gmail read access: gmail.readonly or gmail.modify.",
+        "Raw fallback (native command discovery; select the corresponding method and arguments): switchboard google.cli.read --ns google.default --json -- --help"
+      ],
+      "examples": [
+        "switchboard google.mail.thread --ns google.default --json --thread-id example-id"
+      ],
+      "scope_guidance": [
+        "Gmail read access: gmail.readonly or gmail.modify."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "raw_fallback": {
+        "argv": [
+          "switchboard",
+          "google.cli.read",
+          "--ns",
+          "google.default",
+          "--json",
+          "--",
+          "--help"
+        ],
+        "purpose": "native command discovery; select the corresponding method and arguments"
+      },
+      "doc_path": "reference/#tool=google.mail.thread"
     },
     {
       "name": "mychart.cli.api.capabilities",

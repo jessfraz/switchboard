@@ -4,16 +4,16 @@ Generated from the live `switchboard` tool registry, committed CLI inventories, 
 
 ## Snapshot
 
-- Tools: `780`
-- Curated: `18`
+- Tools: `784`
+- Curated: `22`
 - Raw inventory passthrough: `762`
 - Planning-only: `4`
 - Undoable: `1`
 
 ## Providers
 
-- [github](providers/github.md) for `198` tools (`7` curated, `191` raw)
-- [google](providers/google.md) for `515` tools (`8` curated, `507` raw)
+- [github](providers/github.md) for `201` tools (`10` curated, `191` raw)
+- [google](providers/google.md) for `516` tools (`9` curated, `507` raw)
 - [mychart](providers/mychart.md) for `32` tools (`0` curated, `32` raw)
 - [schwab](providers/schwab.md) for `32` tools (`0` curated, `32` raw)
 - [phone](providers/phone.md) for `3` tools (`3` curated, `0` raw)

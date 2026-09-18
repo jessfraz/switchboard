@@ -1,6 +1,6 @@
 # `google` Provider
 
-`google` exposes `515` total tools, `8` curated and `507` raw inventory passthrough.
+`google` exposes `516` total tools, `9` curated and `507` raw inventory passthrough.
 
 ## Curated tools
 
@@ -12,6 +12,7 @@
 - `google.mail.read` [stable] Read a Gmail message
 - `google.mail.search` [stable] Search Gmail
 - `google.mail.send` [planning_only] Send a Gmail message
+- `google.mail.thread` [stable] Read bounded Gmail thread context
 
 ## Raw surfaces
 

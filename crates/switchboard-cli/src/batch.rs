@@ -3,7 +3,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -14,16 +14,28 @@ use switchboard_core::{
     ToolExecutionSupport, ToolKind, ToolName, ToolOutput, ToolRequest,
 };
 
+mod input;
+
 #[derive(Debug, Args)]
 pub(crate) struct ReadBatchArgs {
-    /// JSON object containing an items array of {id, tool, namespace, args}.
-    #[arg(long)]
-    pub(crate) input: PathBuf,
+    /// JSON object containing an items array; use - to read stdin.
+    #[arg(long, conflicts_with = "tool")]
+    pub(crate) input: Option<PathBuf>,
+    /// Curated read tool shared by each --args-json request.
+    #[arg(long, requires_all = ["namespace", "args_json"], value_parser = input::tool_name)]
+    tool: Option<ToolName>,
+    /// Namespace shared by each --args-json request.
+    #[arg(long = "ns", requires = "tool", value_parser = input::namespace_id)]
+    namespace: Option<NamespaceId>,
+    /// One request's arguments as an object; repeat for multiple queries or IDs.
+    #[arg(long, requires = "tool", value_name = "OBJECT")]
+    args_json: Vec<String>,
     /// Durable results; successful pages are saved after each bounded wave.
     #[arg(long)]
-    pub(crate) checkpoint: PathBuf,
-    #[arg(long)]
-    pub(crate) resume: bool,
+    pub(crate) checkpoint: Option<PathBuf>,
+    /// Resume a checkpoint without the original input; bare --resume uses --checkpoint.
+    #[arg(long, num_args = 0..=1, default_missing_value = "", value_name = "CHECKPOINT", value_parser = input::resume_selection)]
+    resume: Option<input::ResumeSelection>,
     #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u16).range(1..=16))]
     concurrency: u16,
     #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u64).range(1..=3600))]
@@ -46,7 +58,7 @@ struct ReadItem {
     id: String,
     tool: ToolName,
     namespace: NamespaceId,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "input::deserialize_arguments")]
     args: Vec<ToolArgument>,
 }
 
@@ -87,41 +99,37 @@ struct Checkpoint {
 }
 
 impl ReadBatchArgs {
-    pub(crate) fn configure_deadline(&self) -> Result<()> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-        let own = now + u128::from(self.deadline_seconds) * 1000;
-        let inherited = std::env::var("SWITCHBOARD_DEADLINE_UNIX_MS")
-            .ok()
-            .map(|value| value.parse::<u128>())
-            .transpose()?;
-        // CLI initialization is single-threaded; workers only read this inherited contract.
-        std::env::set_var(
-            "SWITCHBOARD_DEADLINE_UNIX_MS",
-            inherited.map_or(own, |value| own.min(value)).to_string(),
-        );
-        Ok(())
+    pub(crate) fn time_budget(&self) -> Duration {
+        Duration::from_secs(self.deadline_seconds)
     }
 }
 
-pub(crate) fn run(switchboard: &Switchboard, args: ReadBatchArgs) -> Result<String> {
+pub(crate) fn run(
+    switchboard: &Switchboard,
+    config_path: Option<&Path>,
+    args: ReadBatchArgs,
+    presentation: &crate::presentation::Presentation,
+) -> Result<String> {
     let started = Instant::now();
-    let request: BatchInput =
-        serde_json::from_slice(&fs::read(&args.input).context("read batch input")?).context("invalid batch input")?;
-    validate(switchboard, &request)?;
-    let _lock = CheckpointLock::acquire(&args.checkpoint)?;
-    let mut checkpoint = if args.resume {
-        let saved: Checkpoint = serde_json::from_slice(&fs::read(&args.checkpoint).context("read checkpoint")?)?;
-        if saved.schema_version != 1 || saved.request != request {
+    let requested = input::request(&args)?;
+    let checkpoint_path = input::checkpoint_path(&args, config_path)?;
+    let _lock = CheckpointLock::acquire(&checkpoint_path)?;
+    let mut checkpoint = if args.resume.is_some() {
+        let saved: Checkpoint = serde_json::from_slice(&fs::read(&checkpoint_path).context("read checkpoint")?)?;
+        if saved.schema_version != 1 {
+            bail!("unsupported checkpoint schema version {}", saved.schema_version);
+        }
+        if requested.as_ref().is_some_and(|request| *request != saved.request) {
             bail!("checkpoint does not match this exact batch input");
         }
         if saved
             .items
             .keys()
-            .any(|id| !request.items.iter().any(|item| &item.id == id))
+            .any(|id| !saved.request.items.iter().any(|item| &item.id == id))
         {
             bail!("checkpoint contains an unknown item");
         }
-        for item in &request.items {
+        for item in &saved.request.items {
             if let Some(progress) = saved.items.get(&item.id) {
                 validate_progress(item, progress)?;
             }
@@ -132,15 +140,19 @@ pub(crate) fn run(switchboard: &Switchboard, args: ReadBatchArgs) -> Result<Stri
         }
         saved
     } else {
-        if args.checkpoint.exists() {
+        if checkpoint_path.exists() {
             bail!("checkpoint exists; use --resume or a new path");
         }
         Checkpoint {
             schema_version: 1,
-            request: request.clone(),
+            request: requested.ok_or_else(|| anyhow!("provide --input, or --tool with --ns and --args-json"))?,
             items: BTreeMap::new(),
         }
     };
+    validate(switchboard, &checkpoint.request)?;
+    let request = checkpoint.request.clone();
+    // Persist the request before authentication so every provider attempt has a resumable owner.
+    write_checkpoint(&checkpoint_path, &checkpoint)?;
     let mut blocked = BTreeMap::new();
     let namespaces = request
         .items
@@ -156,6 +168,16 @@ pub(crate) fn run(switchboard: &Switchboard, args: ReadBatchArgs) -> Result<Stri
                 .map(Failure::from_error)
                 .unwrap_or_else(|| Failure::from_error(&switchboard_core::Error::Config(error.to_string())));
             blocked.insert(namespace.clone(), failure.with_namespace(namespace));
+        }
+    }
+    // Auth may exhaust the overall deadline. Save its blocker even when no
+    // provider-read wave can start, retaining any pages from an earlier run.
+    for item in &request.items {
+        if let Some(failure) = blocked.get(&item.namespace) {
+            let progress = checkpoint.items.entry(item.id.clone()).or_default();
+            if !progress.finished {
+                progress.failure = Some(failure.clone());
+            }
         }
     }
     let mut attempted = BTreeMap::<String, u16>::new();
@@ -176,7 +198,7 @@ pub(crate) fn run(switchboard: &Switchboard, args: ReadBatchArgs) -> Result<Stri
         if pending.is_empty() {
             break;
         }
-        if switchboard_core::process::remaining_timeout(Duration::from_secs(args.deadline_seconds)).is_err() {
+        if switchboard_core::process::remaining_timeout(args.time_budget()).is_err() {
             break;
         }
         let results = std::thread::scope(|scope| {
@@ -202,39 +224,45 @@ pub(crate) fn run(switchboard: &Switchboard, args: ReadBatchArgs) -> Result<Stri
             }
             checkpoint.items.insert(item.id.clone(), progress);
         }
-        write_checkpoint(&args.checkpoint, &checkpoint)?;
+        write_checkpoint(&checkpoint_path, &checkpoint)?;
     }
     for item in &request.items {
         checkpoint.items.entry(item.id.clone()).or_default();
     }
-    write_checkpoint(&args.checkpoint, &checkpoint)?;
+    write_checkpoint(&checkpoint_path, &checkpoint)?;
     let complete = checkpoint.items.values().all(|progress| {
         progress.finished && progress.failure.is_none() && progress.coverage.status == CoverageStatus::Complete
     });
+    let mut resume_argv = input::resume_argv(config_path, &checkpoint_path, &args)?;
+    presentation.append_argv(&mut resume_argv);
     #[derive(Serialize)]
     struct Report<'a> {
         status: &'static str,
         elapsed_ms: u128,
         checkpoint: &'a Path,
+        resume_argv: &'a [String],
         items: &'a BTreeMap<String, ItemProgress>,
     }
     let text = if args.json {
-        crate::output::render_json(
-            &Report {
-                status: if complete { "complete" } else { "partial" },
-                elapsed_ms: started.elapsed().as_millis(),
-                checkpoint: &args.checkpoint,
-                items: &checkpoint.items,
-            },
-            true,
-        )?
+        presentation.json(&Report {
+            status: if complete { "complete" } else { "partial" },
+            elapsed_ms: started.elapsed().as_millis(),
+            checkpoint: &checkpoint_path,
+            resume_argv: &resume_argv,
+            items: &checkpoint.items,
+        })?
     } else {
         format!(
-            "{}: {} items saved to {} in {} ms\n",
+            "{}: {} items saved to {} in {} ms\nResume: {}\n",
             if complete { "Complete" } else { "Partial" },
             checkpoint.items.len(),
-            args.checkpoint.display(),
-            started.elapsed().as_millis()
+            checkpoint_path.display(),
+            started.elapsed().as_millis(),
+            resume_argv
+                .iter()
+                .map(|argument| input::shell_quote(argument))
+                .collect::<Vec<_>>()
+                .join(" ")
         )
     };
     crate::output::require_complete(text, complete)
@@ -521,6 +549,8 @@ impl Drop for CheckpointLock {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
 
     fn item() -> ReadItem {

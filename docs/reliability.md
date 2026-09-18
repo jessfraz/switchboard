@@ -14,9 +14,10 @@ Branch on these fields instead of matching human-readable error text.
 
 An empty, complete result is different from a blocked or incomplete read.
 Partial aggregate results preserve successful namespace results and report
-failures separately. The CLI returns a nonzero exit status for incomplete
-results while retaining their JSON on stdout. Planning-only tools cannot report
-successful execution. Use `tools describe TOOL` to inspect execution support,
+failures separately. Ordinary reads return nonzero for unknown coverage or failures while retaining
+JSON on stdout. A bounded, truncated read can exit successfully; inspect coverage
+even after exit zero. Batches require complete coverage to exit successfully. Planning-only tools cannot report
+successful execution. Use `tools describe TOOL --full` to inspect execution support,
 arguments, scope guidance, output shape, pagination, and any raw fallback.
 
 Gmail search returns one page by default (`--max 20`, up to 500), with exact
@@ -25,6 +26,38 @@ message IDs and metadata. Its `coverage.status` is `complete`, `truncated`, or
 request the next page. Metadata failures remain visible beside successful
 messages and make coverage unknown. A result-count estimate is not a promise
 that all matching messages have been returned.
+
+## Bounded context and output
+
+`google.mail.search --hydrate` returns decoded bodies and reply references for
+up to 50 messages (default 20), with a per-message body limit of 4,000 characters
+(maximum 20,000). It cannot be combined with `--labels`. `google.mail.thread`
+returns the latest 20 messages by default (maximum 100), plus bounded attachment
+metadata, 20 per message by default (maximum 100). Attachment contents are not
+fetched. Message, body, and attachment truncation remain explicit; failed reads
+retain source IDs and typed failures. Pagination cursors denote provider pages,
+not locally clipped bodies or thread message lists.
+
+GitHub issue/PR context combines core identity with selected discussion, files,
+linked PRs, or checks. Section limits default to 10 (maximum 100), and text limits
+to 2,000 characters (maximum 20,000). Core data survives optional-section failure.
+Known omitted records/text mark truncated coverage; unreadable sections mark
+unknown coverage. Context file lists are metadata, not full source diffs.
+
+`github.ci.status` requires an exact 40-digit commit SHA and reads Actions,
+check-runs, and commit statuses. It validates source identities, reconciles
+latest attempts, and keeps absent/unknown/truncated states distinct from success.
+`--wait` is at most 60 seconds, including authentication; `--cursor` is scoped to
+the repository, commit, and limit. Polling backs off from two to ten seconds. Unchanged results omit repeated detail arrays.
+A polling timeout preserves the preceding snapshot and marks coverage unknown.
+Other source failures preserve successful source results from the latest poll.
+These status summaries do not establish branch-protection merge eligibility.
+
+Human output shortens long strings and lists with explicit markers. `--json`
+retains full result fields in compact JSON; `--fields` selects dotted paths within
+those fields. Outer references, failures, coverage, and operation verification
+are retained. `--full` restores diagnostic presentation and pretty JSON; it does
+not change provider limits. Presentation never mutates durable receipts.
 
 ## Authentication
 
@@ -106,8 +139,8 @@ have different postconditions:
 
 `read-batch` accepts 1 to 1,000 uniquely identified curated read requests.
 Unrestricted raw commands and writes are rejected. Authentication runs serially
-before bounded parallel reads. Input arguments use the normal typed argument
-representation:
+before bounded parallel reads. Arguments accept a compact object or the original
+typed argument array:
 
 ```json
 {
@@ -116,16 +149,23 @@ representation:
       "id": "recent-mail",
       "tool": "google.mail.search",
       "namespace": "google.personal",
-      "args": [{"kind": "option", "name": "query", "value": "newer_than:1d"}]
+      "args": {"query": "newer_than:1d", "max": 20}
     }
   ]
 }
 ```
 
 ```sh
-switchboard read-batch --input reads.json --checkpoint reads-state.json --json
-switchboard read-batch --input reads.json --checkpoint reads-state.json --resume --json
+switchboard read-batch --input - --json < reads.json
+switchboard read-batch --resume /absolute/path/from/checkpoint-field.json --json
 ```
+
+Without `--checkpoint`, Switchboard creates a private checkpoint beside its
+operation store (directory mode 0700, files 0600). The response contains its path
+and exact `resume_argv`, including the configuration and read limits.
+`--tool TOOL --ns NS` with repeated `--args-json OBJECT` avoids input files for
+multiple queries or IDs. Projection changes returned pages only; saved receipts
+retain the complete result. Existing explicit-input/checkpoint resume still works.
 
 The defaults are four concurrent requests, ten pages per item per invocation,
 and a 120-second shared deadline. Their bounds are configurable. Recognized
@@ -133,8 +173,8 @@ provider rate-limit responses may receive one read retry when the reported
 delay is at most 60 seconds and fits within the remaining deadline.
 
 Checkpoints preserve results after each bounded wave and on completion. Resume
-requires the same exact input and validates stored page identity and cursor
-continuity. Completed items are not rerun. Repeated continuation tokens are
+loads the original request from its checkpoint, verifies any supplied input is
+identical, and validates stored page identity and cursor continuity. Completed items are not rerun. Repeated continuation tokens are
 errors. Gmail partial metadata pages are retried at their original cursor;
 failed retries preserve earlier evidence. Tools without a completeness contract
 retain unknown coverage even after their single logical request finishes.

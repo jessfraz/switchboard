@@ -383,6 +383,195 @@
         "binary": "gh",
         "capability": "gh_help"
       }
+    },
+    {
+      "name": "github.pull_request.context",
+      "kind": "read",
+      "summary": "Read bounded pull request context",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read bounded pull request context in {namespace}"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_api"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          {
+            "kind": "option",
+            "flag": "--repo",
+            "aliases": [
+              "repo"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--number",
+            "aliases": [
+              "number"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--include",
+            "aliases": [
+              "include"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--limit",
+            "aliases": [
+              "limit"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--body-limit",
+            "aliases": [
+              "body-limit"
+            ]
+          }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "context",
+        "shape": "object",
+        "summary_template": "Read bounded pull request context",
+        "fields": [{"name": "repository", "arg": ["repo"]}]
+      }
+    },
+    {
+      "name": "github.issue.context",
+      "kind": "read",
+      "summary": "Read bounded issue context",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read bounded issue context in {namespace}"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_api"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          {
+            "kind": "option",
+            "flag": "--repo",
+            "aliases": [
+              "repo"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--number",
+            "aliases": [
+              "number"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--include",
+            "aliases": [
+              "include"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--limit",
+            "aliases": [
+              "limit"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--body-limit",
+            "aliases": [
+              "body-limit"
+            ]
+          }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "context",
+        "shape": "object",
+        "summary_template": "Read bounded issue context",
+        "fields": [{"name": "repository", "arg": ["repo"]}]
+      }
+    },
+    {
+      "name": "github.ci.status",
+      "kind": "read",
+      "summary": "Read CI status for an exact commit",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read CI status for an exact commit in {namespace}"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "gh",
+        "capability": "gh_api"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          {
+            "kind": "option",
+            "flag": "--repo",
+            "aliases": [
+              "repo"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--commit",
+            "aliases": [
+              "commit"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--limit",
+            "aliases": [
+              "limit"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--wait",
+            "aliases": [
+              "wait"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--cursor",
+            "aliases": [
+              "cursor"
+            ]
+          }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "ci",
+        "shape": "object",
+        "summary_template": "Read CI status for an exact commit",
+        "fields": [{"name": "repository", "arg": ["repo"]}]
+      }
     }
   ]
 }

@@ -144,6 +144,16 @@ fn provider_failure(text: &str) -> Option<Error> {
         };
     }
     #[derive(serde::Deserialize)]
+    struct GitHubError {
+        status: String,
+        message: String,
+    }
+    if let Ok(error) = serde_json::from_str::<GitHubError>(text) {
+        if error.status == "401" {
+            return Some(Error::AuthenticationRejected { reason: error.message });
+        }
+    }
+    #[derive(serde::Deserialize)]
     struct Envelope {
         error: ApiError,
     }
@@ -247,6 +257,38 @@ exit 1"#
                 assert!(matches!(
                     result,
                     Err(switchboard_core::Error::AuthenticationRejected { .. })
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn native_github_401_is_authentication_but_403_is_not() {
+        for (status, message, authentication) in [
+            ("401", "Bad credentials", true),
+            ("403", "Resource not accessible by integration", false),
+            ("403", "API rate limit exceeded", false),
+        ] {
+            let script = temp_script(&format!(
+                r#"printf '%s\n' '{{"message":"{message}","documentation_url":"https://docs.github.com/rest","status":"{status}"}}'
+printf '%s\n' 'gh: {message} (HTTP {status})' >&2
+exit 1"#
+            ));
+            let result = ProcessCliExecutor.execute(CliInvocation {
+                program: script.path().to_path_buf(),
+                args: vec!["api".into(), "user".into()],
+                runtime: ProcessContext::new(),
+                stdio_mode: CliStdioMode::Capture,
+            });
+            if authentication {
+                assert!(matches!(
+                    result,
+                    Err(switchboard_core::Error::AuthenticationRejected { .. })
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(switchboard_core::Error::ProviderFailed { exit_code: Some(1), .. })
                 ));
             }
         }

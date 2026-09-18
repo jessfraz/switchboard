@@ -51,6 +51,9 @@ pub(crate) struct Cli {
     #[arg(long, global = true, env = "SWITCHBOARD_CONFIG", value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
 
+    #[command(flatten)]
+    pub(crate) presentation: crate::presentation::Presentation,
+
     #[command(subcommand)]
     pub(crate) command: Commands,
 }
@@ -157,6 +160,7 @@ impl ToolCatalogCommand {
                 namespace: arguments.namespace.map(NamespaceId::new).transpose()?,
                 executable: arguments.executable,
                 search: arguments.search,
+                limit: arguments.limit,
             },
             ToolCatalogSubcommand::Describe(arguments) => ToolCatalogRuntimeCommand::Describe {
                 tool: ToolName::new(arguments.tool)?,
@@ -191,6 +195,9 @@ struct ToolCatalogListArgs {
     /// Search tool names and summaries (case insensitive).
     #[arg(long)]
     search: Option<String>,
+    /// Maximum matching commands to show (default: 8; --full shows all).
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=1000))]
+    limit: Option<u16>,
 }
 
 #[derive(Debug, Args)]
@@ -413,6 +420,7 @@ pub(crate) enum ToolCatalogRuntimeCommand {
         namespace: Option<NamespaceId>,
         executable: bool,
         search: Option<String>,
+        limit: Option<u16>,
     },
     Describe {
         tool: ToolName,

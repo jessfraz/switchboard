@@ -267,13 +267,6 @@ pub(crate) fn render_stored_operation_human(operation: &StoredOperation) -> Stri
     output
 }
 
-pub(crate) fn render_operation_human(outcome: &OperationOutcome) -> String {
-    match outcome {
-        OperationOutcome::Single(outcome) => render_dispatch_human(outcome),
-        OperationOutcome::AggregateRead(outcome) => render_aggregate_read_human(outcome),
-    }
-}
-
 pub(crate) fn render_dispatch_human(outcome: &DispatchOutcome) -> String {
     match outcome {
         DispatchOutcome::Planned(plan) => {
@@ -484,62 +477,6 @@ pub(crate) fn render_audit_outcome(outcome: &switchboard_core::AuditOutcome) -> 
     }
 }
 
-pub(crate) fn render_aggregate_read_human(outcome: &AggregateReadOutcome) -> String {
-    let namespaces = outcome
-        .namespaces
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut output = format!("Aggregate read: {}\nNamespaces: {namespaces}\n", outcome.tool);
-
-    for result in &outcome.results {
-        output.push('\n');
-        output.push_str(&format!("[{}]\n", result.namespace));
-
-        let rendered = match &result.outcome {
-            Ok(outcome) => render_dispatch_human(outcome),
-            Err(error) => format!("Failed: {}\n", error.message),
-        };
-        for line in rendered.lines() {
-            output.push_str(&format!("  {line}\n"));
-        }
-    }
-
-    output
-}
-
-pub(crate) fn render_json_operation(outcome: &OperationOutcome) -> Result<String> {
-    match outcome {
-        OperationOutcome::Single(outcome) => render_json_dispatch(outcome),
-        OperationOutcome::AggregateRead(outcome) => render_json(
-            &AggregateReadResponse {
-                status: if outcome
-                    .results
-                    .iter()
-                    .all(|r| r.outcome.as_ref().is_ok_and(dispatch_complete))
-                {
-                    "aggregate_read"
-                } else {
-                    "partial"
-                },
-                tool: &outcome.tool,
-                namespaces: &outcome.namespaces,
-                results: outcome
-                    .results
-                    .iter()
-                    .map(|result| AggregateReadResultResponse {
-                        namespace: &result.namespace,
-                        outcome: result.outcome.as_ref().ok().map(DispatchResponse::from),
-                        failure: result.outcome.as_ref().err(),
-                    })
-                    .collect(),
-            },
-            true,
-        ),
-    }
-}
-
 pub(crate) fn render_json_dispatch(outcome: &DispatchOutcome) -> Result<String> {
     match outcome {
         DispatchOutcome::Planned(plan) => render_json(&DispatchResponse::from_plan(plan), true),
@@ -602,21 +539,30 @@ pub(crate) fn render_json_error_for_tool(
     }
 }
 
-pub(crate) fn render_json<T>(value: &T, _json: bool) -> Result<String>
+pub(crate) fn render_json<T>(value: &T, pretty: bool) -> Result<String>
 where
     T: Serialize,
 {
+    let versioned = versioned(value);
+    if pretty {
+        serde_json::to_string_pretty(&versioned)
+    } else {
+        serde_json::to_string(&versioned)
+    }
+    .context("failed to serialize JSON output")
+}
+
+pub(crate) fn versioned<T: Serialize>(result: &T) -> impl Serialize + '_ {
     #[derive(Serialize)]
     struct Versioned<'a, T> {
         schema_version: u32,
         #[serde(flatten)]
         result: &'a T,
     }
-    serde_json::to_string_pretty(&Versioned {
+    Versioned {
         schema_version: 1,
-        result: value,
-    })
-    .context("failed to serialize JSON output")
+        result,
+    }
 }
 
 #[derive(Debug)]
@@ -812,6 +758,33 @@ pub(crate) struct AggregateReadResponse<'a> {
     tool: &'a ToolName,
     namespaces: &'a [NamespaceId],
     results: Vec<AggregateReadResultResponse<'a>>,
+}
+
+impl<'a> From<&'a AggregateReadOutcome> for AggregateReadResponse<'a> {
+    fn from(outcome: &'a AggregateReadOutcome) -> Self {
+        Self {
+            status: if outcome
+                .results
+                .iter()
+                .all(|result| result.outcome.as_ref().is_ok_and(dispatch_complete))
+            {
+                "aggregate_read"
+            } else {
+                "partial"
+            },
+            tool: &outcome.tool,
+            namespaces: &outcome.namespaces,
+            results: outcome
+                .results
+                .iter()
+                .map(|result| AggregateReadResultResponse {
+                    namespace: &result.namespace,
+                    outcome: result.outcome.as_ref().ok().map(DispatchResponse::from),
+                    failure: result.outcome.as_ref().err(),
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Serialize)]

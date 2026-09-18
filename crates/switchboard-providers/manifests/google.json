@@ -63,7 +63,9 @@
           { "kind": "required_positional", "aliases": ["query"] },
           { "kind": "option", "flag": "--max", "aliases": ["max"] },
           { "kind": "option", "flag": "--cursor", "aliases": ["cursor"] },
-          { "kind": "flag", "flag": "--labels", "aliases": ["labels"] }
+          { "kind": "flag", "flag": "--labels", "aliases": ["labels"] },
+          { "kind": "flag", "flag": "--hydrate", "aliases": ["hydrate"] },
+          { "kind": "option", "flag": "--body-limit", "aliases": ["body-limit"] }
         ]
       },
       "decode": {
@@ -153,6 +155,82 @@
             "kind": "thread",
             "id_field": "gmail_thread_id",
             "label_field": "subject"
+          }
+        ]
+      }
+    },
+    {
+      "name": "google.mail.thread",
+      "kind": "read",
+      "summary": "Read bounded Gmail thread context",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Read Gmail thread {arg:thread-id} in {namespace}"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gws_help"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          {
+            "kind": "literal",
+            "value": "gmail"
+          },
+          {
+            "kind": "literal",
+            "value": "users"
+          },
+          {
+            "kind": "literal",
+            "value": "threads"
+          },
+          {
+            "kind": "literal",
+            "value": "get"
+          },
+          {
+            "kind": "option",
+            "flag": "--thread-id",
+            "aliases": [
+              "thread-id"
+            ],
+            "required": true
+          },
+          {
+            "kind": "option",
+            "flag": "--max-messages",
+            "aliases": [
+              "max-messages"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--body-limit",
+            "aliases": [
+              "body-limit"
+            ]
+          },
+          {
+            "kind": "option",
+            "flag": "--max-attachments",
+            "aliases": [
+              "max-attachments"
+            ]
+          }
+        ]
+      },
+      "decode": {
+        "kind": "json_projection",
+        "response_field": "messages",
+        "source_pointer": "/messages",
+        "shape": "array",
+        "fields": [
+          {
+            "name": "gmail_message_id",
+            "pointer": "/id"
           }
         ]
       }
