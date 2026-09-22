@@ -30,6 +30,9 @@ pub enum Error {
         exit_code: Option<i32>,
         reason: String,
     },
+    /// The provider explicitly refused the operation, so no write was accepted.
+    #[error("provider rejected operation: {reason}")]
+    ProviderRejected { reason: String },
     #[error("{program} timed out after {seconds} seconds; the remote outcome may be unknown")]
     TimedOut { program: String, seconds: u64 },
     #[error("operation {operation_id} has an unknown remote outcome: {reason}; run op verify before retrying")]

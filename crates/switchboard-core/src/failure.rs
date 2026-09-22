@@ -112,7 +112,10 @@ impl Failure {
                     operation_id: operation_id.clone(),
                 }),
             ),
-            Error::Execution(_) | Error::ProviderFailed { .. } | Error::RateLimited { .. } => (
+            Error::Execution(_)
+            | Error::ProviderFailed { .. }
+            | Error::ProviderRejected { .. }
+            | Error::RateLimited { .. } => (
                 FailureCode::ProviderFailed,
                 FailurePhase::Execution,
                 Some(RecoveryAction::InspectProvider),

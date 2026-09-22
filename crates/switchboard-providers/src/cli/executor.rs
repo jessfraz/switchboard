@@ -126,6 +126,23 @@ fn execution_error(invocation: &CliInvocation, error: std::io::Error, elapsed: D
 }
 
 fn provider_failure(text: &str) -> Option<Error> {
+    // gh run rerun emits this format only for an HTTP 403 from its rerun POST.
+    // Unlike an arbitrary nonzero exit, this is an explicit refusal of the write.
+    if let Some((run_id, reason)) = text
+        .trim()
+        .strip_prefix("run ")
+        .and_then(|text| text.split_once(" cannot be rerun; "))
+    {
+        if !run_id.is_empty()
+            && run_id.bytes().all(|byte| byte.is_ascii_digit())
+            && !reason.is_empty()
+            && !reason.contains(['\r', '\n'])
+        {
+            return Some(Error::ProviderRejected {
+                reason: text.trim().to_owned(),
+            });
+        }
+    }
     #[derive(serde::Deserialize)]
     struct OAuthError {
         error: String,
@@ -292,6 +309,44 @@ exit 1"#
                     Err(switchboard_core::Error::ProviderFailed { exit_code: Some(1), .. })
                 ));
             }
+        }
+    }
+
+    #[test]
+    fn github_rerun_refusal_is_a_definite_provider_failure() {
+        for reason in [
+            "run 35775504207 cannot be rerun; This workflow run cannot be retried",
+            "run 123 cannot be rerun; Resource not accessible by integration\n",
+        ] {
+            let error = crate::cli::executor::provider_failure(reason)
+                .expect("GitHub's explicit rerun refusal should be recognized");
+            assert!(
+                !matches!(&error, switchboard_core::Error::ProviderFailed { .. }),
+                "a generic provider failure would still abort the operation as uncertain"
+            );
+            let failure = switchboard_core::Failure::from_error(&error);
+            assert_eq!(failure.code, switchboard_core::FailureCode::ProviderFailed);
+            assert_eq!(failure.phase, switchboard_core::FailurePhase::Execution);
+            assert_eq!(
+                failure.message,
+                format!("provider rejected operation: {}", reason.trim())
+            );
+            assert!(!failure.retryable);
+        }
+    }
+
+    #[test]
+    fn unrecognized_rerun_errors_are_not_classified_as_rejections() {
+        for reason in [
+            "failed to rerun: unexpected EOF",
+            "failed to rerun: HTTP 502: Bad Gateway",
+            "run 123 cannot be rerun; ",
+            "run abc cannot be rerun; This workflow run cannot be retried",
+            "run  cannot be rerun; This workflow run cannot be retried",
+            "rerun accepted\nrun 123 cannot be rerun; This workflow run cannot be retried",
+            "run 123 cannot be rerun; This workflow run cannot be retried\nconnection lost",
+        ] {
+            assert!(crate::cli::executor::provider_failure(reason).is_none(), "{reason}");
         }
     }
 
