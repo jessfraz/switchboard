@@ -116,26 +116,29 @@ impl SecretBackend for OnePasswordSecretBackend {
                 return Ok(value.clone());
             }
         }
-        // Token/session access is tried with desktop prompts explicitly disabled.
         // A cached AppIntegration marker is not proof that the app remains unlocked.
-        let session = env_session().or_else(|| {
-            match cached_session(&self.sessions, account)
-                .or_else(|| cached_session_on_disk(self.session_cache_path.as_deref(), account))
-            {
-                Some(CachedSession::Token(token)) => Some(token),
-                _ => None,
-            }
-        });
+        let provided_session = env_session();
+        let cached_token = match cached_session(&self.sessions, account)
+            .or_else(|| cached_session_on_disk(self.session_cache_path.as_deref(), account))
+        {
+            Some(CachedSession::Token(token)) => Some(token),
+            _ => None,
+        };
         let args = item_json_args(account, vault.as_deref(), item);
         let mut config = self.config.clone();
         config.timeout_seconds = config.timeout_seconds.min(60);
-        let run_item = |interactive: bool, timeout: Duration| -> Result<String> {
-            let mut command = op_command(&config);
-            command.env(
-                "OP_BIOMETRIC_UNLOCK_ENABLED",
-                if interactive { "true" } else { "false" },
-            );
-            if let Some(session) = session.as_deref().filter(|_| !interactive) {
+        if config.auth_mode == OnePasswordAuthMode::ServiceAccount
+            && !has_external_auth()
+            && !has_environment_session()
+            && !env::var("OP_BIOMETRIC_UNLOCK_ENABLED").is_ok_and(|value| value.eq_ignore_ascii_case("true"))
+        {
+            return Err(Error::Config(
+                "one_password.auth_mode = service_account requires OP_SERVICE_ACCOUNT_TOKEN".into(),
+            ));
+        }
+        let run_item = |config: &OnePasswordConfig, session: Option<&str>, timeout: Duration| -> Result<String> {
+            let mut command = op_command(config);
+            if let Some(session) = session {
                 command.args(["--session", session]);
             }
             command.args(&args);
@@ -165,40 +168,65 @@ impl SecretBackend for OnePasswordSecretBackend {
                 reason: "1Password returned non-UTF-8 output".into(),
             })
         };
-        let mut recovery_attempt = None;
-        let output = match run_item(false, config.timeout()) {
-            Ok(output) => output,
-            Err(error)
-                if has_external_auth()
-                    || matches!(
-                        config.auth_mode,
-                        OnePasswordAuthMode::ServiceAccount | OnePasswordAuthMode::Session
-                    )
-                    || env::var("OP_BIOMETRIC_UNLOCK_ENABLED")
-                        .is_ok_and(|value| value.eq_ignore_ascii_case("false")) =>
-            {
-                return Err(error)
+        let may_prompt = config.may_prompt();
+        // OP_SESSION_* may belong to another account. Try native sessions first,
+        // retaining the requested account's cached token as a fallback. Explicit
+        // desktop preferences win over both kinds of session.
+        let can_try_sessions = (env::var_os("OP_BIOMETRIC_UNLOCK_ENABLED").is_none() || !may_prompt)
+            && !has_external_auth()
+            && provided_session.is_none();
+        let session_config = OnePasswordConfig {
+            auth_mode: OnePasswordAuthMode::Session,
+            ..config.clone()
+        };
+        let mut session_result = None;
+        if can_try_sessions && has_environment_session() {
+            session_result = Some(run_item(&session_config, None, config.timeout()));
+        }
+        if can_try_sessions
+            && !matches!(session_result, Some(Ok(_)))
+            && matches!(
+                config.auth_mode,
+                OnePasswordAuthMode::Auto | OnePasswordAuthMode::Session
+            )
+        {
+            if let Some(token) = cached_token.as_deref() {
+                session_result = Some(run_item(&session_config, Some(token), config.timeout()));
             }
-            Err(_) => {
-                let attempt = match self.recovery.claim(auth) {
-                    Ok(attempt) => attempt,
-                    Err(error @ Error::RecoveryExhausted(_)) => {
-                        // A concurrent owner may have just published the credential.
-                        if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
-                            cache_item_fields(&self.items, &key, &fields);
-                            if let Some(value) = fields.get(field) {
-                                return Ok(value.clone());
+        }
+        let mut recovery_attempt = None;
+        let output = match session_result {
+            Some(Ok(output)) => output,
+            Some(Err(error)) if !may_prompt => return Err(error),
+            _ => {
+                let timeout = if may_prompt {
+                    let attempt = match self.recovery.claim(auth) {
+                        Ok(attempt) => attempt,
+                        Err(error @ Error::RecoveryExhausted(_)) => {
+                            // A concurrent owner may have just published the credential.
+                            if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
+                                cache_item_fields(&self.items, &key, &fields);
+                                if let Some(value) = fields.get(field) {
+                                    return Ok(value.clone());
+                                }
                             }
+                            return Err(error);
                         }
-                        return Err(error);
-                    }
-                    Err(error) => return Err(error),
+                        Err(error) => return Err(error),
+                    };
+                    // Claim before the first potentially prompting call, including
+                    // when the caller explicitly enabled desktop integration.
+                    let timeout = attempt.remaining_timeout(config.timeout())?;
+                    recovery_attempt = Some(attempt);
+                    timeout
+                } else {
+                    config.timeout()
                 };
-                // One command owns the entire human-presence attempt. No whoami,
-                // signin, or per-field retry can trigger another unlock afterward.
-                let timeout = attempt.remaining_timeout(config.timeout())?;
-                recovery_attempt = Some(attempt);
-                run_item(true, timeout)?
+                let session = provided_session
+                    .as_deref()
+                    .or(cached_token.as_deref().filter(|_| !has_environment_session()))
+                    .filter(|_| !may_prompt && !has_external_auth());
+                run_item(&config, session, timeout)?
             }
         };
         let ItemLookup::Fields(fields) = parse_item_fields(&output) else {
@@ -1328,6 +1356,150 @@ exit 1
             .any(|(name, _)| name == "OP_BIOMETRIC_UNLOCK_ENABLED"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn headless_auto_does_not_consume_desktop_recovery() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", "/usr/bin/false".into());
+        let _ci = EnvVarGuard::set("CI", "true".into());
+        let _desktop = EnvVarGuard::remove("OP_BIOMETRIC_UNLOCK_ENABLED");
+        let _session = EnvVarGuard::remove("OP_SESSION");
+        let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
+        let _connect = EnvVarGuard::remove("OP_CONNECT_HOST");
+        let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
+        let fixture = TempFixtureDir::new();
+        let backend = OnePasswordSecretBackend::with_recovery_budget(
+            Some(fixture.path.join("onepassword-sessions.json")),
+            crate::OnePasswordConfig::default(),
+            Some("headless-auto".into()),
+        );
+        let secret = switchboard_core::ResolvedSecret::new(
+            "token",
+            switchboard_core::SecretSource::OnePasswordItem {
+                account: "account".into(),
+                item: "item".into(),
+                field: "credential".into(),
+                vault: None,
+            },
+        )
+        .expect("secret configured");
+        let auth = switchboard_core::ResolvedAuth::new(
+            "github.personal",
+            "example",
+            switchboard_core::AuthSecretRefs::GitHubCli,
+        )
+        .expect("auth configured");
+        for _ in 0..2 {
+            let result = backend.resolve_for_auth(&secret, &auth);
+            assert!(
+                matches!(result, Err(switchboard_core::Error::SecretResolution { .. })),
+                "headless authentication must not claim desktop recovery: {result:?}"
+            );
+        }
+        let _desktop = EnvVarGuard::set("OP_BIOMETRIC_UNLOCK_ENABLED", "true".into());
+        assert!(matches!(
+            backend.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::SecretResolution { .. })
+        ));
+        assert!(matches!(
+            backend.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::RecoveryExhausted(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_desktop_preference_controls_recovery_even_when_config_disagrees() {
+        let _guard = ENV_LOCK.lock().expect("environment lock");
+        // A real failing process exercises recovery ownership without vault access.
+        let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", "/usr/bin/false".into());
+        let _session = EnvVarGuard::remove("OP_SESSION");
+        let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
+        let _connect = EnvVarGuard::remove("OP_CONNECT_HOST");
+        let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
+        let secret = switchboard_core::ResolvedSecret::new(
+            "token",
+            switchboard_core::SecretSource::OnePasswordItem {
+                account: "account".into(),
+                item: "item".into(),
+                field: "credential".into(),
+                vault: None,
+            },
+        )
+        .expect("secret configured");
+        let auth = switchboard_core::ResolvedAuth::new(
+            "github.personal",
+            "example",
+            switchboard_core::AuthSecretRefs::GitHubCli,
+        )
+        .expect("auth configured");
+        for (preference, mode) in [
+            ("true", crate::OnePasswordAuthMode::Session),
+            ("true", crate::OnePasswordAuthMode::ServiceAccount),
+            ("false", crate::OnePasswordAuthMode::Desktop),
+        ] {
+            let _desktop = EnvVarGuard::set("OP_BIOMETRIC_UNLOCK_ENABLED", preference.into());
+            let fixture = TempFixtureDir::new();
+            let backend = OnePasswordSecretBackend::with_recovery_budget(
+                Some(fixture.path.join("onepassword-sessions.json")),
+                crate::OnePasswordConfig {
+                    auth_mode: mode,
+                    ..Default::default()
+                },
+                Some("explicit-preference".into()),
+            );
+            assert!(matches!(
+                backend.resolve_for_auth(&secret, &auth),
+                Err(switchboard_core::Error::SecretResolution { .. })
+            ));
+            let second = backend.resolve_for_auth(&secret, &auth);
+            if preference == "true" {
+                assert!(
+                    matches!(second, Err(switchboard_core::Error::RecoveryExhausted(_))),
+                    "explicit desktop authentication must consume its recovery attempt: {second:?}"
+                );
+            } else {
+                assert!(matches!(second, Err(switchboard_core::Error::SecretResolution { .. })));
+            }
+        }
+
+        let _desktop = EnvVarGuard::remove("OP_BIOMETRIC_UNLOCK_ENABLED");
+        let fixture = TempFixtureDir::new();
+        let backend = OnePasswordSecretBackend::with_recovery_budget(
+            Some(fixture.path.join("onepassword-sessions.json")),
+            crate::OnePasswordConfig {
+                auth_mode: crate::OnePasswordAuthMode::ServiceAccount,
+                ..Default::default()
+            },
+            Some("service-account".into()),
+        );
+        backend
+            .sessions
+            .lock()
+            .expect("session cache")
+            .insert("account".into(), CachedSession::Token("cached-user-session".into()));
+        assert!(matches!(
+            backend.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::Config(_))
+        ));
+
+        let _native_session = EnvVarGuard::set("OP_SESSION_fixture", "native-session".into());
+        let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", "/usr/bin/true".into());
+        let fixture = TempFixtureDir::new();
+        let backend = OnePasswordSecretBackend::with_recovery_budget(
+            Some(fixture.path.join("onepassword-sessions.json")),
+            crate::OnePasswordConfig::default(),
+            Some("native-session".into()),
+        );
+        drop(backend.recovery.claim(&auth).expect("exhaust desktop recovery"));
+        // The native session must reach the child despite exhausted desktop recovery.
+        // The real process succeeds with empty output, which must fail JSON decoding.
+        assert!(matches!(
+            backend.resolve_for_auth(&secret, &auth),
+            Err(switchboard_core::Error::SecretResolution { reason, .. }) if reason.contains("not valid JSON")
+        ));
+    }
+
     #[test]
     fn item_args_include_optional_vault_and_label_selector() {
         let args = item_args("kittycadinc.1password.com", Some("Employee"), "gws cli", "credential");
@@ -2386,7 +2558,7 @@ sleep 3
 "#,
         );
         let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", script.into_os_string());
-        let _desktop = EnvVarGuard::remove("OP_BIOMETRIC_UNLOCK_ENABLED");
+        let _desktop = EnvVarGuard::set("OP_BIOMETRIC_UNLOCK_ENABLED", "true".into());
         let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
         let _connect = EnvVarGuard::remove("OP_CONNECT_HOST");
         let _connect_token = EnvVarGuard::remove("OP_CONNECT_TOKEN");
@@ -2449,6 +2621,7 @@ printf '%s\n' '{"fields":[{"label":"credential","value":"fixture-value"}]}'
 "#,
         );
         let _binary = EnvVarGuard::set("SWITCHBOARD_OP_BIN", script.into_os_string());
+        let _desktop = EnvVarGuard::set("OP_BIOMETRIC_UNLOCK_ENABLED", "true".into());
         let _session = EnvVarGuard::remove("OP_SESSION");
         let _service = EnvVarGuard::remove("OP_SERVICE_ACCOUNT_TOKEN");
         let _connect = EnvVarGuard::remove("OP_CONNECT_HOST");

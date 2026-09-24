@@ -246,11 +246,15 @@ not resolve secrets, authenticate accounts, or create an operation database.
 File presence is a diagnostic hint, not a claim that a login is valid.
 
 1Password sessions and item lookups are cached automatically. Cache-write
-failures produce a warning instead of silently causing repeated lookups. On a
-local Mac with 1Password installed, app integration is selected automatically;
-explicit 1Password environment settings and external authentication take
-precedence. Servers retain the CLI's own defaults. You can configure a different
-mode once in Switchboard:
+failures produce a warning instead of silently causing repeated lookups. Auto
+mode detects graphics access in the current macOS login session and uses
+`DISPLAY` or `WAYLAND_DISPLAY` on Linux. It disables desktop authentication in
+headless sessions and CI, while preserving the CLI's saved app-integration
+setting when graphics are available or detection is inconclusive. Explicit
+1Password environment settings take precedence over detection and Switchboard's
+configured mode.
+Cached tokens can be reused when no explicit authentication choice overrides
+them. You can configure a different mode once in Switchboard:
 
 ```toml
 [one_password]

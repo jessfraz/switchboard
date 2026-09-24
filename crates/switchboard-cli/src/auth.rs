@@ -345,7 +345,9 @@ cat "$(dirname "$0")/item.json"
         let config_path = directory.join("config.toml");
         std::fs::write(
             &config_path,
-            r#"[namespace.github.personal]
+            r#"[one_password]
+auth_mode = "session"
+[namespace.github.personal]
 provider = "github"
 account = "Display label"
 auth = "github_account"

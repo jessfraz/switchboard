@@ -1,4 +1,4 @@
-use std::{env, path::Path, time::Duration};
+use std::{env, time::Duration};
 
 use serde::Deserialize;
 
@@ -49,6 +49,17 @@ impl OnePasswordConfig {
         self.desktop_integration_for(&AuthEnvironment::current())
     }
 
+    /// An inherited or native desktop preference can prompt even with closed stdin.
+    pub(crate) fn may_prompt(&self) -> bool {
+        if has_external_auth() {
+            return false;
+        }
+        if let Some(value) = env::var_os("OP_BIOMETRIC_UNLOCK_ENABLED") {
+            return !value.to_str().is_some_and(|value| value.eq_ignore_ascii_case("false"));
+        }
+        self.desktop_integration() != Some(false)
+    }
+
     fn desktop_integration_for(&self, environment: &AuthEnvironment) -> Option<bool> {
         if environment.explicit_desktop {
             return None;
@@ -59,7 +70,7 @@ impl OnePasswordConfig {
         match self.auth_mode {
             OnePasswordAuthMode::Desktop => Some(true),
             OnePasswordAuthMode::Session | OnePasswordAuthMode::ServiceAccount => Some(false),
-            OnePasswordAuthMode::Auto if environment.desktop_available => Some(true),
+            OnePasswordAuthMode::Auto if environment.graphical_session == Some(false) => Some(false),
             OnePasswordAuthMode::Auto => None,
         }
     }
@@ -69,7 +80,7 @@ struct AuthEnvironment {
     explicit_desktop: bool,
     external_auth: bool,
     session: bool,
-    desktop_available: bool,
+    graphical_session: Option<bool>,
 }
 
 impl AuthEnvironment {
@@ -78,9 +89,46 @@ impl AuthEnvironment {
             explicit_desktop: env::var_os("OP_BIOMETRIC_UNLOCK_ENABLED").is_some(),
             external_auth: has_external_auth(),
             session: env::var_os("OP_SESSION").is_some_and(|value| !value.is_empty()),
-            desktop_available: desktop_available(),
+            graphical_session: if env::var_os("CI").is_some_and(|value| {
+                !value.is_empty() && value != "0" && !value.to_string_lossy().eq_ignore_ascii_case("false")
+            }) {
+                Some(false)
+            } else {
+                graphical_session()
+            },
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn graphical_session() -> Option<bool> {
+    #[link(name = "Security", kind = "framework")]
+    extern "C" {
+        fn SessionGetInfo(session: u32, session_id: *mut u32, attributes: *mut u32) -> i32;
+    }
+    const CALLER_SECURITY_SESSION: u32 = u32::MAX;
+    const SESSION_HAS_GRAPHIC_ACCESS: u32 = 0x0010;
+    let mut attributes = 0;
+    // Check this process's login session, not another user's desktop or an
+    // installed app. Redirected terminal IO does not imply a headless session.
+    // SAFETY: AuthSession.h defines these u32 inputs/outputs; attributes points
+    // to valid storage, and the optional session ID output may be null.
+    let status = unsafe { SessionGetInfo(CALLER_SECURITY_SESSION, std::ptr::null_mut(), &mut attributes) };
+    (status == 0).then_some(attributes & SESSION_HAS_GRAPHIC_ACCESS != 0)
+}
+
+#[cfg(target_os = "linux")]
+fn graphical_session() -> Option<bool> {
+    Some(
+        ["DISPLAY", "WAYLAND_DISPLAY"]
+            .iter()
+            .any(|name| env::var_os(name).is_some_and(|value| !value.is_empty())),
+    )
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn graphical_session() -> Option<bool> {
+    None
 }
 
 pub(crate) fn has_environment_session() -> bool {
@@ -96,21 +144,6 @@ pub(crate) fn has_external_auth() -> bool {
         .any(|name| env::var_os(name).is_some_and(|value| !value.is_empty()))
 }
 
-fn desktop_available() -> bool {
-    if ["SSH_CONNECTION", "SSH_CLIENT", "CI"]
-        .iter()
-        .any(|name| env::var_os(name).is_some())
-    {
-        return false;
-    }
-    if cfg!(target_os = "macos") {
-        return Path::new("/Applications/1Password.app").is_dir()
-            || env::var_os("HOME").is_some_and(|home| Path::new(&home).join("Applications/1Password.app").is_dir());
-    }
-    // On other platforms the CLI's own integration setting remains authoritative.
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use crate::one_password_config::{AuthEnvironment, OnePasswordAuthMode, OnePasswordConfig};
@@ -120,7 +153,7 @@ mod tests {
             explicit_desktop: false,
             external_auth: false,
             session: false,
-            desktop_available: true,
+            graphical_session: Some(true),
         }
     }
 
@@ -146,7 +179,7 @@ mod tests {
     #[test]
     fn desktop_auto_default_does_not_override_explicit_authentication() {
         let config = OnePasswordConfig::default();
-        assert_eq!(config.desktop_integration_for(&desktop()), Some(true));
+        assert_eq!(config.desktop_integration_for(&desktop()), None);
         assert_eq!(
             config.desktop_integration_for(&AuthEnvironment {
                 session: true,
@@ -171,21 +204,46 @@ mod tests {
     }
 
     #[test]
-    fn servers_keep_native_defaults_and_configuration_can_select_a_mode() {
-        let server = AuthEnvironment {
-            desktop_available: false,
-            ..desktop()
-        };
-        assert_eq!(OnePasswordConfig::default().desktop_integration_for(&server), None);
+    fn native_defaults_are_preserved_and_configuration_can_select_a_mode() {
+        assert_eq!(OnePasswordConfig::default().desktop_integration_for(&desktop()), None);
         let config = OnePasswordConfig {
             auth_mode: OnePasswordAuthMode::Desktop,
             ..OnePasswordConfig::default()
         };
-        assert_eq!(config.desktop_integration_for(&server), Some(true));
+        assert_eq!(config.desktop_integration_for(&desktop()), Some(true));
         let config = OnePasswordConfig {
             auth_mode: OnePasswordAuthMode::Session,
             ..OnePasswordConfig::default()
         };
         assert_eq!(config.desktop_integration_for(&desktop()), Some(false));
+    }
+
+    #[test]
+    fn auto_avoids_desktop_authentication_only_when_headless_is_known() {
+        let headless = AuthEnvironment {
+            graphical_session: Some(false),
+            ..desktop()
+        };
+        let config = OnePasswordConfig::default();
+        assert_eq!(config.desktop_integration_for(&headless), Some(false));
+        assert_eq!(
+            config.desktop_integration_for(&AuthEnvironment {
+                graphical_session: None,
+                ..desktop()
+            }),
+            None
+        );
+        assert_eq!(
+            config.desktop_integration_for(&AuthEnvironment {
+                explicit_desktop: true,
+                ..headless
+            }),
+            None
+        );
+        let config = OnePasswordConfig {
+            auth_mode: OnePasswordAuthMode::Desktop,
+            ..config
+        };
+        assert_eq!(config.desktop_integration_for(&headless), Some(true));
     }
 }
