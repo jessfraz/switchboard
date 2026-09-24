@@ -145,6 +145,8 @@ pub enum SecretSource {
         field: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         vault: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        auth_profile: Option<String>,
     },
 }
 
@@ -164,12 +166,21 @@ impl SecretSource {
                 item,
                 field,
                 vault,
+                auth_profile,
             } => {
                 crate::types::validate_non_empty("1Password account", account)?;
                 crate::types::validate_non_empty("1Password item", item)?;
                 crate::types::validate_non_empty("1Password field", field)?;
                 if let Some(vault) = vault {
                     crate::types::validate_non_empty("1Password vault", vault)?;
+                }
+                if let Some(profile) = auth_profile {
+                    crate::types::validate_non_empty("1Password auth profile", profile)?;
+                    if vault.is_none() {
+                        return Err(Error::InvalidArguments(
+                            "1Password auth profiles require an explicit vault".into(),
+                        ));
+                    }
                 }
 
                 Ok(())

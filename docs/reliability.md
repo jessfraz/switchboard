@@ -67,6 +67,15 @@ auth account. Google uses Gmail `getProfile`, so it requires Gmail access.
 GitHub uses `api user`. Other identity routes are explicitly unsupported.
 
 Credentials are resolved from cache first, then existing noninteractive
+1Password sessions for unprofiled references. Named service-account profiles
+instead validate their owner-only bootstrap file before cache access, isolate
+cached fields by profile and token generation, and never attempt desktop
+recovery. Their token is injected only into `op`, not provider children. Removing
+the local token file blocks subsequent resolutions; remote revocation alone
+does not invalidate already cached provider credentials. Revoke those at the
+provider when immediate access removal is required.
+
+Unprofiled references use cached credentials and existing noninteractive
 1Password sessions. A cache miss can claim one desktop-unlock attempt, lasting
 at most 60 seconds. The claim is persisted before unlocking and shared
 automatically per provider/account. Concurrent processes wait for the attempt's

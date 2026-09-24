@@ -37,6 +37,7 @@ impl CliExecutor for ProcessCliExecutor {
         let mut command = Command::new(&invocation.program);
         command.args(&invocation.args);
         invocation.runtime.apply_to_command(&mut command);
+        switchboard_core::process::clear_one_password_environment(&mut command);
 
         match invocation.stdio_mode {
             CliStdioMode::Capture => {
@@ -260,6 +261,28 @@ EOF
         assert_eq!(output.stdout, "captured-output\n");
         assert!(output.stderr.is_empty());
         assert!(script.capture_contents().contains("ARGV=alpha beta"));
+    }
+
+    #[test]
+    fn provider_child_cannot_inherit_one_password_bootstrap_credentials() {
+        let script = temp_script(
+            r#"test -z "${OP_SERVICE_ACCOUNT_TOKEN+x}" || exit 31
+test -z "${OP_CONNECT_TOKEN+x}" || exit 32
+test -z "${OP_SESSION_fixture+x}" || exit 33
+test "$PROVIDER_TOKEN" = provider-value || exit 34
+printf '%s\n' scoped-provider"#,
+        );
+        let mut invocation = script_invocation(&script, &[], CliStdioMode::Capture);
+        invocation
+            .runtime
+            .set_env("OP_SERVICE_ACCOUNT_TOKEN", "bootstrap-fixture");
+        invocation.runtime.set_env("OP_CONNECT_TOKEN", "connect-fixture");
+        invocation.runtime.set_env("OP_SESSION_fixture", "session-fixture");
+        invocation.runtime.set_env("PROVIDER_TOKEN", "provider-value");
+        let output = ProcessCliExecutor
+            .execute(invocation)
+            .expect("only provider credentials reach child");
+        assert_eq!(output.stdout, "scoped-provider\n");
     }
 
     #[test]

@@ -64,7 +64,7 @@ impl SwitchboardConfig {
         config.resolve_paths(config_path.and_then(Path::parent), config_home_dir().as_deref());
         let state_db = resolve_operation_store_path(config_path.unwrap_or_else(|| Path::new("switchboard.toml")));
         let state_root = state_db.parent().unwrap_or_else(|| Path::new("."));
-        let secrets = build_secret_store(config.secret)?;
+        let secrets = build_secret_store(config.secret, &config.one_password)?;
         let explicit_auth = build_auth_store(config.auth, &secrets)?;
         let (namespaces, implicit_auth) = build_namespace_store(config.namespace, &explicit_auth, state_root)?;
         let auth = StaticAuthStore::new(explicit_auth.list().into_iter().chain(implicit_auth));
@@ -80,7 +80,10 @@ impl SwitchboardConfig {
     }
 }
 
-fn build_secret_store(raw_secrets: BTreeMap<String, RawSecret>) -> Result<StaticSecretStore> {
+fn build_secret_store(
+    raw_secrets: BTreeMap<String, RawSecret>,
+    one_password: &OnePasswordConfig,
+) -> Result<StaticSecretStore> {
     let mut secrets = Vec::with_capacity(raw_secrets.len());
 
     for (secret_ref, raw) in raw_secrets {
@@ -92,12 +95,23 @@ fn build_secret_store(raw_secrets: BTreeMap<String, RawSecret>) -> Result<Static
                 item,
                 field,
                 vault,
-            } => SecretSource::OnePasswordItem {
-                account,
-                item,
-                field,
-                vault,
-            },
+                auth_profile,
+            } => {
+                if let Some(profile) = &auth_profile {
+                    if !one_password.profiles.contains_key(profile) {
+                        return Err(Error::Config(format!(
+                            "secret.{secret_ref} references unknown 1Password auth profile {profile}"
+                        )));
+                    }
+                }
+                SecretSource::OnePasswordItem {
+                    account,
+                    item,
+                    field,
+                    vault,
+                    auth_profile,
+                }
+            }
         };
 
         secrets.push(ResolvedSecret::new(secret_ref, source)?);
@@ -369,6 +383,8 @@ enum RawSecret {
         field: String,
         #[serde(default)]
         vault: Option<String>,
+        #[serde(default)]
+        auth_profile: Option<String>,
     },
 }
 
@@ -608,6 +624,9 @@ struct RawNamespace {
 
 impl RawConfig {
     fn resolve_paths(&mut self, base_dir: Option<&Path>, home_dir: Option<&Path>) {
+        for profile in self.one_password.profiles.values_mut() {
+            profile.token_file = resolve_configured_path(&profile.token_file, base_dir, home_dir);
+        }
         for secret in self.secret.values_mut() {
             if let RawSecret::File { path } = secret {
                 *path = resolve_configured_path(path, base_dir, home_dir);

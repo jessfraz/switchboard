@@ -94,6 +94,7 @@ fn inspect_binary(binary: &CliBinarySpec, google: bool) -> CliBinaryDiagnostic {
         }
     };
     let mut command = Command::new(&path);
+    switchboard_core::process::clear_one_password_environment(&mut command);
     command.args(&binary.version_args);
     if google {
         command.env("GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND", "file");

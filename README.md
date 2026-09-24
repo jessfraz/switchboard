@@ -262,6 +262,47 @@ auth_mode = "auto" # auto, desktop, session, or service_account
 timeout_seconds = 60
 ```
 
+For unattended access, configure named service-account profiles and opt specific
+secrets into them. The token file contains only the service-account token; do not
+put the token itself in configuration, shell startup files, or generated Nix
+store files.
+
+```toml
+[one_password.profiles.automation]
+token_file = "~/.config/agent-credentials/automation.token"
+
+[secret.automation_api_token]
+kind = "onepassword_item"
+account = "example.1password.com"
+vault = "vault-id"
+item = "item-id"
+field = "token"
+auth_profile = "automation"
+```
+
+The token must be a regular file owned by the current user with no group/other
+permissions, inside an owner-only directory (normally file `0600`, directory
+`0700`). Symlink token files are rejected. Relative paths resolve against the
+configuration directory; `~` expands to the home directory. Named profiles
+require an explicit vault. Prefer vault and item IDs to avoid ambiguous names
+and reduce API requests. The token selects the 1Password identity; `account`
+remains reference metadata and is not passed as a desktop CLI account selector.
+
+Profile lookups never fall back to desktop authentication. Switchboard clears
+conflicting `OP_*` environment settings and injects the selected service token
+only into its `op` child. Provider children receive their resolved credential,
+without 1Password bootstrap tokens or sessions. Unprofiled references retain
+their existing behavior.
+
+Profile caches contain only the requested field and are separated by profile,
+token generation, vault, item, and field. Switchboard checks the token file
+before returning a cached value, so removing it or rotating its token prevents
+reuse of the previous generation. Disk entries expire after one hour. Remote
+service-account revocation alone does not retract previously cached provider
+credentials; remove the local token file as well and revoke the provider
+credential if access already issued must stop. Owner-only files protect against
+other users, not arbitrary code running as the same user.
+
 Noninteractive 1Password calls and captured provider commands have bounded
 waits. Interactive provider login keeps its terminal attached so you can
 complete browser consent. Use `doctor` to inspect the effective setup before

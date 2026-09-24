@@ -14,6 +14,19 @@ mod capture;
 #[path = "process/windows.rs"]
 mod capture;
 
+/// Remove 1Password bootstrap credentials and session preferences before spawning
+/// a provider. A secret resolver can inject exactly its selected token afterward.
+pub fn clear_one_password_environment(command: &mut Command) {
+    let names = std::env::vars_os()
+        .map(|(name, _)| name)
+        .chain(command.get_envs().map(|(name, _)| name.to_owned()))
+        .filter(|name| name.to_string_lossy().starts_with("OP_"))
+        .collect::<Vec<_>>();
+    for name in names {
+        command.env_remove(name);
+    }
+}
+
 /// Capture a child with closed stdin and a finite deadline.
 ///
 /// On Unix, the child has no controlling terminal, and a running child and

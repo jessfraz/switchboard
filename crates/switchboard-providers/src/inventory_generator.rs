@@ -341,7 +341,9 @@ fn run_help_invocation(invocation: &[String]) -> Result<String> {
     let Some((program, args)) = invocation.split_first() else {
         return Err(Error::Execution("empty help invocation".into()));
     };
-    let output = Command::new(program)
+    let mut command = Command::new(program);
+    switchboard_core::process::clear_one_password_environment(&mut command);
+    let output = command
         .args(args)
         .output()
         .map_err(|error| Error::Execution(format!("failed to run {}: {error}", invocation.join(" "))))?;

@@ -5,6 +5,7 @@ use crate::OnePasswordConfig;
 mod env_secret;
 mod file_secret;
 mod one_password;
+mod one_password_profile;
 mod recovery;
 
 pub use one_password::{one_password_item_cache_expiries, one_password_session_cache_entry_count};

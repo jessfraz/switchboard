@@ -34,6 +34,113 @@ impl Default for OnePasswordSecretBackend {
 }
 
 impl OnePasswordSecretBackend {
+    fn profile_key(
+        &self,
+        secret: &ResolvedSecret,
+    ) -> Result<Option<(OnePasswordItemKey, crate::secrets::one_password_profile::ProfileToken)>> {
+        let SecretSource::OnePasswordItem {
+            account,
+            item,
+            field,
+            vault,
+            auth_profile: Some(profile),
+        } = &secret.source
+        else {
+            return Ok(None);
+        };
+        let configured = self
+            .config
+            .profiles
+            .get(profile)
+            .ok_or_else(|| Error::Config(format!("unknown 1Password auth profile {profile}")))?;
+        if vault.as_deref().map_or(true, str::is_empty) {
+            return Err(Error::Config(
+                "1Password auth profiles require an explicit vault".into(),
+            ));
+        }
+        // Validate the current bootstrap before considering cached provider secrets.
+        // Removing, rotating or making this file unsafe must not leave a cache bypass.
+        let token = crate::secrets::one_password_profile::read_token(&configured.token_file)?;
+        let mut key = OnePasswordItemKey::new(account, vault.as_deref(), item);
+        key.profile = Some(format!("{profile}\u{1f}{}\u{1f}{field}", token.generation));
+        Ok(Some((key, token)))
+    }
+
+    fn resolve_profile(&self, secret: &ResolvedSecret) -> Result<Option<SecretString>> {
+        let Some((key, token)) = self.profile_key(secret)? else {
+            return Ok(None);
+        };
+        let SecretSource::OnePasswordItem {
+            item,
+            field,
+            vault,
+            auth_profile,
+            ..
+        } = &secret.source
+        else {
+            return Err(Error::Config("invalid 1Password profile source".into()));
+        };
+        if let Some(value) = cached_item_field(&self.items, &key, field) {
+            return Ok(Some(value));
+        }
+        if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
+            cache_item_fields(&self.items, &key, &fields);
+            if let Some(value) = fields.get(field) {
+                return Ok(Some(value.clone()));
+            }
+        }
+        let mut command = op_command(&self.config);
+        switchboard_core::process::clear_one_password_environment(&mut command);
+        command.env("OP_SERVICE_ACCOUNT_TOKEN", token.token.expose());
+        command.env("OP_BIOMETRIC_UNLOCK_ENABLED", "false");
+        command.args([
+            "item",
+            "get",
+            item,
+            "--vault",
+            vault.as_deref().unwrap_or_default(),
+            "--fields",
+            &format!("label={field}"),
+            "--reveal",
+        ]);
+        let output = output_with_timeout(&mut command, self.config.timeout()).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::TimedOut {
+                Error::AuthenticationTimeout {
+                    seconds: self.config.timeout_seconds,
+                }
+            } else {
+                Error::SecretResolution {
+                    secret_ref: secret.id.to_string(),
+                    reason: "1Password profile lookup could not start; no desktop fallback was attempted".into(),
+                }
+            }
+        })?;
+        if !output.status.success() {
+            // A child may echo its environment in an error. Do not propagate its
+            // stderr or stdout when a long-lived bootstrap token was supplied.
+            return Err(Error::SecretResolution {
+                secret_ref: secret.id.to_string(),
+                reason: format!(
+                    "1Password profile {} lookup failed ({}); no desktop fallback was attempted",
+                    auth_profile.as_deref().unwrap_or_default(),
+                    output.status
+                ),
+            });
+        }
+        let output = String::from_utf8(output.stdout).map_err(|_| Error::SecretResolution {
+            secret_ref: secret.id.to_string(),
+            reason: "1Password profile returned non-UTF-8 output".into(),
+        })?;
+        let value = normalize_secret(&secret.id, output)?;
+        let fields = BTreeMap::from([(field.clone(), value.clone())]);
+        cache_item_fields(&self.items, &key, &fields);
+        warn_cache_write(
+            "item",
+            write_item_cache_entry(self.item_cache_path.as_deref(), &key, Some(&fields)),
+        );
+        Ok(Some(value))
+    }
+
     pub(super) fn new(session_cache_path: Option<PathBuf>) -> Self {
         Self::with_config(session_cache_path, OnePasswordConfig::default())
     }
@@ -68,7 +175,10 @@ impl SecretBackend for OnePasswordSecretBackend {
         else {
             return Ok(false);
         };
-        let key = OnePasswordItemKey::new(account, vault.as_deref(), item);
+        let key = match self.profile_key(secret)? {
+            Some((key, _)) => key,
+            None => OnePasswordItemKey::new(account, vault.as_deref(), item),
+        };
         let mut items = self
             .items
             .lock()
@@ -97,11 +207,15 @@ impl SecretBackend for OnePasswordSecretBackend {
     }
 
     fn resolve_for_auth(&self, secret: &ResolvedSecret, auth: &ResolvedAuth) -> Result<SecretString> {
+        if let Some(value) = self.resolve_profile(secret)? {
+            return Ok(value);
+        }
         let SecretSource::OnePasswordItem {
             account,
             item,
             field,
             vault,
+            ..
         } = &secret.source
         else {
             return self.resolve(secret);
@@ -254,11 +368,15 @@ impl SecretBackend for OnePasswordSecretBackend {
     }
 
     fn resolve(&self, secret: &ResolvedSecret) -> Result<SecretString> {
+        if let Some(value) = self.resolve_profile(secret)? {
+            return Ok(value);
+        }
         let SecretSource::OnePasswordItem {
             account,
             item,
             field,
             vault,
+            ..
         } = &secret.source
         else {
             return Err(Error::SecretResolution {
@@ -359,6 +477,7 @@ struct OnePasswordItemKey {
     account: String,
     vault: Option<String>,
     item: String,
+    profile: Option<String>,
 }
 
 impl OnePasswordItemKey {
@@ -367,10 +486,19 @@ impl OnePasswordItemKey {
             account: account.to_owned(),
             vault: vault.map(str::to_owned),
             item: item.to_owned(),
+            profile: None,
         }
     }
 
     fn cache_key(&self) -> String {
+        if let Some(profile) = &self.profile {
+            return format!(
+                "profile\u{1f}{profile}\u{1f}{}\u{1f}{}\u{1f}{}",
+                self.account,
+                self.vault.as_deref().unwrap_or_default(),
+                self.item
+            );
+        }
         format!(
             "{}\u{1f}{}\u{1f}{}",
             self.account,
@@ -1376,6 +1504,7 @@ exit 1
         let secret = switchboard_core::ResolvedSecret::new(
             "token",
             switchboard_core::SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "account".into(),
                 item: "item".into(),
                 field: "credential".into(),
@@ -1420,6 +1549,7 @@ exit 1
         let secret = switchboard_core::ResolvedSecret::new(
             "token",
             switchboard_core::SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "account".into(),
                 item: "item".into(),
                 field: "credential".into(),
@@ -1562,6 +1692,7 @@ esac
         let client_id_secret = ResolvedSecret::new(
             "google_personal_client_id",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "gws cli".into(),
@@ -1572,6 +1703,7 @@ esac
         let client_secret_secret = ResolvedSecret::new(
             "google_personal_client_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "gws cli".into(),
@@ -1644,6 +1776,7 @@ esac
         let first_secret = ResolvedSecret::new(
             "first_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -1654,6 +1787,7 @@ esac
         let second_secret = ResolvedSecret::new(
             "second_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-two".into(),
@@ -1729,6 +1863,7 @@ esac
         let first_secret = ResolvedSecret::new(
             "google_personal_client_secret_one",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -1739,6 +1874,7 @@ esac
         let second_secret = ResolvedSecret::new(
             "google_personal_client_secret_two",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-two".into(),
@@ -1810,6 +1946,7 @@ esac
         let secret = ResolvedSecret::new(
             "google_personal_client_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "gws cli".into(),
@@ -1894,6 +2031,7 @@ esac
         let secret = ResolvedSecret::new(
             "google_personal_client_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "gws cli".into(),
@@ -1975,6 +2113,7 @@ esac
         let secret = ResolvedSecret::new(
             "google_personal_client_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "gws cli".into(),
@@ -2053,6 +2192,7 @@ esac
         let first_secret = ResolvedSecret::new(
             "first_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -2063,6 +2203,7 @@ esac
         let second_secret = ResolvedSecret::new(
             "second_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-two".into(),
@@ -2150,6 +2291,7 @@ esac
         let first_secret = ResolvedSecret::new(
             "google_personal_client_secret_one",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -2160,6 +2302,7 @@ esac
         let second_secret = ResolvedSecret::new(
             "google_personal_client_secret_two",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-two".into(),
@@ -2254,6 +2397,7 @@ esac
         let secret = ResolvedSecret::new(
             "google_personal_client_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -2376,6 +2520,7 @@ esac
         let first_secret = ResolvedSecret::new(
             "first_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -2386,6 +2531,7 @@ esac
         let second_secret = ResolvedSecret::new(
             "second_secret",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-two".into(),
@@ -2467,6 +2613,7 @@ esac
         let first_secret = ResolvedSecret::new(
             "google_personal_client_secret_one",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-one".into(),
@@ -2477,6 +2624,7 @@ esac
         let second_secret = ResolvedSecret::new(
             "google_personal_client_secret_two",
             SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "my.1password.com".into(),
                 vault: None,
                 item: "item-two".into(),
@@ -2530,6 +2678,7 @@ esac
         let secret = switchboard_core::ResolvedSecret::new(
             "token",
             switchboard_core::SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "account".into(),
                 item: "item".into(),
                 field: "credential".into(),
@@ -2566,6 +2715,7 @@ sleep 3
         let secret = switchboard_core::ResolvedSecret::new(
             "token",
             switchboard_core::SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "account".into(),
                 item: "item".into(),
                 field: "credential".into(),
@@ -2630,6 +2780,7 @@ printf '%s\n' '{"fields":[{"label":"credential","value":"fixture-value"}]}'
         let secret = switchboard_core::ResolvedSecret::new(
             "github-token",
             switchboard_core::SecretSource::OnePasswordItem {
+                auth_profile: None,
                 account: "account".into(),
                 item: "item".into(),
                 field: "credential".into(),

@@ -35,6 +35,7 @@ struct OnePasswordDiagnostic {
     desktop_integration_default: Option<bool>,
     timeout_seconds: u64,
     cli: Option<CliBinaryDiagnostic>,
+    profiles: BTreeMap<String, PathDiagnostic>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +44,7 @@ struct NamespaceDiagnostic {
     provider: ProviderKind,
     auth_mode: String,
     secret_source_kinds: BTreeSet<&'static str>,
+    one_password_profiles: BTreeSet<String>,
     state_dir: Option<PathDiagnostic>,
     google_storage_backend: Option<&'static str>,
     saved_auth_files: Vec<PathDiagnostic>,
@@ -117,6 +119,12 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
         desktop_integration_default: config.one_password.desktop_integration(),
         timeout_seconds: config.one_password.timeout_seconds,
         cli: None,
+        profiles: config
+            .one_password
+            .profiles
+            .iter()
+            .map(|(name, profile)| (name.clone(), inspect_path(&profile.token_file)))
+            .collect(),
     });
     let (namespaces, auth, secrets) = config.into_stores();
     let selected = namespaces
@@ -144,6 +152,15 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
             })
             .collect();
         needs_one_password |= source_kinds.contains("onepassword_item");
+        let one_password_profiles = auth
+            .secret_refs()
+            .into_iter()
+            .filter_map(|reference| secrets.get(reference))
+            .filter_map(|secret| match secret.source {
+                SecretSource::OnePasswordItem { auth_profile, .. } => auth_profile,
+                _ => None,
+            })
+            .collect();
         let google = namespace.provider == ProviderKind::GoogleWorkspace;
         let saved_auth_files = if google {
             namespace
@@ -185,6 +202,7 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
             provider: namespace.provider,
             auth_mode: auth.kind().to_string(),
             secret_source_kinds: source_kinds,
+            one_password_profiles,
             state_dir: namespace.state_dir.as_deref().map(inspect_path),
             google_storage_backend: google.then_some("file"),
             saved_auth_files,
@@ -381,6 +399,14 @@ impl DoctorReport {
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
+            }
+            for name in &namespace.one_password_profiles {
+                if let Some(path) = self.one_password.as_ref().and_then(|op| op.profiles.get(name)) {
+                    output.push_str(&format!(
+                        "  1Password profile: {name}, desktop fallback disabled; bootstrap {}\n",
+                        path.render_human()
+                    ));
+                }
             }
             if let Some(directory) = &namespace.state_dir {
                 output.push_str(&format!("  State directory: {}\n", directory.render_human()));

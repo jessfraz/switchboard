@@ -1,4 +1,4 @@
-use std::{env, time::Duration};
+use std::{collections::BTreeMap, env, path::PathBuf, time::Duration};
 
 use serde::Deserialize;
 
@@ -28,6 +28,13 @@ impl OnePasswordAuthMode {
 pub struct OnePasswordConfig {
     pub auth_mode: OnePasswordAuthMode,
     pub timeout_seconds: u64,
+    pub profiles: BTreeMap<String, OnePasswordProfile>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OnePasswordProfile {
+    pub token_file: PathBuf,
 }
 
 impl Default for OnePasswordConfig {
@@ -35,6 +42,7 @@ impl Default for OnePasswordConfig {
         Self {
             auth_mode: OnePasswordAuthMode::Auto,
             timeout_seconds: 60,
+            profiles: BTreeMap::new(),
         }
     }
 }
