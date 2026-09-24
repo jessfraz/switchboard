@@ -16,9 +16,10 @@ mod capture;
 
 /// Capture a child with closed stdin and a finite deadline.
 ///
-/// On Unix, a running child and descendants in its process group are terminated on
-/// failure. On Windows only the direct child is terminated. Output handles held
-/// by descendants cannot keep capture alive after the child exits.
+/// On Unix, the child has no controlling terminal, and a running child and
+/// descendants in its process group are terminated on failure. On Windows only
+/// the direct child is terminated. Output handles held by descendants cannot
+/// keep capture alive after the child exits.
 pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Result<Output> {
     output_with_stdin_timeout(command, Stdio::null(), timeout)
 }
@@ -41,12 +42,7 @@ pub fn output_with_stdin_timeout(command: &mut Command, stdin: Stdio, timeout: D
     let (mut stderr, child_stderr) = capture::Capture::new()?;
     command.stdin(stdin).stdout(child_stdout).stderr(child_stderr);
     #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // A private group makes timeout cleanup include wrapper subprocesses
-        // without signalling the caller's shell or other Switchboard operations.
-        command.process_group(0);
-    }
+    capture::isolate_terminal(command);
     let mut child = OwnedChild {
         process: command.spawn()?,
         reaped: false,
@@ -115,7 +111,7 @@ fn kill_owned_process_group(child: &Child) {
     }
     if let Ok(pid) = i32::try_from(child.id()) {
         if pid > 0 {
-            // SAFETY: POSIX kill has no pointer arguments. process_group(0) gave
+            // SAFETY: POSIX kill has no pointer arguments. setsid() gave
             // this child a private group with its PID. Negative PID targets only
             // that group; SIGKILL is 9 on the supported Unix platforms.
             unsafe {
@@ -159,6 +155,63 @@ mod tests {
         assert!(output.status.success());
         assert_eq!(output.stdout, "stdout-line\n".repeat(10000).as_bytes());
         assert_eq!(output.stderr, "stderr-line\n".repeat(10000).as_bytes());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn captured_child_cannot_open_callers_terminal() {
+        const TEST: &str = "process::tests::captured_child_cannot_open_callers_terminal";
+        const TERMINAL_CHILD: &str = "SWITCHBOARD_PROCESS_TEST_TTY";
+
+        if std::env::var(TERMINAL_CHILD).as_deref() == Ok(TEST) {
+            let _terminal = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("/dev/tty")
+                .expect("the test must run with a controlling terminal");
+            let mut command = Command::new("sh");
+            command.args([
+                "-c",
+                "if (exec 3<>/dev/tty) 2>/dev/null; then exit 42; fi; printf captured",
+            ]);
+            // Reusing the command must preserve both terminal isolation and capture.
+            for _ in 0..2 {
+                let output = output_with_timeout(&mut command, Duration::from_secs(5)).expect("capture succeeds");
+                assert!(
+                    output.status.success(),
+                    "captured child could open the caller's terminal"
+                );
+                assert_eq!(output.stdout, b"captured");
+            }
+            return;
+        }
+
+        let executable = std::env::current_exe().expect("test executable is available");
+        let mut command = Command::new("script");
+        #[cfg(target_os = "macos")]
+        command
+            .args(["-q", "/dev/null"])
+            .arg(&executable)
+            .args(["--exact", TEST, "--nocapture"]);
+        #[cfg(target_os = "linux")]
+        command.args([
+            "-q",
+            "-e",
+            "-c",
+            &format!(
+                "'{}' --exact {TEST} --nocapture",
+                executable.display().to_string().replace('\'', "'\\''")
+            ),
+            "/dev/null",
+        ]);
+        command.env(TERMINAL_CHILD, TEST);
+        let output = output_with_timeout(&mut command, Duration::from_secs(20)).expect("terminal test completes");
+        assert!(
+            output.status.success(),
+            "terminal regression failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[cfg(unix)]

@@ -1,9 +1,33 @@
 use std::{
     io::{self, Read},
-    os::{fd::OwnedFd, unix::net::UnixStream},
-    process::Stdio,
+    os::{
+        fd::OwnedFd,
+        unix::{net::UnixStream, process::CommandExt},
+    },
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
+
+pub(super) fn isolate_terminal(command: &mut Command) {
+    extern "C" {
+        fn setsid() -> i32;
+        fn getsid(pid: i32) -> i32;
+        fn getpid() -> i32;
+    }
+    // Closing stdin does not stop tools such as op from prompting through /dev/tty.
+    // A new session removes that terminal and retains a private group for cleanup.
+    // SAFETY: The pre-exec hook only calls async-signal-safe functions and reads errno.
+    unsafe {
+        command.pre_exec(|| {
+            // Command can be reused, which registers this hook more than once.
+            if getsid(0) == getpid() || setsid() != -1 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        });
+    }
+}
 
 pub(super) struct Capture(UnixStream);
 
