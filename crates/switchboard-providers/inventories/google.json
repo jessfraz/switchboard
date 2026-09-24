@@ -7878,7 +7878,7 @@
         "delete"
       ],
       "command": "gws drive permissions delete",
-      "summary": "Deletes a permission. For more information, see Share files, folders, and drives. **Warning:** Concurrent permissions operations on the same file aren't supported; only the last update is applied.",
+      "summary": "Deletes a permission. For more information, see Share files, folders, and drives.",
       "usage": "gws permissions delete [OPTIONS]",
       "help_args": [
         "drive",
