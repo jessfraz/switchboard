@@ -3,7 +3,7 @@
 | Provider | Stable curated | Planning-only curated | Raw passthrough | Undoable |
 | --- | ---: | ---: | ---: | ---: |
 | `github` | 8 | 2 | 191 | 0 |
-| `google` | 7 | 2 | 507 | 1 |
+| `google` | 7 | 2 | 499 | 1 |
 | `mychart` | 0 | 0 | 32 | 0 |
 | `schwab` | 0 | 0 | 32 | 0 |
 | `phone` | 3 | 0 | 0 | 0 |

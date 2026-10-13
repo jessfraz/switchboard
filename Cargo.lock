@@ -2445,7 +2445,9 @@ dependencies = [
  "phone-cli",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "switchboard-core",
+ "tempfile",
 ]
 
 [[package]]

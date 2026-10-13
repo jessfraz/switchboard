@@ -1,0 +1,124 @@
+{
+  "gws_version": "0.22.5",
+  "documents": [
+    {
+      "file": "admin_reports_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/admin/reports_v1/rest",
+      "sha256": "7fd0b1255bb3472639aca4ffbde9d4e94e6ad633bd17b7ac134db6dab966e88e",
+      "bytes": 72413,
+      "service": "admin-reports"
+    },
+    {
+      "file": "calendar_v3.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+      "sha256": "297d6cc179ec5e3cbc833ab6f24d52b90b7ea5c0d777bb0d75934ebc738d9898",
+      "bytes": 128281,
+      "service": "calendar"
+    },
+    {
+      "file": "chat_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/chat/v1/rest",
+      "sha256": "4a8b0dce2cca0ca08f9f056c6b7403b89f9a9ab9c2b00b62654f9d1ec804d2c6",
+      "bytes": 378896,
+      "service": "chat"
+    },
+    {
+      "file": "classroom_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/classroom/v1/rest",
+      "sha256": "3192be2b3e92da924aa79f5b32a431838b661735e959ed61370dd4fc8b446fd8",
+      "bytes": 248007,
+      "service": "classroom"
+    },
+    {
+      "file": "docs_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest",
+      "sha256": "a1cecf7278df7e0d01678b4b13e529410ae4be56f96dbdf79641787167d8a573",
+      "bytes": 217724,
+      "service": "docs"
+    },
+    {
+      "file": "drive_v3.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+      "sha256": "975876a404a693834b684022b21fcdf12a0ef5b4f2fdb138206cbbbb27849090",
+      "bytes": 195536,
+      "service": "drive"
+    },
+    {
+      "file": "forms_v1.json",
+      "source": "https://forms.googleapis.com/$discovery/rest?version=v1",
+      "sha256": "2549d4eaba52055ed92b9c6b56e8a57d48e639f28a2049f5fdab0d4bcceddcc6",
+      "bytes": 50261,
+      "service": "forms"
+    },
+    {
+      "file": "gmail_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
+      "sha256": "4e99d39b12d6ff3426aec8f60bafd423f09836962c5dd651ee362c9db88c7247",
+      "bytes": 144517,
+      "service": "gmail"
+    },
+    {
+      "file": "keep_v1.json",
+      "source": "https://keep.googleapis.com/$discovery/rest?version=v1",
+      "sha256": "6f0b6024d21f18c92704cf6a2e4639e5762a9c8ef7c259b739d96099f9a07f51",
+      "bytes": 15934,
+      "service": "keep"
+    },
+    {
+      "file": "meet_v2.json",
+      "source": "https://meet.googleapis.com/$discovery/rest?version=v2",
+      "sha256": "0ebda82b83f8c69a82a9ed688a62cfd4e0c7d01a85f3cf773495cabfb295ec47",
+      "bytes": 58331,
+      "service": "meet"
+    },
+    {
+      "file": "modelarmor_v1.json",
+      "source": "https://modelarmor.googleapis.com/$discovery/rest?version=v1",
+      "sha256": "cbafac8650a88b970970bba1e083568f6d33e15196e2d0a3920f4b1ebb6de8f7",
+      "bytes": 72603,
+      "service": "modelarmor"
+    },
+    {
+      "file": "people_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/people/v1/rest",
+      "sha256": "58b07b923a50fe619713faecfc45a1dfcb2a8d5de519e41b4d3125e0fac89d8a",
+      "bytes": 107057,
+      "service": "people"
+    },
+    {
+      "file": "script_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/script/v1/rest",
+      "sha256": "f70dfad96fae2a961fef1933fab45f53d95ed8901d045c744e5637494a27eea8",
+      "bytes": 46078,
+      "service": "script"
+    },
+    {
+      "file": "sheets_v4.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+      "sha256": "261735c73c9fad0eb651f56c446bf9cb828bc043a4e602317c74f167113a053b",
+      "bytes": 300433,
+      "service": "sheets"
+    },
+    {
+      "file": "slides_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/slides/v1/rest",
+      "sha256": "22135dda1a566ddf31c53ade71411ad282dc5d3371e0675d1d1bd0f09ac9f631",
+      "bytes": 195289,
+      "service": "slides"
+    },
+    {
+      "file": "tasks_v1.json",
+      "source": "https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest",
+      "sha256": "55b04725248dc87e7a22e1dadf07e733d630723cbe67d64c3e9172a82c95377b",
+      "bytes": 22359,
+      "service": "tasks"
+    },
+    {
+      "file": "workspaceevents_v1.json",
+      "source": "https://workspaceevents.googleapis.com/$discovery/rest?version=v1",
+      "sha256": "45b2aaab78f5f3d60f52fc184db4d9840407dadafc23398f24693ac8740b86d7",
+      "bytes": 41479,
+      "service": "events"
+    }
+  ]
+}

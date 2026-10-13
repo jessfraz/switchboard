@@ -57,11 +57,11 @@ fn main() -> ExitCode {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
-    let runner = ProcessCliHelpRunner;
 
     match cli.command {
         Command::Generate { provider } => {
             for target in resolve_targets(provider.as_deref())? {
+                let runner = ProcessCliHelpRunner::for_target(&target)?;
                 let inventory = generate_inventory(&target, &runner)
                     .with_context(|| format!("failed to generate inventory for {}", target.provider))?;
                 write_inventory_file(&target, &inventory)?;
@@ -69,6 +69,7 @@ fn run() -> Result<()> {
         }
         Command::Check { provider } => {
             for target in resolve_targets(provider.as_deref())? {
+                let runner = ProcessCliHelpRunner::for_target(&target)?;
                 let inventory = generate_inventory(&target, &runner)
                     .with_context(|| format!("failed to generate inventory for {}", target.provider))?;
                 check_inventory_file(&target, &inventory)?;

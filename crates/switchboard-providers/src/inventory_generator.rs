@@ -6,6 +6,8 @@ use std::{
 
 use switchboard_core::{Error, ProviderKind, Result};
 
+mod google_discovery;
+
 use crate::inventory::{CliInventory, CliInventoryCommand, CliInventoryNodeKind, CliOperationKind, CliUndoSupport};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,7 +66,22 @@ pub trait CliHelpRunner: Send + Sync {
     fn help(&self, target: &CliInventoryTarget, path: &[String]) -> Result<String>;
 }
 
-pub struct ProcessCliHelpRunner;
+pub struct ProcessCliHelpRunner {
+    google_discovery: Option<google_discovery::GoogleDiscovery>,
+}
+
+impl ProcessCliHelpRunner {
+    pub fn for_target(target: &CliInventoryTarget) -> Result<Self> {
+        let google_discovery = if target.provider == ProviderKind::GoogleWorkspace {
+            Some(google_discovery::GoogleDiscovery::prepare(
+                &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("discovery/google"),
+            )?)
+        } else {
+            None
+        };
+        Ok(Self { google_discovery })
+    }
+}
 
 impl CliHelpRunner for ProcessCliHelpRunner {
     fn help(&self, target: &CliInventoryTarget, path: &[String]) -> Result<String> {
@@ -85,7 +102,7 @@ impl CliHelpRunner for ProcessCliHelpRunner {
 
         let mut last_error = None;
         for invocation in strategies {
-            match run_help_invocation(&invocation) {
+            match run_help_invocation(&invocation, self.google_discovery.as_ref(), path) {
                 Ok(stdout) => return Ok(stdout),
                 Err(error) => last_error = Some(error),
             }
@@ -337,12 +354,19 @@ fn build_help_subcommand_invocation(program: &str, help_subcommand: &str, path: 
     invocation
 }
 
-fn run_help_invocation(invocation: &[String]) -> Result<String> {
+fn run_help_invocation(
+    invocation: &[String],
+    google_discovery: Option<&google_discovery::GoogleDiscovery>,
+    path: &[String],
+) -> Result<String> {
     let Some((program, args)) = invocation.split_first() else {
         return Err(Error::Execution("empty help invocation".into()));
     };
     let mut command = Command::new(program);
     switchboard_core::process::clear_one_password_environment(&mut command);
+    if let Some(discovery) = google_discovery {
+        discovery.configure(&mut command, path)?;
+    }
     let output = command
         .args(args)
         .output()
