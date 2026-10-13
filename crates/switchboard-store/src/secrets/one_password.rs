@@ -18,6 +18,8 @@ use crate::{
 };
 use switchboard_core::process::output_with_timeout;
 
+mod limits;
+
 pub(super) struct OnePasswordSecretBackend {
     sessions: Mutex<BTreeMap<String, CachedSession>>,
     items: Mutex<BTreeMap<OnePasswordItemKey, BTreeMap<String, SecretString>>>,
@@ -25,6 +27,7 @@ pub(super) struct OnePasswordSecretBackend {
     item_cache_path: Option<PathBuf>,
     config: OnePasswordConfig,
     recovery: crate::secrets::recovery::RecoveryBudget,
+    limits: limits::Limits,
 }
 
 impl Default for OnePasswordSecretBackend {
@@ -71,6 +74,7 @@ impl OnePasswordSecretBackend {
             return Ok(None);
         };
         let SecretSource::OnePasswordItem {
+            account,
             item,
             field,
             vault,
@@ -80,18 +84,33 @@ impl OnePasswordSecretBackend {
         else {
             return Err(Error::Config("invalid 1Password profile source".into()));
         };
-        if let Some(value) = cached_item_field(&self.items, &key, field) {
+        let profile = auth_profile.as_deref().unwrap_or_default();
+        if let Some(value) = self.cached_profile_field(&key, field) {
             return Ok(Some(value));
         }
-        if let Some(fields) = cached_item_fields_on_disk(self.item_cache_path.as_deref(), &key) {
-            cache_item_fields(&self.items, &key, &fields);
-            if let Some(value) = fields.get(field) {
-                return Ok(Some(value.clone()));
+        let timeout = switchboard_core::process::remaining_timeout(self.config.timeout()).map_err(|_| {
+            Error::AuthenticationTimeout {
+                seconds: self.config.timeout_seconds,
             }
+        })?;
+        let lease = self.limits.acquire(profile, &token.generation, timeout)?;
+        // Waiting may outlive a bootstrap rotation/removal. Validate again before
+        // consuming another process's result or starting a new credential lookup.
+        let Some((checked_key, checked_token)) = self.profile_key(secret)? else {
+            return Err(Error::Config("1Password profile changed during lookup".into()));
+        };
+        if checked_key != key {
+            return Err(Error::Config(
+                "1Password bootstrap changed while waiting for a lookup; retry with the current profile".into(),
+            ));
         }
+        if let Some(value) = self.cached_profile_field(&key, field) {
+            return Ok(Some(value));
+        }
+        self.limits.check(profile, &checked_token.generation, account)?;
         let mut command = op_command(&self.config);
         switchboard_core::process::clear_one_password_environment(&mut command);
-        command.env("OP_SERVICE_ACCOUNT_TOKEN", token.token.expose());
+        command.env("OP_SERVICE_ACCOUNT_TOKEN", checked_token.token.expose());
         command.env("OP_BIOMETRIC_UNLOCK_ENABLED", "false");
         command.args([
             "item",
@@ -103,7 +122,7 @@ impl OnePasswordSecretBackend {
             &format!("label={field}"),
             "--reveal",
         ]);
-        let output = output_with_timeout(&mut command, self.config.timeout()).map_err(|error| {
+        let output = output_with_timeout(&mut command, lease.remaining()?).map_err(|error| {
             if error.kind() == std::io::ErrorKind::TimedOut {
                 Error::AuthenticationTimeout {
                     seconds: self.config.timeout_seconds,
@@ -118,6 +137,17 @@ impl OnePasswordSecretBackend {
         if !output.status.success() {
             // A child may echo its environment in an error. Do not propagate its
             // stderr or stdout when a long-lived bootstrap token was supplied.
+            if let Some(quota) = limits::quota(&output.stderr) {
+                if let (Some(scope), Some(seconds)) = (quota.scope, quota.retry_after) {
+                    self.limits
+                        .record(scope, profile, &checked_token.generation, account, seconds)?;
+                    return Err(limits::limited(seconds));
+                }
+                return Err(Error::SecretResolution {
+                    secret_ref: secret.id.to_string(),
+                    reason: "1Password reported a request quota limit without a supported retry interval; stop lookups until the quota reset is known; no desktop fallback was attempted".into(),
+                });
+            }
             return Err(Error::SecretResolution {
                 secret_ref: secret.id.to_string(),
                 reason: format!(
@@ -141,6 +171,15 @@ impl OnePasswordSecretBackend {
         Ok(Some(value))
     }
 
+    fn cached_profile_field(&self, key: &OnePasswordItemKey, field: &str) -> Option<SecretString> {
+        if let Some(value) = cached_item_field(&self.items, key, field) {
+            return Some(value);
+        }
+        let fields = cached_item_fields_on_disk(self.item_cache_path.as_deref(), key)?;
+        cache_item_fields(&self.items, key, &fields);
+        fields.get(field).cloned()
+    }
+
     pub(super) fn new(session_cache_path: Option<PathBuf>) -> Self {
         Self::with_config(session_cache_path, OnePasswordConfig::default())
     }
@@ -156,6 +195,7 @@ impl OnePasswordSecretBackend {
     ) -> Self {
         let recovery = crate::secrets::recovery::RecoveryBudget::new(session_cache_path.as_deref(), run_id);
         let item_cache_path = item_cache_path(session_cache_path.as_deref());
+        let limits = limits::Limits::new(item_cache_path.as_deref());
         Self {
             sessions: Mutex::new(BTreeMap::new()),
             items: Mutex::new(BTreeMap::new()),
@@ -163,6 +203,7 @@ impl OnePasswordSecretBackend {
             item_cache_path,
             config,
             recovery,
+            limits,
         }
     }
 }

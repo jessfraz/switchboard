@@ -297,7 +297,13 @@ their existing behavior.
 Profile caches contain only the requested field and are separated by profile,
 token generation, vault, item, and field. Switchboard checks the token file
 before returning a cached value, so removing it or rotating its token prevents
-reuse of the previous generation. Disk entries expire after one hour. Remote
+reuse of the previous generation. Disk entries expire after one hour. Concurrent
+cold lookups for a profile and token generation share a bounded request lock and recheck the cache before calling
+1Password. Explicit 429 quota responses with a supported numeric retry delay save
+only a cooldown deadline: service-account limits stay bound to that profile/token
+generation; account-wide limits use the exact configured 1Password account. Valid
+cached fields remain usable after bootstrap validation. Unknown retry delays stay
+explicit and never become guessed deadlines or desktop fallbacks. Remote
 service-account revocation alone does not retract previously cached provider
 credentials; remove the local token file as well and revoke the provider
 credential if access already issued must stop. Owner-only files protect against
