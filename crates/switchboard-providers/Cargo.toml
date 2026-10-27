@@ -13,6 +13,7 @@ keywords = ["automation", "github", "google-workspace", "cli", "inventory"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+messages-cli = { path = "../messages-cli" }
 anyhow.workspace = true
 base64.workspace = true
 clap.workspace = true
@@ -24,6 +25,7 @@ switchboard-core = { path = "../switchboard-core" }
 
 [dev-dependencies]
 phone-cli = { path = "../phone-cli" }
+rusqlite.workspace = true
 
 [lints]
 workspace = true

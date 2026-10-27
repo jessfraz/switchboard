@@ -50,7 +50,8 @@ impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
                 apply_optional_secret(&mut context, USERNAME_ENV, username.as_ref());
                 Ok(context)
             }
-            ResolvedCredentials::PhoneCli { .. }
+            ResolvedCredentials::MessagesLocal
+            | ResolvedCredentials::PhoneCli { .. }
             | ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleCli
@@ -201,6 +202,7 @@ mod tests {
                 refresh_token: Some(SecretRef::new("mychart.ucla_refresh_token").expect("secret ref should build")),
                 username: Some(SecretRef::new("mychart.ucla_username").expect("secret ref should build")),
             },
+            ResolvedCredentials::MessagesLocal => AuthSecretRefs::MessagesLocal,
             ResolvedCredentials::PhoneCli { .. } => AuthSecretRefs::PhoneCli {
                 api_key: None,
                 api_secret: None,

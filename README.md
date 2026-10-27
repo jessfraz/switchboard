@@ -69,6 +69,7 @@ This repo is real, but still in the "tighten the public surface" phase.
 | Google curated reads | Mixed | Hydrated mail search, thread context, mail read and calendar list execute; drive search is planning-only |
 | Google curated writes | Mixed | Mail draft and calendar create/delete execute, mail send is planning-only |
 | MyChart raw CLI tools | Executable | Namespace-scoped `mychart-cli` passthrough, including inventory-backed raw leaf commands |
+| macOS Messages | Executable, read-only | Local conversations, decoded text search, attachments and images, activity counts, and optional Contacts names |
 | Phone calls | Implemented, live validation pending | Local Rust CLI, replaceable LiveKit worker, encrypted transcripts; see [setup](docs/phone.md) |
 | Raw provider CLI tools | Executable | Namespace, policy, approval, and audit still apply |
 
@@ -109,6 +110,10 @@ nix build .#switchboard
 ```
 
 ## 5-Minute Quickstart
+
+For local macOS Messages, see [the read-only CLI](docs/messages.md). It is also
+packaged as `nix build .#messages` and exposed through Switchboard's `messages`
+provider.
 
 Create a `switchboard.toml` in the repo root or at `$XDG_CONFIG_HOME/switchboard/config.toml`.
 
@@ -174,16 +179,18 @@ switchboard op approve <operation-id> --apply
 ```
 
 Existing namespace logins need no new client setup. Standard bare `auth login`
-uses `gws auth login --full --services` for Drive, Sheets, Gmail, Calendar,
-Docs, Slides, Tasks, and People, and verifies the configured auth account.
+requests explicit scopes for Drive, Sheets, Gmail, Calendar, Docs, Slides,
+Tasks, and People, and verifies the configured auth account.
 Caller-provided login options are preserved.
 
-The pinned gws 0.22.5 cannot resolve all Admin Directory, Groups Settings, or
-Cloud Identity scopes using its service registry. Bare login for the optional
-`workspace_admin` profile therefore reports unsupported before launching
-consent. Existing saved admin sessions remain usable. Standard login does not
-claim Cloud Identity coverage. Use explicitly verified native login options or
-a gws version with the required services when additional access is needed.
+Workspace accounts also request the historical Cloud Identity groups,
+Cloud Platform, Admin Directory user/organizational-unit/group, and Groups
+Settings scopes, plus read-only Admin Reports audit and usage scopes.
+The pinned gws 0.22.5 accepts these through explicit `--scopes`, bypassing its
+incomplete service registry. No admin profile is required. Known `gmail.com`
+and `googlemail.com` accounts omit the organization-only scopes that their
+accounts cannot grant. Existing sessions gain scopes only after a new login
+and consent; this change does not modify saved credentials automatically.
 
 Use a read-only identity request to verify access, including the expected
 account, before parallel work:

@@ -545,6 +545,7 @@ impl Switchboard {
 
     fn resolve_execution_target(&self, target: &PlanningTarget) -> Result<ExecutionTarget> {
         let credentials = match target.auth.secrets() {
+            AuthSecretRefs::MessagesLocal => ResolvedCredentials::MessagesLocal,
             AuthSecretRefs::PhoneCli {
                 api_key,
                 api_secret,

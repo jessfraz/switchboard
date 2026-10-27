@@ -1,9 +1,9 @@
 {
   "stats": {
-    "tool_count": 776,
-    "curated_count": 22,
+    "tool_count": 782,
+    "curated_count": 28,
     "raw_count": 754,
-    "stable_count": 18,
+    "stable_count": 24,
     "planning_only_count": 4,
     "undoable_count": 1
   },
@@ -57,6 +57,16 @@
       "planning_only_count": 0,
       "undoable_count": 0,
       "doc_path": "docs/reference/providers/phone.md"
+    },
+    {
+      "provider": "messages",
+      "tool_count": 6,
+      "curated_count": 6,
+      "raw_count": 0,
+      "stable_count": 6,
+      "planning_only_count": 0,
+      "undoable_count": 0,
+      "doc_path": "docs/reference/providers/messages.md"
     }
   ],
   "tools": [
@@ -100715,6 +100725,1078 @@
         "purpose": "native command discovery; select the corresponding method and arguments"
       },
       "doc_path": "reference/#tool=google.mail.thread"
+    },
+    {
+      "name": "messages.activity",
+      "provider": "messages",
+      "kind": "read",
+      "backend": "local",
+      "summary": "Count sent and received messages in local Messages history",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "db",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "since",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "until",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "cursor",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "chat-id",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "interval",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
+        "Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented."
+      ],
+      "examples": [
+        "switchboard messages.activity --ns messages.default --json"
+      ],
+      "scope_guidance": [
+        "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "coverage": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "complete",
+                  "truncated",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "next_cursor"
+            ]
+          },
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs",
+          "coverage"
+        ]
+      },
+      "pagination": {
+        "limit_argument": "limit",
+        "cursor_argument": "cursor",
+        "coverage_field": "coverage",
+        "default_limit": 100,
+        "max_limit": 500
+      },
+      "doc_path": "reference/#tool=messages.activity"
+    },
+    {
+      "name": "messages.attachments.read",
+      "provider": "messages",
+      "kind": "read",
+      "backend": "local",
+      "summary": "Read a locally available Messages attachment, including images",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "db",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "attachment-id",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
+        "Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented."
+      ],
+      "examples": [
+        "switchboard messages.attachments.read --ns messages.default --json --attachment-id example-id"
+      ],
+      "scope_guidance": [
+        "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "doc_path": "reference/#tool=messages.attachments.read"
+    },
+    {
+      "name": "messages.chats.list",
+      "provider": "messages",
+      "kind": "read",
+      "backend": "local",
+      "summary": "List recent conversations in local macOS Messages history",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "db",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "since",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "until",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "cursor",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "with",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        },
+        {
+          "name": "unread",
+          "transport": "flag",
+          "value_kind": "boolean",
+          "required": false,
+          "repeated": false
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
+        "Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented."
+      ],
+      "examples": [
+        "switchboard messages.chats.list --ns messages.default --json"
+      ],
+      "scope_guidance": [
+        "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "coverage": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "complete",
+                  "truncated",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "next_cursor"
+            ]
+          },
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs",
+          "coverage"
+        ]
+      },
+      "pagination": {
+        "limit_argument": "limit",
+        "cursor_argument": "cursor",
+        "coverage_field": "coverage",
+        "default_limit": 20,
+        "max_limit": 500
+      },
+      "doc_path": "reference/#tool=messages.chats.list"
+    },
+    {
+      "name": "messages.chats.read",
+      "provider": "messages",
+      "kind": "read",
+      "backend": "local",
+      "summary": "Read one local Messages conversation without marking it read",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "db",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "since",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "until",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "cursor",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "chat-id",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false
+        },
+        {
+          "name": "unread",
+          "transport": "flag",
+          "value_kind": "boolean",
+          "required": false,
+          "repeated": false
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
+        "Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented."
+      ],
+      "examples": [
+        "switchboard messages.chats.read --ns messages.default --json --chat-id example-id"
+      ],
+      "scope_guidance": [
+        "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "coverage": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "complete",
+                  "truncated",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "next_cursor"
+            ]
+          },
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs",
+          "coverage"
+        ]
+      },
+      "pagination": {
+        "limit_argument": "limit",
+        "cursor_argument": "cursor",
+        "coverage_field": "coverage",
+        "default_limit": 50,
+        "max_limit": 500
+      },
+      "doc_path": "reference/#tool=messages.chats.read"
+    },
+    {
+      "name": "messages.doctor",
+      "provider": "messages",
+      "kind": "read",
+      "backend": "local",
+      "summary": "Check read-only access to the local Messages database",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "db",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
+        "Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented."
+      ],
+      "examples": [
+        "switchboard messages.doctor --ns messages.default --json"
+      ],
+      "scope_guidance": [
+        "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "doc_path": "reference/#tool=messages.doctor"
+    },
+    {
+      "name": "messages.search",
+      "provider": "messages",
+      "kind": "read",
+      "backend": "local",
+      "summary": "Search message text in local macOS Messages history",
+      "surface": "curated",
+      "aggregate_read_supported": true,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "db",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "since",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "until",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "cursor",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "limit",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "query",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false
+        },
+        {
+          "name": "chat",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false
+        },
+        {
+          "name": "with",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": true
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
+        "Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented."
+      ],
+      "examples": [
+        "switchboard messages.search --ns messages.default --json --query dinner"
+      ],
+      "scope_guidance": [
+        "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "coverage": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "complete",
+                  "truncated",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "next_cursor"
+            ]
+          },
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "description": "Provider-specific fields; only the execution envelope is described here."
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs",
+          "coverage"
+        ]
+      },
+      "pagination": {
+        "limit_argument": "limit",
+        "cursor_argument": "cursor",
+        "coverage_field": "coverage",
+        "default_limit": 50,
+        "max_limit": 500
+      },
+      "doc_path": "reference/#tool=messages.search"
     },
     {
       "name": "mychart.cli.api.capabilities",

@@ -86,6 +86,8 @@ pub enum AuthKind {
     SchwabCli,
     #[serde(rename = "phone_cli")]
     PhoneCli,
+    #[serde(rename = "messages_local")]
+    MessagesLocal,
 }
 
 impl AuthKind {
@@ -99,6 +101,7 @@ impl AuthKind {
             "mychart_cli" => Some(Self::MyChartCli),
             "schwab_cli" => Some(Self::SchwabCli),
             "phone_cli" => Some(Self::PhoneCli),
+            "messages_local" => Some(Self::MessagesLocal),
             _ => None,
         }
     }
@@ -110,6 +113,7 @@ impl AuthKind {
             Self::MyChartCli => ProviderKind::MyChart,
             Self::SchwabCli => ProviderKind::Schwab,
             Self::PhoneCli => ProviderKind::Phone,
+            Self::MessagesLocal => ProviderKind::Messages,
         }
     }
 }
@@ -125,6 +129,7 @@ impl Display for AuthKind {
             Self::MyChartCli => "mychart_cli",
             Self::SchwabCli => "schwab_cli",
             Self::PhoneCli => "phone_cli",
+            Self::MessagesLocal => "messages_local",
         };
 
         write!(f, "{value}")
@@ -209,6 +214,8 @@ impl ResolvedSecret {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind")]
 pub enum AuthSecretRefs {
+    #[serde(rename = "messages_local")]
+    MessagesLocal,
     #[serde(rename = "phone_cli")]
     PhoneCli {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -290,6 +297,7 @@ pub enum AuthSecretRefs {
 impl AuthSecretRefs {
     pub fn kind(&self) -> AuthKind {
         match self {
+            Self::MessagesLocal => AuthKind::MessagesLocal,
             Self::PhoneCli { .. } => AuthKind::PhoneCli,
             Self::GitHubCli => AuthKind::GitHubCli,
             Self::GitHubToken { .. } => AuthKind::GitHubToken,
@@ -311,7 +319,7 @@ impl AuthSecretRefs {
                 .into_iter()
                 .flatten()
                 .collect(),
-            Self::GitHubCli | Self::GoogleCli => Vec::new(),
+            Self::GitHubCli | Self::GoogleCli | Self::MessagesLocal => Vec::new(),
             Self::GitHubToken { token } => vec![token],
             Self::GoogleOAuth {
                 client_id,
@@ -487,6 +495,7 @@ impl Debug for SecretString {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResolvedCredentials {
+    MessagesLocal,
     PhoneCli {
         api_key: Option<SecretString>,
         api_secret: Option<SecretString>,
@@ -557,6 +566,11 @@ mod tests {
     #[test]
     fn auth_identity_follows_its_credential_variant() {
         let cases = [
+            (
+                AuthSecretRefs::MessagesLocal,
+                AuthKind::MessagesLocal,
+                ProviderKind::Messages,
+            ),
             (AuthSecretRefs::GitHubCli, AuthKind::GitHubCli, ProviderKind::GitHub),
             (
                 AuthSecretRefs::GitHubToken {

@@ -1368,6 +1368,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "messages-cli"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "clap",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2409,6 +2423,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "rusqlite",
  "serde",
  "serde_json",
  "switchboard-cli-support",
@@ -2442,7 +2457,9 @@ dependencies = [
  "anyhow",
  "base64 0.23.1",
  "clap",
+ "messages-cli",
  "phone-cli",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.1",

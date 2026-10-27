@@ -9,8 +9,8 @@ mod verification;
 use std::fs;
 
 use switchboard_core::{
-    Adapter, AuthScopeProfile, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result,
-    ToolArgument, ToolDescriptor, ToolKind, ToolOutput, ToolRequest,
+    Adapter, Error, ExecutionTarget, PlannedAction, PlanningTarget, ProviderKind, Result, ToolArgument, ToolDescriptor,
+    ToolKind, ToolOutput, ToolRequest,
 };
 
 use crate::{
@@ -19,7 +19,28 @@ use crate::{
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
-const DEFAULT_AUTH_LOGIN_SERVICES: &str = "drive,sheets,gmail,calendar,docs,slides,tasks,people";
+// gws 0.22.5's service discovery omits some admin and Cloud Identity scopes.
+// Explicit scopes bypass that resolver and keep bare login's contract stable.
+const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
+    "https://www.googleapis.com/auth/drive,",
+    "https://www.googleapis.com/auth/spreadsheets,",
+    "https://www.googleapis.com/auth/gmail.modify,",
+    "https://www.googleapis.com/auth/calendar,",
+    "https://www.googleapis.com/auth/documents,",
+    "https://www.googleapis.com/auth/presentations,",
+    "https://www.googleapis.com/auth/tasks,",
+    "https://www.googleapis.com/auth/contacts,",
+    "https://www.googleapis.com/auth/cloud-platform"
+);
+const WORKSPACE_AUTH_LOGIN_SCOPES: &str = concat!(
+    "https://www.googleapis.com/auth/cloud-identity.groups,",
+    "https://www.googleapis.com/auth/admin.directory.user,",
+    "https://www.googleapis.com/auth/admin.directory.orgunit,",
+    "https://www.googleapis.com/auth/admin.directory.group,",
+    "https://www.googleapis.com/auth/apps.groups.settings,",
+    "https://www.googleapis.com/auth/admin.reports.audit.readonly,",
+    "https://www.googleapis.com/auth/admin.reports.usage.readonly"
+);
 
 pub struct GoogleWorkspaceAdapter {
     backend: CliProviderBackend,
@@ -47,19 +68,31 @@ impl GoogleWorkspaceAdapter {
             return Ok(request.clone());
         }
 
-        if target.namespace.auth_scope_profile == AuthScopeProfile::WorkspaceAdmin {
-            return Err(Error::UnsupportedOperation(
-                "gws 0.22.5 cannot resolve all Workspace admin scopes through --services. Existing saved admin sessions remain usable. Run switchboard google.cli.read --ns <namespace> -- auth login --help to inspect native options; supply explicit login options only after verifying their scope coverage, or upgrade gws to support admin services".into(),
-            ));
-        }
-
+        // Consumer Gmail accounts cannot consent to Workspace-only scopes.
+        // Custom domains and legacy non-email account labels retain the full
+        // Workspace default; explicit native login flags always win above.
+        // Credential identity owns this decision, just as it owns login
+        // verification; a namespace account label may be a friendly alias.
+        let consumer_account = target
+            .auth
+            .account_label()
+            .trim()
+            .rsplit_once('@')
+            .is_some_and(|(_, domain)| {
+                domain.eq_ignore_ascii_case("gmail.com") || domain.eq_ignore_ascii_case("googlemail.com")
+            });
+        let scopes = if consumer_account {
+            DEFAULT_AUTH_LOGIN_SCOPES.to_owned()
+        } else {
+            format!("{DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_AUTH_LOGIN_SCOPES}")
+        };
         ToolRequest::new(
             request.tool.as_str(),
             request.namespace.as_str(),
             request.mode,
             vec![ToolArgument::option(
                 "argv-json",
-                serde_json::to_string(&["auth", "login", "--full", "--services", DEFAULT_AUTH_LOGIN_SERVICES])
+                serde_json::to_string(&["auth", "login", "--scopes", &scopes])
                     .map_err(|error| Error::InvalidArguments(error.to_string()))?,
             )?],
         )
@@ -256,8 +289,7 @@ mod tests {
     };
 
     use crate::{
-        cli::passthrough,
-        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SERVICES},
+        google::{GoogleWorkspaceAdapter, DEFAULT_AUTH_LOGIN_SCOPES, WORKSPACE_AUTH_LOGIN_SCOPES},
         test_support::{lock_env, TempScript},
     };
 
@@ -591,64 +623,8 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains(&format!(
-            "ARGV=auth login --full --services {DEFAULT_AUTH_LOGIN_SERVICES}"
+            "ARGV=auth login --scopes {DEFAULT_AUTH_LOGIN_SCOPES},{WORKSPACE_AUTH_LOGIN_SCOPES}"
         )));
-    }
-
-    #[test]
-    fn default_workspace_admin_login_reports_unsupported_scope_resolution() {
-        let adapter = GoogleWorkspaceAdapter::new().expect("login fixture should be valid");
-        let planning = planning_target();
-        let request = ToolRequest::new(
-            "google.cli.write",
-            "google.work",
-            ExecutionMode::Apply,
-            vec![ToolArgument::option("argv-json", r#"["auth","login"]"#).expect("login fixture should be valid")],
-        )
-        .expect("login fixture should be valid");
-        let descriptor = adapter.find_tool(&request.tool).expect("login fixture should be valid");
-        assert!(adapter.plan(&planning, &request, descriptor).is_err());
-    }
-
-    #[test]
-    fn raw_cli_personal_auth_login_omits_workspace_admin_scopes() {
-        let adapter = GoogleWorkspaceAdapter::new().expect("embedded catalog should load");
-        let mut planning = planning_target();
-        planning.namespace = ResolvedNamespace::new(
-            "google.personal",
-            ProviderKind::GoogleWorkspace,
-            "me@example.com",
-            "google.personal_auth",
-            false,
-            Some(PathBuf::from("/tmp/gws-personal")),
-        )
-        .expect("namespace should build");
-        let request = ToolRequest::new(
-            "google.cli.write",
-            "google.personal",
-            ExecutionMode::Apply,
-            vec![
-                ToolArgument::option("argv-json", serde_json::json!(["auth", "login"]).to_string())
-                    .expect("option should build"),
-            ],
-        )
-        .expect("request should build");
-        let descriptor = adapter.find_tool(&request.tool).expect("tool should exist");
-        let action = adapter
-            .plan(&planning, &request, descriptor)
-            .expect("plan should succeed");
-        let argv = passthrough::parse_passthrough_argv(&action.args).expect("auth login argv should parse");
-
-        assert_eq!(
-            argv,
-            [
-                "auth",
-                "login",
-                "--full",
-                "--services",
-                "drive,sheets,gmail,calendar,docs,slides,tasks,people"
-            ]
-        );
     }
 
     #[test]
@@ -720,7 +696,7 @@ mod tests {
 
         let captured = script.capture_contents();
         assert!(captured.contains("ARGV=auth login --readonly"));
-        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SERVICES));
+        assert!(!captured.contains(DEFAULT_AUTH_LOGIN_SCOPES));
     }
 
     #[test]

@@ -42,6 +42,7 @@ jobs:
             .#switchboard \
             .#mychart \
             .#mindbody \
+            .#messages \
             .#momence \
             .#phone
 
@@ -52,6 +53,12 @@ jobs:
           test -f "$phone_package/share/phone/livekit-worker/pyproject.toml"
           test -f "$phone_package/share/phone/livekit-worker/uv.lock"
           "$phone_package/share/phone/python" --version
+
+      - name: Smoke check packaged Messages CLI
+        run: |
+          messages_package=$(nix path-info .#messages)
+          "$messages_package/bin/messages" --version
+          "$messages_package/bin/messages" --help
 
   nix-build-macos:
     runs-on: macos-latest
@@ -70,8 +77,15 @@ jobs:
             .#switchboard \
             .#mychart \
             .#mindbody \
+            .#messages \
             .#momence \
             .#phone
+
+      - name: Smoke check packaged Messages CLI
+        run: |
+          messages_package=$(nix path-info .#messages)
+          "$messages_package/bin/messages" --version
+          "$messages_package/bin/messages" --help
 
       - name: Smoke check packaged phone CLI and worker source
         run: |

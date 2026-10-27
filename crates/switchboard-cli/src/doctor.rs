@@ -177,21 +177,27 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
                 namespace.id, namespace.id
             ));
         }
-        let diagnostic = provider_diagnostics
-            .entry(namespace.provider.clone())
-            .or_insert_with(|| diagnose_provider_cli(namespace.provider.clone()));
-        let cli = match diagnostic {
-            Ok(cli) => {
-                if let Some(issue) = cli.issue {
-                    report.issues.push(format!("{}: {issue}", namespace.id));
+        let cli = if namespace.provider == ProviderKind::Messages {
+            // Messages is linked into Switchboard and needs no external binary
+            // or credentials. Database permission checks are messages.doctor.
+            None
+        } else {
+            let diagnostic = provider_diagnostics
+                .entry(namespace.provider.clone())
+                .or_insert_with(|| diagnose_provider_cli(namespace.provider.clone()));
+            match diagnostic {
+                Ok(cli) => {
+                    if let Some(issue) = cli.issue {
+                        report.issues.push(format!("{}: {issue}", namespace.id));
+                    }
+                    Some(cli.clone())
                 }
-                Some(cli.clone())
-            }
-            Err(_) => {
-                report
-                    .issues
-                    .push(format!("{}: provider CLI is unavailable", namespace.id));
-                None
+                Err(_) => {
+                    report
+                        .issues
+                        .push(format!("{}: provider CLI is unavailable", namespace.id));
+                    None
+                }
             }
         };
         let migration_preview =

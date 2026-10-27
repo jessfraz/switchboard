@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     env, fs,
@@ -7,6 +6,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use serde::Deserialize;
 use switchboard_core::{ProviderKind, ToolArgumentSpec, ToolExecutionSupport};
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -147,6 +148,31 @@ fn external_help_works_without_namespace_config_auth_or_database() {
         .expect("fixture operation should succeed")
         .next()
         .is_none());
+}
+
+#[test]
+fn messages_discovery_describes_local_reads_without_opening_the_database() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["messages.chats.read", "--help", "--json", "--full"]);
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let detail: Detail = serde_json::from_slice(&output.stdout).expect("Messages CLI discovery");
+    assert_eq!(detail.tool.name, "messages.chats.read");
+    assert!(detail
+        .tool
+        .arguments
+        .iter()
+        .any(|argument| argument.name == "chat-id" && argument.required));
+    let pagination = detail.tool.pagination.expect("Messages pagination");
+    assert_eq!(pagination.limit_argument, "limit");
+    assert_eq!(pagination.cursor_argument, "cursor");
+    assert_eq!((pagination.default_limit, pagination.max_limit), (50, 500));
+    assert!(detail.tool.raw_fallback.is_none());
+    assert!(fs::read_dir(&fixture.root).expect("fixture directory").next().is_none());
 }
 
 #[test]

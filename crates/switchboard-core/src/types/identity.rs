@@ -16,6 +16,8 @@ pub enum ProviderKind {
     Schwab,
     #[serde(rename = "phone")]
     Phone,
+    #[serde(rename = "messages")]
+    Messages,
     #[serde(rename = "slack")]
     Slack,
     #[serde(rename = "ramp")]
@@ -34,6 +36,7 @@ impl ProviderKind {
             "mychart" => Some(Self::MyChart),
             "schwab" => Some(Self::Schwab),
             "phone" => Some(Self::Phone),
+            "messages" => Some(Self::Messages),
             "slack" => Some(Self::Slack),
             "ramp" => Some(Self::Ramp),
             "imessage" => Some(Self::IMessage),
@@ -56,6 +59,7 @@ impl Display for ProviderKind {
             Self::MyChart => "mychart",
             Self::Schwab => "schwab",
             Self::Phone => "phone",
+            Self::Messages => "messages",
             Self::Slack => "slack",
             Self::Ramp => "ramp",
             Self::IMessage => "imessage",

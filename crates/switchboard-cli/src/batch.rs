@@ -160,8 +160,20 @@ pub(crate) fn run(
         .filter(|item| !checkpoint.items.get(&item.id).is_some_and(|progress| progress.finished))
         .map(|item| item.namespace.clone())
         .collect::<BTreeSet<_>>();
+    let local_messages = switchboard
+        .list_namespaces()
+        .into_iter()
+        .filter(|namespace| namespace.provider == switchboard_core::ProviderKind::Messages)
+        .map(|namespace| namespace.id)
+        .collect::<BTreeSet<_>>();
     // Resolve account identity serially before parallel provider reads.
     for namespace in namespaces {
+        // Local Messages has no remote account or OAuth session to preflight.
+        // Core dispatch still validates its namespace/auth and opens the source
+        // database read-only for every page.
+        if local_messages.contains(&namespace) {
+            continue;
+        }
         if let Err(error) = crate::auth::check_namespace(switchboard, &namespace) {
             let failure = error
                 .downcast_ref::<switchboard_core::Error>()
@@ -395,7 +407,7 @@ fn accept_page(item: &ReadItem, progress: &mut ItemProgress, output: ToolOutput)
                 .find(|failure| failure.phase == switchboard_core::FailurePhase::Authentication)
         });
     progress.failure = None;
-    if coverage.status == CoverageStatus::Unknown && item.tool.as_str() == "google.mail.search" {
+    if coverage.status == CoverageStatus::Unknown && paginates(&item.tool) {
         progress.failure = authentication_failure.or_else(|| {
             Some(
                 Failure::from_error(&switchboard_core::Error::Execution(
@@ -411,7 +423,7 @@ fn accept_page(item: &ReadItem, progress: &mut ItemProgress, output: ToolOutput)
         return;
     }
     progress.finished = coverage.next_cursor.is_none() && coverage.status != CoverageStatus::Unknown;
-    if item.tool.as_str() != "google.mail.search" {
+    if !paginates(&item.tool) {
         progress.finished = true;
     }
     progress.pages.truncate(retained);
@@ -420,6 +432,13 @@ fn accept_page(item: &ReadItem, progress: &mut ItemProgress, output: ToolOutput)
         requested_cursor,
         output,
     });
+}
+
+fn paginates(tool: &ToolName) -> bool {
+    matches!(
+        tool.as_str(),
+        "google.mail.search" | "messages.chats.list" | "messages.chats.read" | "messages.search" | "messages.activity"
+    )
 }
 
 fn has_partial_page(progress: &ItemProgress) -> bool {
@@ -491,7 +510,7 @@ fn validate_progress(item: &ReadItem, progress: &ItemProgress) -> Result<()> {
     }
     let finished = !progress.pages.is_empty()
         && progress.failure.is_none()
-        && (item.tool.as_str() != "google.mail.search" || expected_coverage.status == CoverageStatus::Complete);
+        && (!paginates(&item.tool) || expected_coverage.status == CoverageStatus::Complete);
     if progress.finished != finished {
         bail!("checkpoint completion is not supported by saved pages for {}", item.id);
     }

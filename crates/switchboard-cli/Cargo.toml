@@ -34,3 +34,6 @@ switchboard-store = { path = "../switchboard-store" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true

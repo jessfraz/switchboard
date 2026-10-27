@@ -83,6 +83,17 @@ mutation, `--approve-and-apply` persists the plan, approves that operation, and
 applies it in one invocation. It does not grant permission to perform a write.
 Email remains draft-only unless the user explicitly authorizes sending.
 
+Bare Google `auth login` requests the complete default scope set: Drive, Sheets,
+Gmail, Calendar, Docs, Slides, Tasks, Contacts, Cloud Identity groups, Cloud
+Platform, Admin Directory users/groups/organizational units, Groups Settings,
+and read-only Admin Reports. Both scope profiles use the same explicit set for
+Workspace domains, avoiding incomplete service-scope discovery in gws 0.22.5.
+Known `gmail.com` and `googlemail.com` accounts receive the standard scopes
+without Workspace-only admin or Cloud Identity permissions. Explicit login flags
+such as `--readonly`, `--services`, or `--scopes` keep their native meaning.
+Existing sessions gain no additional permissions until the user logs in again
+and grants consent; Google account roles and administrator policy still apply.
+
 ```sh
 switchboard google.calendar.create --ns google.personal \
   --title 'Appointment' --start '2026-10-01T09:00:00-05:00' \

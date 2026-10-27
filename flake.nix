@@ -125,6 +125,10 @@
         cargoPackage = "mindbody-cli";
         pname = "mindbody";
       };
+      messages = buildCli {
+        cargoPackage = "messages-cli";
+        pname = "messages";
+      };
       momence = buildCli {
         cargoPackage = "momence-cli";
         pname = "momence";

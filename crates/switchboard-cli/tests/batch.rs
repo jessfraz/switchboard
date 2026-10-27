@@ -186,6 +186,107 @@ fn report(output: &Output) -> Report {
 }
 
 #[test]
+fn local_messages_batches_follow_each_cursor_and_resume_without_remote_auth() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.root.join("config.toml"),
+        "[namespace.messages.local]\nprovider = 'messages'\naccount = 'local'\ndefault_read = true\n",
+    )
+    .expect("local Messages config");
+    let database = fixture.root.join("chat.db");
+    let connection = rusqlite::Connection::open(&database).expect("fixture database");
+    connection
+        .execute_batch(include_str!("../../messages-cli/tests/fixtures/schema.sql"))
+        .expect("Messages schema");
+    connection
+        .execute_batch(
+            "INSERT INTO chat(ROWID,guid,display_name,service_name) VALUES
+               (1,'chat-test','Example','iMessage'),(2,'chat-other','Other','SMS');
+             INSERT INTO handle(ROWID,id) VALUES(1,'person@example.invalid');
+             INSERT INTO chat_handle_join(chat_id,handle_id) VALUES(1,1),(2,1);
+             INSERT INTO message(ROWID,guid,text,date,handle_id,is_from_me,is_read) VALUES
+               (1,'message-first','Dinner?',750000000000000000,1,0,0),
+               (2,'message-second','Dinner works',750086400000000000,0,1,1),
+               (3,'message-other','Other conversation',750086401000000000,1,0,0);
+             INSERT INTO chat_message_join(chat_id,message_id,message_date) VALUES
+               (1,1,750000000000000000),(1,2,750086400000000000),(2,3,750086401000000000);",
+        )
+        .expect("fixture messages");
+    drop(connection);
+    let before = fs::read(&database).expect("source bytes");
+    #[derive(Serialize)]
+    struct LocalArgs<'a> {
+        db: &'a std::path::Path,
+        limit: u16,
+        #[serde(rename = "chat-id", skip_serializing_if = "Option::is_none")]
+        chat_id: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        query: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        interval: Option<&'a str>,
+    }
+    for tool in [
+        "messages.chats.list",
+        "messages.chats.read",
+        "messages.search",
+        "messages.activity",
+    ] {
+        let args = LocalArgs {
+            db: &database,
+            limit: 1,
+            chat_id: (tool == "messages.chats.read").then_some("chat-test"),
+            query: (tool == "messages.search").then_some("dinner"),
+            interval: (tool == "messages.activity").then_some("day"),
+        };
+        let output = fixture
+            .command("auth_blocked")
+            .arg("--config")
+            .arg(fixture.root.join("config.toml"))
+            .args(["read-batch", "--tool", tool, "--ns", "messages.local", "--args-json"])
+            .arg(serde_json::to_string(&args).expect("read arguments"))
+            .args(["--max-pages", "1", "--json"])
+            .output()
+            .expect("local batch process");
+        let first = report(&output);
+        assert_eq!(
+            first.status,
+            "partial",
+            "{tool}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(first.items.len(), 1);
+        let progress = first.items.values().next().expect("saved request");
+        assert_eq!(progress.pages.len(), 1);
+        assert!(!progress.finished, "{tool} must retain its continuation");
+        assert!(progress.failure.is_none(), "{tool}: {:?}", progress.failure);
+        assert_eq!(progress.coverage.status, CoverageStatus::Truncated);
+        assert!(progress.coverage.next_cursor.is_some());
+        let resumed = fixture
+            .command("auth_blocked")
+            .args(&first.resume_argv[1..])
+            .output()
+            .expect("resume local batch");
+        let completed = report(&resumed);
+        let progress = completed.items.values().next().expect("saved request");
+        assert_eq!(
+            completed.status,
+            "complete",
+            "{tool}: {}",
+            String::from_utf8_lossy(&resumed.stderr)
+        );
+        assert!(progress.finished);
+        assert!(progress.failure.is_none());
+        assert_eq!(progress.coverage.status, CoverageStatus::Complete);
+        assert!(progress.pages.len() >= 2);
+        assert_eq!(
+            progress.pages[0],
+            first.items.values().next().expect("first request").pages[0]
+        );
+    }
+    assert_eq!(fs::read(database).expect("source bytes after reads"), before);
+}
+
+#[test]
 fn stdin_input_creates_private_checkpoint_and_resumes_without_original_input() {
     let fixture = Fixture::new();
     let bytes = fs::read(fixture.root.join("input.json")).expect("typed input");

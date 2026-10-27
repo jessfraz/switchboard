@@ -270,7 +270,7 @@ fn build_namespace_store(
 fn provider_uses_implicit_cli_auth(provider: &ProviderKind) -> bool {
     matches!(
         provider,
-        ProviderKind::GoogleWorkspace | ProviderKind::MyChart | ProviderKind::Schwab
+        ProviderKind::GoogleWorkspace | ProviderKind::MyChart | ProviderKind::Schwab | ProviderKind::Messages
     )
 }
 
@@ -297,6 +297,7 @@ fn default_cli_auth_ref(provider: &ProviderKind, alias: &str) -> Result<AuthRef>
 
 fn default_cli_auth(provider: ProviderKind, auth_ref: &AuthRef, account: &str) -> Result<ResolvedAuth> {
     let secrets = match provider {
+        ProviderKind::Messages => AuthSecretRefs::MessagesLocal,
         ProviderKind::GoogleWorkspace => AuthSecretRefs::GoogleCli,
         ProviderKind::MyChart => AuthSecretRefs::MyChartCli {
             base_url: None,
@@ -391,6 +392,8 @@ enum RawSecret {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 enum RawAuth {
+    #[serde(rename = "messages_local")]
+    MessagesLocal { provider: String, account: String },
     #[serde(rename = "phone_cli")]
     PhoneCli {
         provider: String,
@@ -488,6 +491,7 @@ enum RawAuth {
 impl RawAuth {
     fn provider(&self) -> &str {
         match self {
+            Self::MessagesLocal { provider, .. } => provider,
             Self::PhoneCli { provider, .. } => provider,
             Self::GitHubCli { provider, .. }
             | Self::GitHubToken { provider, .. }
@@ -501,6 +505,7 @@ impl RawAuth {
 
     fn account(&self) -> &str {
         match self {
+            Self::MessagesLocal { account, .. } => account,
             Self::PhoneCli { account, .. } => account,
             Self::GitHubCli { account, .. }
             | Self::GitHubToken { account, .. }
@@ -514,6 +519,7 @@ impl RawAuth {
 
     fn secret_refs(&self) -> Result<AuthSecretRefs> {
         match self {
+            Self::MessagesLocal { .. } => Ok(AuthSecretRefs::MessagesLocal),
             Self::PhoneCli {
                 api_key,
                 api_secret,
@@ -691,6 +697,46 @@ mod tests {
     };
 
     use super::{resolve_configured_path, SwitchboardConfig};
+
+    #[test]
+    fn messages_namespaces_resolve_local_auth_without_secrets() {
+        let source = r#"
+[namespace.messages.local]
+provider = "messages"
+account = "local"
+default_read = true
+"#;
+        let (namespaces, auth, secrets) = SwitchboardConfig::from_toml_str(source)
+            .expect("local Messages config")
+            .into_stores();
+        let namespace = namespaces
+            .get(&NamespaceId::new("messages.local").expect("namespace ID"))
+            .expect("namespace");
+        let credentials = auth.get(&namespace.auth_ref).expect("implicit local auth");
+        assert_eq!(namespace.provider, switchboard_core::ProviderKind::Messages);
+        assert_eq!(namespace.auth_ref.as_str(), "messages_local");
+        assert_eq!(credentials.kind(), AuthKind::MessagesLocal);
+        assert_eq!(credentials.provider(), namespace.provider);
+        assert!(credentials.secret_refs().is_empty());
+        assert!(secrets.list().is_empty());
+    }
+
+    #[test]
+    fn explicit_messages_local_auth_cannot_be_attached_to_another_provider() {
+        let source = r#"
+[auth.messages_local]
+provider = "github"
+kind = "messages_local"
+account = "local"
+
+[namespace.github.personal]
+provider = "github"
+account = "personal"
+auth = "messages_local"
+"#;
+        let error = SwitchboardConfig::from_toml_str(source).expect_err("provider mismatch");
+        assert!(error.to_string().contains("belongs to provider messages"));
+    }
 
     const BASIC_CONFIG_TEMPLATE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

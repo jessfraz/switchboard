@@ -7,6 +7,7 @@
 | `mychart` | 0 | 0 | 32 | 0 |
 | `schwab` | 0 | 0 | 32 | 0 |
 | `phone` | 3 | 0 | 0 | 0 |
+| `messages` | 6 | 0 | 0 | 0 |
 
 ## Status meanings
 

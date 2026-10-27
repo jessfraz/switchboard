@@ -234,7 +234,10 @@ fn output_schema(tool: &RegisteredTool) -> OutputSchema {
         ],
     );
     schema.description = Some("Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.");
-    if tool.name.as_str() == "google.mail.search" {
+    if tool.name.as_str() == "google.mail.search"
+        || (tool.provider == ProviderKind::Messages
+            && !matches!(tool.name.as_str(), "messages.doctor" | "messages.attachments.read"))
+    {
         schema.properties.insert(
             "coverage",
             OutputSchema::object(
@@ -297,15 +300,34 @@ impl ToolCatalogDetail {
         }
         let scope_guidance = scope_guidance(tool);
         notes.extend(scope_guidance.iter().map(|scope| format!("Permissions: {scope}")));
-        let pagination = (tool.name.as_str() == "google.mail.search").then_some(CatalogPagination {
-            limit_argument: "max",
-            cursor_argument: "cursor",
-            coverage_field: "coverage",
-            default_limit: 20,
-            max_limit: 500,
-        });
-        if pagination.is_some() {
+        let pagination = match tool.name.as_str() {
+            "google.mail.search" => Some(CatalogPagination {
+                limit_argument: "max",
+                cursor_argument: "cursor",
+                coverage_field: "coverage",
+                default_limit: 20,
+                max_limit: 500,
+            }),
+            "messages.chats.list" | "messages.chats.read" | "messages.search" | "messages.activity" => {
+                Some(CatalogPagination {
+                    limit_argument: "limit",
+                    cursor_argument: "cursor",
+                    coverage_field: "coverage",
+                    default_limit: match tool.name.as_str() {
+                        "messages.chats.list" => 20,
+                        "messages.activity" => 100,
+                        _ => 50,
+                    },
+                    max_limit: 500,
+                })
+            }
+            _ => None,
+        };
+        if tool.name.as_str() == "google.mail.search" {
             notes.push("--max is 1..500 (default 20); continue with --cursor from coverage.next_cursor. coverage.status distinguishes complete, truncated, and unknown; fields.status=partial reports per-message failures.".into());
+        }
+        if tool.provider == ProviderKind::Messages {
+            notes.push("Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented.".into());
         }
         let raw_fallback = raw_fallback(tool, &example_namespace);
         if let Some(fallback) = &raw_fallback {
@@ -373,7 +395,14 @@ fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> 
     for argument in tool.arguments.iter().filter(|argument| argument.required) {
         argv.push(format!("--{}", argument.name));
         if argument.value_kind != ToolArgumentValueKind::Boolean {
-            argv.push(example_value(&argument.name, argument.value_kind).into());
+            argv.push(
+                if tool.name.as_str() == "messages.search" && argument.name == "query" {
+                    "dinner"
+                } else {
+                    example_value(&argument.name, argument.value_kind)
+                }
+                .into(),
+            );
         }
     }
     if tool.name.as_str() == "google.mail.search" {
@@ -436,6 +465,7 @@ fn scope_guidance(tool: &RegisteredTool) -> Vec<String> {
             ProviderKind::GitHub => "Token or GitHub App permissions depend on repository visibility and the requested endpoint; inspect native gh help for the endpoint.",
             ProviderKind::MyChart => "Access depends on the configured account's granted FHIR resources and scopes.",
             ProviderKind::Phone => "The configured phone namespace supplies provider credentials; no OAuth scopes are requested by catalog discovery.",
+            ProviderKind::Messages => "Uses the current macOS user's local Messages data; run messages.doctor to check database access. No OAuth credentials or scopes are used.",
             _ => "Access depends on the configured namespace and native command.",
         },
     };
@@ -445,7 +475,7 @@ fn scope_guidance(tool: &RegisteredTool) -> Vec<String> {
 /// Return a concrete native CLI discovery or read example. This never executes
 /// the fallback, and never claims to preserve the caller's query arguments.
 pub fn raw_fallback(tool: &RegisteredTool, namespace: &str) -> Option<RawFallback> {
-    if tool.surface == ToolSurface::Raw || tool.provider == ProviderKind::Phone {
+    if tool.surface == ToolSurface::Raw || matches!(tool.provider, ProviderKind::Phone | ProviderKind::Messages) {
         return None;
     }
     let (tail, purpose): (Vec<&str>, _) = match tool.name.as_str() {
