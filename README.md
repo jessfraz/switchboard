@@ -471,15 +471,38 @@ The longer versions of these prompt workflows live in [docs/llms/patterns.md](do
 
 ## Command Discovery
 
-You should be able to discover the surface without reading Rust:
+Discover configured identities and commands without reading config or Rust:
 
 ```bash
+switchboard ns list --provider google --json
+switchboard ns list --provider google --account work@example.com --default-read --json
+switchboard ns show google.work --json
 switchboard tools list
 switchboard tools describe github.notifications.list
 switchboard tools describe google.cli.read
 switchboard audit list
 switchboard op list --pending
 ```
+
+`ns list` and `ns show` only read and validate configuration. They never open
+runtime stores, resolve secrets, launch provider CLIs, or authenticate. Filters
+are exact and combine with AND; `--account` matches the auth account, not the
+namespace display label. `--default-read` filters metadata, not routing: commands
+still require explicit namespaces.
+
+List JSON preserves the existing namespace fields and adds `auth_kind`,
+`auth_account_label`, and top-level `config` provenance (`path`, `selected_by`).
+Show adds credential-source categories, configured 1Password mode and scoped
+profile names, global write policy, and static CLI/local transport metadata.
+These are configuration facts, not proof of installed CLIs, valid credentials,
+granted scopes, or authenticated identity. `--full` never reveals credential
+values or secret locators. Use `doctor` for local setup failures and `auth check`
+only when live identity verification is needed.
+
+Config-management tools may still own the file. Security wrappers should choose
+one trusted config and pass the same explicit `--config` to discovery and
+provider dispatch. Failed discovery is an error, not evidence that a provider is
+unconfigured or permission to bypass Switchboard.
 
 ## Config Resolution
 

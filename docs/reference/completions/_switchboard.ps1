@@ -61,10 +61,23 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             [CompletionResult]::new('--full', '--full', [CompletionResultType]::ParameterName, 'Show full diagnostic output and pretty-printed JSON')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
-            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'list')
+            [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List configured identities without checking credentials or opening runtime state')
+            [CompletionResult]::new('show', 'show', [CompletionResultType]::ParameterValue, 'Explain one exact namespace using safe configuration metadata only')
             break
         }
         'switchboard;ns;list' {
+            [CompletionResult]::new('--provider', '--provider', [CompletionResultType]::ParameterName, 'Match the exact provider identifier')
+            [CompletionResult]::new('--account', '--account', [CompletionResultType]::ParameterName, 'Match the exact auth account, not the namespace''s display label')
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--fields', '--fields', [CompletionResultType]::ParameterName, 'Select comma-separated paths within result fields; arrays apply each path to every row')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('--default-read', '--default-read', [CompletionResultType]::ParameterName, 'Include only namespaces marked default_read. Does not select a routing target')
+            [CompletionResult]::new('--full', '--full', [CompletionResultType]::ParameterName, 'Show full diagnostic output and pretty-printed JSON')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'switchboard;ns;show' {
             [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
             [CompletionResult]::new('--fields', '--fields', [CompletionResultType]::ParameterName, 'Select comma-separated paths within result fields; arrays apply each path to every row')
             [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')

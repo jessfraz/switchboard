@@ -50,16 +50,25 @@ complete -c switchboard -n "__fish_switchboard_using_subcommand read-batch" -l f
 complete -c switchboard -n "__fish_switchboard_using_subcommand read-batch" -l json
 complete -c switchboard -n "__fish_switchboard_using_subcommand read-batch" -l full -d 'Show full diagnostic output and pretty-printed JSON'
 complete -c switchboard -n "__fish_switchboard_using_subcommand read-batch" -s h -l help -d 'Print help'
-complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list" -l config -r -F
-complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
-complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list" -l full -d 'Show full diagnostic output and pretty-printed JSON'
-complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
-complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list" -f -a "list"
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list show" -l config -r -F
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list show" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list show" -l full -d 'Show full diagnostic output and pretty-printed JSON'
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list show" -s h -l help -d 'Print help'
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list show" -f -a "list" -d 'List configured identities without checking credentials or opening runtime state'
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and not __fish_seen_subcommand_from list show" -f -a "show" -d 'Explain one exact namespace using safe configuration metadata only'
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l provider -d 'Match the exact provider identifier' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l account -d 'Match the exact auth account, not the namespace\'s display label' -r
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l config -r -F
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l json
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l default-read -d 'Include only namespaces marked default_read. Does not select a routing target'
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -l full -d 'Show full diagnostic output and pretty-printed JSON'
 complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from show" -l config -r -F
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from show" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from show" -l json
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from show" -l full -d 'Show full diagnostic output and pretty-printed JSON'
+complete -c switchboard -n "__fish_switchboard_using_subcommand ns; and __fish_seen_subcommand_from show" -s h -l help -d 'Print help'
 complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l ns -d 'Inspect one namespace instead of all configured namespaces' -r
 complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l config -r -F
 complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r

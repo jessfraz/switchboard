@@ -6,7 +6,6 @@ use switchboard_core::{
     NamespaceId, NamespaceStore, RegisteredTool, ResolvedNamespace, ToolExecutionSupport, ToolSurface,
 };
 use switchboard_providers::default_registry;
-use switchboard_store::SwitchboardConfig;
 
 use crate::{
     args::ToolCatalogRuntimeCommand,
@@ -20,8 +19,7 @@ use crate::{
 fn namespaces(config_path: Option<&Path>, selected: Option<&NamespaceId>) -> Result<Vec<ResolvedNamespace>> {
     let load = || {
         let path = resolve_config_path(config_path)?;
-        let config = SwitchboardConfig::from_file(path)
-            .map_err(|_| anyhow!("Namespace configuration could not be read or validated"))?;
+        let config = crate::namespaces::load_config(&path)?;
         Ok::<_, anyhow::Error>(config.into_stores().0.list())
     };
     let namespaces = match load() {

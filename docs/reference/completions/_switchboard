@@ -69,12 +69,26 @@ _arguments "${_arguments_options[@]}" : \
         case $line[1] in
             (list)
 _arguments "${_arguments_options[@]}" : \
+'--provider=[Match the exact provider identifier]:PROVIDER:_default' \
+'--account=[Match the exact auth account, not the namespace'\''s display label]:ACCOUNT:_default' \
+'--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--json[]' \
+'--default-read[Include only namespaces marked default_read. Does not select a routing target]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(show)
+_arguments "${_arguments_options[@]}" : \
 '--config=[]:PATH:_files' \
 '*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
 '--json[]' \
 '--full[Show full diagnostic output and pretty-printed JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
+':namespace:_default' \
 && ret=0
 ;;
         esac
@@ -394,7 +408,8 @@ _switchboard__subcmd__doctor_commands() {
 (( $+functions[_switchboard__subcmd__ns_commands] )) ||
 _switchboard__subcmd__ns_commands() {
     local commands; commands=(
-'list:' \
+'list:List configured identities without checking credentials or opening runtime state' \
+'show:Explain one exact namespace using safe configuration metadata only' \
     )
     _describe -t commands 'switchboard ns commands' commands "$@"
 }
@@ -402,6 +417,11 @@ _switchboard__subcmd__ns_commands() {
 _switchboard__subcmd__ns__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard ns list commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__ns__subcmd__show_commands] )) ||
+_switchboard__subcmd__ns__subcmd__show_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard ns show commands' commands "$@"
 }
 (( $+functions[_switchboard__subcmd__op_commands] )) ||
 _switchboard__subcmd__op_commands() {

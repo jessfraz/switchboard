@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{CommandFactory, Parser};
+use clap::{parser::ValueSource, CommandFactory, FromArgMatches};
 use switchboard_core::{
     AuthStore, DispatchOutcome, NamespaceStore, SecretResolver, SecretStore, Switchboard, SwitchboardServices,
     ToolKind, ToolRequest,
@@ -25,6 +25,7 @@ mod batch;
 mod deadline;
 mod discovery;
 mod doctor;
+mod namespaces;
 mod output;
 mod presentation;
 
@@ -35,9 +36,9 @@ use crate::{
     args::{AuditRuntimeCommand, AuditSelector, Cli, CommandKind, StoredOperationCommand},
     output::{
         operation_needs_attention, render_audit_events_human, render_audit_selection_human, render_clap_error,
-        render_dispatch_human, render_json, render_json_dispatch, render_namespaces_human, render_operations_human,
+        render_dispatch_human, render_json, render_json_dispatch, render_operations_human,
         render_stored_operation_human, AuditEventResponse, AuditListResponse, AuditOperationResponse, AuditSelection,
-        NamespaceListResponse, StoredOperationListResponse, StoredOperationResponse,
+        StoredOperationListResponse, StoredOperationResponse,
     },
 };
 
@@ -112,10 +113,19 @@ where
 {
     let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
     let json_requested = contains_flag(&args, "--json");
-    let cli = match Cli::try_parse_from(args.clone()) {
+    let matches = match Cli::command().try_get_matches_from(args.clone()) {
+        Ok(matches) => matches,
+        Err(error) => return render_clap_error(error, json_requested),
+    };
+
+    let mut cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
         Err(error) => return render_clap_error(error, json_requested),
     };
+    cli.config_source = matches.value_source("config").map(|source| match source {
+        ValueSource::EnvVariable => ConfigSource::Environment,
+        _ => ConfigSource::Flag,
+    });
 
     let requested_tool = match &cli.command {
         args::Commands::Tool(tokens) => tokens
@@ -163,6 +173,7 @@ where
 
 fn run(mut cli: Cli) -> Result<String> {
     let config_path = cli.config.clone();
+    let config_source = cli.config_source;
     let json_requested = cli.json_requested();
     if let args::Commands::Tool(tokens) = &mut cli.command {
         cli.presentation.extract(tokens)?;
@@ -171,6 +182,9 @@ fn run(mut cli: Cli) -> Result<String> {
     let presentation = cli.presentation;
     let command = cli.command.into_runtime_command()?;
     presentation.validate_command(&command)?;
+    if let CommandKind::Namespace(command) = command {
+        return namespaces::run(config_path.as_deref(), config_source, command, presentation.full);
+    }
     if let CommandKind::Doctor(arguments) = command {
         return doctor::run(config_path.as_deref(), arguments);
     }
@@ -192,13 +206,8 @@ fn run(mut cli: Cli) -> Result<String> {
         CommandKind::Doctor(arguments) => doctor::run(config_path.as_deref(), arguments),
         CommandKind::Auth(arguments) => auth::run(config_path.as_deref(), arguments),
         CommandKind::ReadBatch(arguments) => batch::run(&switchboard, config_path.as_deref(), arguments, &presentation),
-        CommandKind::NamespaceList => {
-            let namespaces = switchboard.list_namespaces();
-            if json_requested {
-                render_json(&NamespaceListResponse { namespaces }, true)
-            } else {
-                Ok(render_namespaces_human(&namespaces))
-            }
+        CommandKind::Namespace(command) => {
+            namespaces::run(config_path.as_deref(), config_source, command, presentation.full)
         }
         CommandKind::ToolCatalog(command) => discovery::run(config_path.as_deref(), command, presentation.full),
         CommandKind::Audit(command) => run_audit_command(&switchboard, command),
@@ -412,7 +421,28 @@ struct ConfigPathCandidates {
     home: Option<PathBuf>,
 }
 
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ConfigSource {
+    Flag,
+    Environment,
+    Cwd,
+    Appdata,
+    Xdg,
+    Home,
+}
+
+#[derive(serde::Serialize)]
+struct ConfigSelection {
+    path: PathBuf,
+    selected_by: ConfigSource,
+}
+
 fn resolve_config_path(config_path: Option<&Path>) -> Result<PathBuf> {
+    Ok(resolve_config_selection(config_path, ConfigSource::Flag)?.path)
+}
+
+fn resolve_config_selection(config_path: Option<&Path>, explicit_source: ConfigSource) -> Result<ConfigSelection> {
     let candidates = ConfigPathCandidates {
         explicit: config_path.map(Path::to_path_buf),
         cwd: existing_file(PathBuf::from("switchboard.toml")),
@@ -430,21 +460,25 @@ fn resolve_config_path(config_path: Option<&Path>) -> Result<PathBuf> {
             .filter(|path| path.is_file()),
     };
 
-    select_config_path(candidates)
+    select_config_selection(candidates, explicit_source)
 }
 
+#[cfg(test)]
 fn select_config_path(candidates: ConfigPathCandidates) -> Result<PathBuf> {
-    candidates
-        .explicit
-        .or(candidates.cwd)
-        .or(candidates.appdata)
-        .or(candidates.xdg)
-        .or(candidates.home)
-        .ok_or_else(|| {
-            anyhow!(
-                "no switchboard config found. Pass --config <path>, set SWITCHBOARD_CONFIG, create ./switchboard.toml, or place config at $XDG_CONFIG_HOME/switchboard/config.toml or $HOME/.config/switchboard/config.toml"
-            )
-        })
+    Ok(select_config_selection(candidates, ConfigSource::Flag)?.path)
+}
+
+fn select_config_selection(candidates: ConfigPathCandidates, explicit_source: ConfigSource) -> Result<ConfigSelection> {
+    [
+        (candidates.explicit, explicit_source),
+        (candidates.cwd, ConfigSource::Cwd),
+        (candidates.appdata, ConfigSource::Appdata),
+        (candidates.xdg, ConfigSource::Xdg),
+        (candidates.home, ConfigSource::Home),
+    ]
+    .into_iter()
+    .find_map(|(path, selected_by)| path.map(|path| ConfigSelection { path, selected_by }))
+    .ok_or_else(|| anyhow!("no switchboard config found. Pass --config <path>, set SWITCHBOARD_CONFIG, create ./switchboard.toml, or place config at $XDG_CONFIG_HOME/switchboard/config.toml or $HOME/.config/switchboard/config.toml"))
 }
 
 fn existing_file(path: PathBuf) -> Option<PathBuf> {

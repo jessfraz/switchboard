@@ -8,11 +8,20 @@ coverage, failures, and write receipts visible.
 ## Discover only what is missing
 
 ```sh
+switchboard ns list --provider google --json
+switchboard ns show google.work --json
 switchboard tools list --provider google --search mail --json
 switchboard google.mail.search --help --json
 ```
 
-Listings default to eight executable matches, with configured namespaces and
+Namespace discovery reads configuration only: no operation store, secret
+resolution, provider subprocess, or auth probe. `ns list --account` matches the
+exact auth identity, not the display label; combine it with `--provider` and
+`--default-read` as needed. Multiple matches remain multiple choices, not an
+automatic route. `ns show` reports safe auth-source, policy, transport, and config
+provenance metadata. `--full` never exposes secrets or their locators.
+
+Tool listings default to eight executable matches, with configured namespaces and
 runnable examples. Use `--limit` to change the limit or `--full` for the complete
 catalog, including planning-only tools. Describe/help returns arguments and
 examples; add `--full` for output schemas, scopes, and native fallback details.

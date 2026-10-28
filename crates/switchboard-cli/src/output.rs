@@ -5,33 +5,11 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use switchboard_core::{
     AggregateReadOutcome, ApprovalState, BackendKind, DispatchOutcome, NamespaceId, OperationEffect, OperationId,
-    OperationOutcome, RegisteredTool, ResolvedNamespace, StoredAuditEvent, StoredOperation, ToolArgument,
-    ToolArgumentSpec, ToolArguments, ToolExecutionSupport, ToolName, ToolOutput, ToolRef, ToolSurface, ToolUndoSupport,
+    OperationOutcome, RegisteredTool, StoredAuditEvent, StoredOperation, ToolArgument, ToolArgumentSpec, ToolArguments,
+    ToolExecutionSupport, ToolName, ToolOutput, ToolRef, ToolSurface, ToolUndoSupport,
 };
 
 use crate::catalog::{ToolCatalogDetail, ToolCatalogEntry, ToolCatalogStatus};
-pub(crate) fn render_namespaces_human(namespaces: &[ResolvedNamespace]) -> String {
-    let mut output = String::from("Namespaces\n");
-    for namespace in namespaces {
-        let state_dir = namespace
-            .state_dir
-            .as_ref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "-".into());
-        output.push_str(&format!(
-            "- {} ({}, account={}, auth={}, default_read={}, state_dir={})\n",
-            namespace.id,
-            namespace.provider,
-            namespace.account_label,
-            namespace.auth_ref,
-            namespace.default_read,
-            state_dir
-        ));
-    }
-
-    output
-}
-
 pub(crate) fn render_audit_events_human(events: &[StoredAuditEvent]) -> String {
     let mut output = String::from("Audit Events\n");
     for event in events {
@@ -657,11 +635,6 @@ pub(crate) fn render_clap_error(error: clap::Error, json_requested: bool) -> std
             std::process::ExitCode::FAILURE
         }
     }
-}
-
-#[derive(Serialize)]
-pub(crate) struct NamespaceListResponse {
-    pub(crate) namespaces: Vec<ResolvedNamespace>,
 }
 
 #[derive(Serialize)]

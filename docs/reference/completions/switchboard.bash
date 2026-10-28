@@ -52,6 +52,9 @@ _switchboard() {
             switchboard__subcmd__ns,list)
                 cmd="switchboard__subcmd__ns__subcmd__list"
                 ;;
+            switchboard__subcmd__ns,show)
+                cmd="switchboard__subcmd__ns__subcmd__show"
+                ;;
             switchboard__subcmd__op,apply)
                 cmd="switchboard__subcmd__op__subcmd__apply"
                 ;;
@@ -282,7 +285,7 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__ns)
-            opts="-h --config --full --fields --help list"
+            opts="-h --config --full --fields --help list show"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -304,6 +307,36 @@ _switchboard() {
             return 0
             ;;
         switchboard__subcmd__ns__subcmd__list)
+            opts="-h --json --provider --account --default-read --config --full --fields --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --provider)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --account)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --config)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --fields)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        switchboard__subcmd__ns__subcmd__show)
             opts="-h --json --config --full --fields --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

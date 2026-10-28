@@ -27,10 +27,30 @@ pub struct CliBinaryDiagnostic {
     pub issue: Option<&'static str>,
 }
 
+/// Static transport metadata. Reading it never locates or launches an executable.
+#[derive(Debug, Serialize)]
+pub struct CliTransportMetadata {
+    pub program: String,
+    pub override_variable: Option<String>,
+}
+
+pub fn provider_cli_metadata(provider: ProviderKind) -> Result<CliTransportMetadata> {
+    let binary = provider_binary(provider)?;
+    Ok(CliTransportMetadata {
+        program: binary.program,
+        override_variable: binary.env_override,
+    })
+}
+
 /// Resolve the same CLI binary used by provider commands and run only its version probe.
 pub fn diagnose_provider_cli(provider: ProviderKind) -> Result<CliBinaryDiagnostic> {
+    let binary = provider_binary(provider.clone())?;
+    Ok(inspect_binary(&binary, provider == ProviderKind::GoogleWorkspace))
+}
+
+fn provider_binary(provider: ProviderKind) -> Result<CliBinarySpec> {
     if provider == ProviderKind::Phone {
-        return Ok(inspect_binary(&crate::phone::runtime::binary(), false));
+        return Ok(crate::phone::runtime::binary());
     }
     let manifest = match provider {
         ProviderKind::GitHub => include_str!("../../manifests/github.json"),
@@ -41,12 +61,11 @@ pub fn diagnose_provider_cli(provider: ProviderKind) -> Result<CliBinaryDiagnost
     };
     let inventory = embedded_inventory(provider.clone())?;
     let catalog = CliProviderCatalog::from_embedded(manifest, &inventory)?;
-    let binary = &catalog
+    catalog
         .find_command(&format!("{provider}.cli.read"))
         .and_then(|command| command.executable.as_ref())
-        .ok_or_else(|| Error::Config(format!("provider {provider} has no raw CLI binary")))?
-        .binary;
-    Ok(inspect_binary(binary, provider == ProviderKind::GoogleWorkspace))
+        .map(|command| command.binary.clone())
+        .ok_or_else(|| Error::Config(format!("provider {provider} has no raw CLI binary")))
 }
 
 /// Inspect the 1Password binary without invoking account discovery or authentication.

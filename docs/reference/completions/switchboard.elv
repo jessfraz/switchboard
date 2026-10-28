@@ -56,9 +56,21 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand --full 'Show full diagnostic output and pretty-printed JSON'
             cand -h 'Print help'
             cand --help 'Print help'
-            cand list 'list'
+            cand list 'List configured identities without checking credentials or opening runtime state'
+            cand show 'Explain one exact namespace using safe configuration metadata only'
         }
         &'switchboard;ns;list'= {
+            cand --provider 'Match the exact provider identifier'
+            cand --account 'Match the exact auth account, not the namespace''s display label'
+            cand --config 'config'
+            cand --fields 'Select comma-separated paths within result fields; arrays apply each path to every row'
+            cand --json 'json'
+            cand --default-read 'Include only namespaces marked default_read. Does not select a routing target'
+            cand --full 'Show full diagnostic output and pretty-printed JSON'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'switchboard;ns;show'= {
             cand --config 'config'
             cand --fields 'Select comma-separated paths within result fields; arrays apply each path to every row'
             cand --json 'json'

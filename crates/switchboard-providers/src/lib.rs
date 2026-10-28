@@ -17,7 +17,10 @@ use switchboard_core::AdapterRegistry;
 
 use crate::inventory::CliInventory;
 pub use crate::{
-    cli::diagnostics::{diagnose_one_password_cli, diagnose_provider_cli, CliBinaryDiagnostic},
+    cli::diagnostics::{
+        diagnose_one_password_cli, diagnose_provider_cli, provider_cli_metadata, CliBinaryDiagnostic,
+        CliTransportMetadata,
+    },
     github::GitHubAdapter,
     google::GoogleWorkspaceAdapter,
     messages::MessagesAdapter,

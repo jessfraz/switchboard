@@ -51,6 +51,9 @@ pub(crate) struct Cli {
     #[arg(long, global = true, env = "SWITCHBOARD_CONFIG", value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
 
+    #[arg(skip)]
+    pub(crate) config_source: Option<crate::ConfigSource>,
+
     #[command(flatten)]
     pub(crate) presentation: crate::presentation::Presentation,
 
@@ -123,13 +126,12 @@ impl NamespaceCommand {
     fn json_requested(&self) -> bool {
         match &self.command {
             NamespaceSubcommand::List(arguments) => arguments.json,
+            NamespaceSubcommand::Show(arguments) => arguments.json,
         }
     }
 
     fn into_runtime_command(self) -> CommandKind {
-        match self.command {
-            NamespaceSubcommand::List(_) => CommandKind::NamespaceList,
-        }
+        CommandKind::Namespace(self.command)
     }
 }
 
@@ -389,20 +391,39 @@ struct OperationUndoArgs {
 }
 
 #[derive(Debug, Subcommand)]
-enum NamespaceSubcommand {
+pub(crate) enum NamespaceSubcommand {
+    /// List configured identities without checking credentials or opening runtime state.
     List(ListNamespaceArgs),
+    /// Explain one exact namespace using safe configuration metadata only.
+    Show(ShowNamespaceArgs),
 }
 
 #[derive(Debug, Args)]
-struct ListNamespaceArgs {
+pub(crate) struct ListNamespaceArgs {
     #[arg(long)]
-    json: bool,
+    pub(crate) json: bool,
+    /// Match the exact provider identifier.
+    #[arg(long)]
+    pub(crate) provider: Option<String>,
+    /// Match the exact auth account, not the namespace's display label.
+    #[arg(long)]
+    pub(crate) account: Option<String>,
+    /// Include only namespaces marked default_read. Does not select a routing target.
+    #[arg(long)]
+    pub(crate) default_read: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct ShowNamespaceArgs {
+    pub(crate) namespace: String,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Debug)]
 pub(crate) enum CommandKind {
     ReadBatch(crate::batch::ReadBatchArgs),
-    NamespaceList,
+    Namespace(NamespaceSubcommand),
     Doctor(DoctorCommand),
     Auth(crate::auth::AuthCommand),
     ToolCatalog(ToolCatalogRuntimeCommand),
