@@ -100,7 +100,7 @@ use the same defaults for Workspace domains. Known `gmail.com` and
 | Accounts | Default capabilities |
 | --- | --- |
 | All | Drive and activity history, Sheets, Gmail and filter settings, Calendar, Docs, Slides, Tasks, Contacts and Other Contacts, Apps Script projects/deployments/processes/metrics, Cloud Platform |
-| Workspace | Chat messages/spaces/memberships/emojis/read state/notification settings/sections/availability and administration; Meet spaces/settings/conference records; organization directory; Directory users/groups/OUs/domains/custom schemas/roles/resources/devices/printers; offboarding transfers; licenses; Groups settings/archive migration; Drive labels; Chrome policy/profiles/reports/telemetry/security insights; Cloud Identity groups/devices/policies/shared-drive OUs; Vault; Admin Reports |
+| Workspace | Chat messages/spaces/memberships/emojis/read state/notification settings/sections and administration; Meet spaces/settings/conference records; organization directory; Directory users/groups/OUs/domains/custom schemas/roles/resources/devices/printers; offboarding transfers; licenses; Groups settings/archive migration; Drive labels; Chrome policy/profiles/reports/telemetry; Cloud Identity groups/policies; Vault; Admin Reports |
 
 The existing full Drive scope also covers the Forms API, including responses.
 Gmail filter creation needs `gmail.settings.basic` in addition to
@@ -114,7 +114,11 @@ grant neither administrator roles nor API enablement.
 
 Keep and Alert Center require a separate delegated administrator/service-account
 setup. Their scopes, Chat app-only/import scopes, and Meet Media preview scopes
-are excluded from ordinary user login. See the official
+are excluded from ordinary user login. Cloud Identity device and shared-drive
+OU scopes are also omitted: discovery-listed API scopes are not necessarily
+usable in a third-party browser consent flow. New scopes absent from Google's
+OAuth scope catalog are left out until interactive consent is validated. See the
+official
 [Chat authorization](https://developers.google.com/workspace/chat/authenticate-authorize),
 [Meet authorization](https://developers.google.com/workspace/meet/api/guides/authenticate-authorize),
 [Keep setup](https://developers.google.com/workspace/keep/api/guides), and

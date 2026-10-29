@@ -27,10 +27,7 @@ fn workspace_login_requests_complete_automation_scopes_for_both_profiles() {
         "https://www.googleapis.com/auth/script.metrics",
         "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/cloud-identity.groups",
-        "https://www.googleapis.com/auth/cloud-identity.devices",
-        "https://www.googleapis.com/auth/cloud-identity.devices.lookup",
         "https://www.googleapis.com/auth/cloud-identity.policies",
-        "https://www.googleapis.com/auth/cloud-identity.orgunits",
         "https://www.googleapis.com/auth/directory.readonly",
         "https://www.googleapis.com/auth/admin.directory.user",
         "https://www.googleapis.com/auth/admin.directory.user.security",
@@ -59,7 +56,6 @@ fn workspace_login_requests_complete_automation_scopes_for_both_profiles() {
         "https://www.googleapis.com/auth/chat.users.readstate",
         "https://www.googleapis.com/auth/chat.users.spacesettings",
         "https://www.googleapis.com/auth/chat.users.sections",
-        "https://www.googleapis.com/auth/chat.users.availability",
         "https://www.googleapis.com/auth/chat.admin.spaces",
         "https://www.googleapis.com/auth/chat.admin.memberships",
         "https://www.googleapis.com/auth/chat.admin.delete",
@@ -73,7 +69,6 @@ fn workspace_login_requests_complete_automation_scopes_for_both_profiles() {
         "https://www.googleapis.com/auth/chrome.management.appdetails.readonly",
         "https://www.googleapis.com/auth/chrome.management.reports.readonly",
         "https://www.googleapis.com/auth/chrome.management.telemetry.readonly",
-        "https://www.googleapis.com/auth/chrome.management.securityinsights",
         "https://www.googleapis.com/auth/ediscovery",
     ]);
 
@@ -149,7 +144,7 @@ fn workspace_auth_keeps_admin_scopes_when_namespace_label_looks_like_gmail() {
     let argv: Vec<String> =
         serde_json::from_str(action.args.value("argv-json").expect("planned argv")).expect("argv JSON");
     let scopes = argv[3].split(',').collect::<BTreeSet<_>>();
-    assert_eq!(scopes.len(), 65);
+    assert_eq!(scopes.len(), 60);
     assert!(scopes.contains("https://www.googleapis.com/auth/cloud-identity.groups"));
 }
 

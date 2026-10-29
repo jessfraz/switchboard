@@ -39,12 +39,10 @@ const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/script.metrics,",
     "https://www.googleapis.com/auth/cloud-platform"
 );
+// Discovery also lists API-only scopes without third-party consent support.
 const WORKSPACE_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/cloud-identity.groups,",
-    "https://www.googleapis.com/auth/cloud-identity.devices,",
-    "https://www.googleapis.com/auth/cloud-identity.devices.lookup,",
     "https://www.googleapis.com/auth/cloud-identity.policies,",
-    "https://www.googleapis.com/auth/cloud-identity.orgunits,",
     "https://www.googleapis.com/auth/directory.readonly,",
     "https://www.googleapis.com/auth/admin.directory.user,",
     "https://www.googleapis.com/auth/admin.directory.user.security,",
@@ -73,7 +71,6 @@ const WORKSPACE_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/chat.users.readstate,",
     "https://www.googleapis.com/auth/chat.users.spacesettings,",
     "https://www.googleapis.com/auth/chat.users.sections,",
-    "https://www.googleapis.com/auth/chat.users.availability,",
     "https://www.googleapis.com/auth/chat.admin.spaces,",
     "https://www.googleapis.com/auth/chat.admin.memberships,",
     "https://www.googleapis.com/auth/chat.admin.delete,",
@@ -87,7 +84,6 @@ const WORKSPACE_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/chrome.management.appdetails.readonly,",
     "https://www.googleapis.com/auth/chrome.management.reports.readonly,",
     "https://www.googleapis.com/auth/chrome.management.telemetry.readonly,",
-    "https://www.googleapis.com/auth/chrome.management.securityinsights,",
     "https://www.googleapis.com/auth/ediscovery"
 );
 
