@@ -92,16 +92,39 @@ mutation, `--approve-and-apply` persists the plan, approves that operation, and
 applies it in one invocation. It does not grant permission to perform a write.
 Email remains draft-only unless the user explicitly authorizes sending.
 
-Bare Google `auth login` requests the complete default scope set: Drive, Sheets,
-Gmail, Calendar, Docs, Slides, Tasks, Contacts, Cloud Identity groups, Cloud
-Platform, Admin Directory users/groups/organizational units, Groups Settings,
-and read-only Admin Reports. Both scope profiles use the same explicit set for
-Workspace domains, avoiding incomplete service-scope discovery in gws 0.22.5.
-Known `gmail.com` and `googlemail.com` accounts receive the standard scopes
-without Workspace-only admin or Cloud Identity permissions. Explicit login flags
-such as `--readonly`, `--services`, or `--scopes` keep their native meaning.
-Existing sessions gain no additional permissions until the user logs in again
-and grants consent; Google account roles and administrator policy still apply.
+Bare Google `auth login` requests the full user-OAuth automation defaults,
+avoiding incomplete service-scope discovery in gws 0.22.5. Both scope profiles
+use the same defaults for Workspace domains. Known `gmail.com` and
+`googlemail.com` accounts receive only the standard set.
+
+| Accounts | Default capabilities |
+| --- | --- |
+| All | Drive and activity history, Sheets, Gmail and filter settings, Calendar, Docs, Slides, Tasks, Contacts and Other Contacts, Apps Script projects/deployments/processes/metrics, Cloud Platform |
+| Workspace | Chat messages/spaces/memberships/emojis/read state/notification settings/sections/availability and administration; Meet spaces/settings/conference records; organization directory; Directory users/groups/OUs/domains/custom schemas/roles/resources/devices/printers; offboarding transfers; licenses; Groups settings/archive migration; Drive labels; Chrome policy/profiles/reports/telemetry/security insights; Cloud Identity groups/devices/policies/shared-drive OUs; Vault; Admin Reports |
+
+The existing full Drive scope also covers the Forms API, including responses.
+Gmail filter creation needs `gmail.settings.basic` in addition to
+`gmail.modify`; both use the existing Gmail API.
+
+Enable each service's API in the OAuth client's Google Cloud project before
+using it. Chat writes also need Chat app configuration; Apps Script needs its
+user API access setting enabled. Organization roles, service editions, and
+licenses still apply, including Vault and Chrome Enterprise features. Scopes
+grant neither administrator roles nor API enablement.
+
+Keep and Alert Center require a separate delegated administrator/service-account
+setup. Their scopes, Chat app-only/import scopes, and Meet Media preview scopes
+are excluded from ordinary user login. See the official
+[Chat authorization](https://developers.google.com/workspace/chat/authenticate-authorize),
+[Meet authorization](https://developers.google.com/workspace/meet/api/guides/authenticate-authorize),
+[Keep setup](https://developers.google.com/workspace/keep/api/guides), and
+[Alert Center setup](https://developers.google.com/workspace/admin/alertcenter/guides)
+guides.
+
+Explicit login flags such as `--readonly`, `--services`, or `--scopes` keep their
+native meaning. Existing sessions gain no additional permissions until the user
+logs in again and grants consent. Login verifies the configured auth account;
+never use a different namespace's login to bypass an access failure.
 
 ```sh
 switchboard google.calendar.create --ns google.personal \

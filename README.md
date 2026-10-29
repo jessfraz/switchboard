@@ -179,16 +179,22 @@ switchboard op approve <operation-id> --apply
 ```
 
 Existing namespace logins need no new client setup. Standard bare `auth login`
-requests explicit scopes for Drive, Sheets, Gmail, Calendar, Docs, Slides,
-Tasks, and People, and verifies the configured auth account.
+requests explicit scopes for Drive and its activity history, Sheets, Gmail and
+filter settings, Calendar, Docs, Slides, Tasks, Contacts (including Other
+Contacts), and Apps Script projects, deployments, processes, and metrics. Login
+verifies the configured auth account.
 Caller-provided login options are preserved.
 
-Workspace accounts also request the historical Cloud Identity groups,
-Cloud Platform, Admin Directory user/organizational-unit/group, and Groups
-Settings scopes, plus read-only Admin Reports audit and usage scopes.
+Workspace accounts also request Chat and Meet automation, Chat administration,
+the organization directory, user/group/domain/role/resource/device management,
+offboarding transfers, licenses, Groups settings and archive migration, Drive
+labels, Chrome management and policy, Cloud Identity, Vault, and read-only Admin
+Reports. Cloud Platform access remains part of the standard scope set. See
+[authentication defaults](docs/llms/getting-started.md#writes-and-authentication)
+for API enablement and organization setup requirements.
 The pinned gws 0.22.5 accepts these through explicit `--scopes`, bypassing its
 incomplete service registry. No admin profile is required. Known `gmail.com`
-and `googlemail.com` accounts omit the organization-only scopes that their
+and `googlemail.com` accounts omit the Workspace scopes that their
 accounts cannot grant. Existing sessions gain scopes only after a new login
 and consent; this change does not modify saved credentials automatically.
 

@@ -19,27 +19,76 @@ use crate::{
     inventory::embedded_inventory,
 };
 const MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/manifests/google.json"));
-// gws 0.22.5's service discovery omits some admin and Cloud Identity scopes.
+// gws 0.22.5's service discovery omits supported automation scopes.
 // Explicit scopes bypass that resolver and keep bare login's contract stable.
 const DEFAULT_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/drive,",
+    "https://www.googleapis.com/auth/drive.activity,",
     "https://www.googleapis.com/auth/spreadsheets,",
     "https://www.googleapis.com/auth/gmail.modify,",
+    "https://www.googleapis.com/auth/gmail.settings.basic,",
     "https://www.googleapis.com/auth/calendar,",
     "https://www.googleapis.com/auth/documents,",
     "https://www.googleapis.com/auth/presentations,",
     "https://www.googleapis.com/auth/tasks,",
     "https://www.googleapis.com/auth/contacts,",
+    "https://www.googleapis.com/auth/contacts.other.readonly,",
+    "https://www.googleapis.com/auth/script.projects,",
+    "https://www.googleapis.com/auth/script.deployments,",
+    "https://www.googleapis.com/auth/script.processes,",
+    "https://www.googleapis.com/auth/script.metrics,",
     "https://www.googleapis.com/auth/cloud-platform"
 );
 const WORKSPACE_AUTH_LOGIN_SCOPES: &str = concat!(
     "https://www.googleapis.com/auth/cloud-identity.groups,",
+    "https://www.googleapis.com/auth/cloud-identity.devices,",
+    "https://www.googleapis.com/auth/cloud-identity.devices.lookup,",
+    "https://www.googleapis.com/auth/cloud-identity.policies,",
+    "https://www.googleapis.com/auth/cloud-identity.orgunits,",
+    "https://www.googleapis.com/auth/directory.readonly,",
     "https://www.googleapis.com/auth/admin.directory.user,",
+    "https://www.googleapis.com/auth/admin.directory.user.security,",
+    "https://www.googleapis.com/auth/admin.directory.userschema,",
     "https://www.googleapis.com/auth/admin.directory.orgunit,",
     "https://www.googleapis.com/auth/admin.directory.group,",
+    "https://www.googleapis.com/auth/admin.directory.customer,",
+    "https://www.googleapis.com/auth/admin.directory.domain,",
+    "https://www.googleapis.com/auth/admin.directory.rolemanagement,",
+    "https://www.googleapis.com/auth/admin.directory.resource.calendar,",
+    "https://www.googleapis.com/auth/admin.directory.device.chromeos,",
+    "https://www.googleapis.com/auth/admin.directory.device.mobile,",
+    "https://www.googleapis.com/auth/admin.chrome.printers,",
+    "https://www.googleapis.com/auth/admin.datatransfer,",
     "https://www.googleapis.com/auth/apps.groups.settings,",
+    "https://www.googleapis.com/auth/apps.groups.migration,",
+    "https://www.googleapis.com/auth/apps.licensing,",
     "https://www.googleapis.com/auth/admin.reports.audit.readonly,",
-    "https://www.googleapis.com/auth/admin.reports.usage.readonly"
+    "https://www.googleapis.com/auth/admin.reports.usage.readonly,",
+    "https://www.googleapis.com/auth/chat.spaces,",
+    "https://www.googleapis.com/auth/chat.delete,",
+    "https://www.googleapis.com/auth/chat.memberships,",
+    "https://www.googleapis.com/auth/chat.memberships.app,",
+    "https://www.googleapis.com/auth/chat.messages,",
+    "https://www.googleapis.com/auth/chat.customemojis,",
+    "https://www.googleapis.com/auth/chat.users.readstate,",
+    "https://www.googleapis.com/auth/chat.users.spacesettings,",
+    "https://www.googleapis.com/auth/chat.users.sections,",
+    "https://www.googleapis.com/auth/chat.users.availability,",
+    "https://www.googleapis.com/auth/chat.admin.spaces,",
+    "https://www.googleapis.com/auth/chat.admin.memberships,",
+    "https://www.googleapis.com/auth/chat.admin.delete,",
+    "https://www.googleapis.com/auth/meetings.space.created,",
+    "https://www.googleapis.com/auth/meetings.space.readonly,",
+    "https://www.googleapis.com/auth/meetings.space.settings,",
+    "https://www.googleapis.com/auth/drive.labels,",
+    "https://www.googleapis.com/auth/drive.admin.labels,",
+    "https://www.googleapis.com/auth/chrome.management.policy,",
+    "https://www.googleapis.com/auth/chrome.management.profiles,",
+    "https://www.googleapis.com/auth/chrome.management.appdetails.readonly,",
+    "https://www.googleapis.com/auth/chrome.management.reports.readonly,",
+    "https://www.googleapis.com/auth/chrome.management.telemetry.readonly,",
+    "https://www.googleapis.com/auth/chrome.management.securityinsights,",
+    "https://www.googleapis.com/auth/ediscovery"
 );
 
 pub struct GoogleWorkspaceAdapter {
