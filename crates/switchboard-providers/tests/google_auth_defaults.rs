@@ -12,12 +12,9 @@ fn workspace_login_requests_complete_automation_scopes_for_both_profiles() {
     let expected = BTreeSet::from([
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/drive.activity",
-        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.settings.basic",
         "https://www.googleapis.com/auth/calendar",
-        "https://www.googleapis.com/auth/documents",
-        "https://www.googleapis.com/auth/presentations",
         "https://www.googleapis.com/auth/tasks",
         "https://www.googleapis.com/auth/contacts",
         "https://www.googleapis.com/auth/contacts.other.readonly",
@@ -40,10 +37,8 @@ fn workspace_login_requests_complete_automation_scopes_for_both_profiles() {
         "https://www.googleapis.com/auth/admin.directory.resource.calendar",
         "https://www.googleapis.com/auth/admin.directory.device.chromeos",
         "https://www.googleapis.com/auth/admin.directory.device.mobile",
-        "https://www.googleapis.com/auth/admin.chrome.printers",
         "https://www.googleapis.com/auth/admin.datatransfer",
         "https://www.googleapis.com/auth/apps.groups.settings",
-        "https://www.googleapis.com/auth/apps.groups.migration",
         "https://www.googleapis.com/auth/apps.licensing",
         "https://www.googleapis.com/auth/admin.reports.audit.readonly",
         "https://www.googleapis.com/auth/admin.reports.usage.readonly",
@@ -62,14 +57,6 @@ fn workspace_login_requests_complete_automation_scopes_for_both_profiles() {
         "https://www.googleapis.com/auth/meetings.space.created",
         "https://www.googleapis.com/auth/meetings.space.readonly",
         "https://www.googleapis.com/auth/meetings.space.settings",
-        "https://www.googleapis.com/auth/drive.labels",
-        "https://www.googleapis.com/auth/drive.admin.labels",
-        "https://www.googleapis.com/auth/chrome.management.policy",
-        "https://www.googleapis.com/auth/chrome.management.profiles",
-        "https://www.googleapis.com/auth/chrome.management.appdetails.readonly",
-        "https://www.googleapis.com/auth/chrome.management.reports.readonly",
-        "https://www.googleapis.com/auth/chrome.management.telemetry.readonly",
-        "https://www.googleapis.com/auth/ediscovery",
     ]);
 
     for profile in [AuthScopeProfile::Standard, AuthScopeProfile::WorkspaceAdmin] {
@@ -94,12 +81,9 @@ fn consumer_accounts_receive_standard_scopes_without_workspace_admin_scopes() {
     let expected = BTreeSet::from([
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/drive.activity",
-        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.settings.basic",
         "https://www.googleapis.com/auth/calendar",
-        "https://www.googleapis.com/auth/documents",
-        "https://www.googleapis.com/auth/presentations",
         "https://www.googleapis.com/auth/tasks",
         "https://www.googleapis.com/auth/contacts",
         "https://www.googleapis.com/auth/contacts.other.readonly",
@@ -144,7 +128,7 @@ fn workspace_auth_keeps_admin_scopes_when_namespace_label_looks_like_gmail() {
     let argv: Vec<String> =
         serde_json::from_str(action.args.value("argv-json").expect("planned argv")).expect("argv JSON");
     let scopes = argv[3].split(',').collect::<BTreeSet<_>>();
-    assert_eq!(scopes.len(), 60);
+    assert_eq!(scopes.len(), 47);
     assert!(scopes.contains("https://www.googleapis.com/auth/cloud-identity.groups"));
 }
 

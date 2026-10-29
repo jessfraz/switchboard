@@ -100,20 +100,28 @@ use the same defaults for Workspace domains. Known `gmail.com` and
 | Accounts | Default capabilities |
 | --- | --- |
 | All | Drive and activity history, Sheets, Gmail and filter settings, Calendar, Docs, Slides, Tasks, Contacts and Other Contacts, Apps Script projects/deployments/processes/metrics, Cloud Platform |
-| Workspace | Chat messages/spaces/memberships/emojis/read state/notification settings/sections and administration; Meet spaces/settings/conference records; organization directory; Directory users/groups/OUs/domains/custom schemas/roles/resources/devices/printers; offboarding transfers; licenses; Groups settings/archive migration; Drive labels; Chrome policy/profiles/reports/telemetry; Cloud Identity groups/policies; Vault; Admin Reports |
+| Workspace | Chat messages/spaces/memberships/emojis/read state/notification settings/sections and administration; Meet spaces/settings/conference records; organization directory; Directory users/groups/OUs/domains/custom schemas/roles/resources/devices; offboarding transfers; licenses; Groups settings; Cloud Identity groups/policies; Admin Reports |
 
-The existing full Drive scope also covers the Forms API, including responses.
+Full Drive access also authorizes Docs, Sheets, Slides and Forms, including
+Forms responses. Separate document/spreadsheet/presentation scopes are redundant.
+Workspace login requests 47 service scopes; gws adds three identity scopes for
+a total of 50. Larger bundles stalled after Allow in desktop consent testing.
+Vault, Chrome management, Drive labels and group-archive imports are left out.
+See the official [Docs](https://developers.google.com/workspace/docs/api/auth),
+[Sheets](https://developers.google.com/workspace/sheets/api/scopes), and
+[Slides](https://developers.google.com/workspace/slides/api/scopes) scope guides.
 Gmail filter creation needs `gmail.settings.basic` in addition to
 `gmail.modify`; both use the existing Gmail API.
 
 Enable each service's API in the OAuth client's Google Cloud project before
 using it. Chat writes also need Chat app configuration; Apps Script needs its
 user API access setting enabled. Organization roles, service editions, and
-licenses still apply, including Vault and Chrome Enterprise features. Scopes
+licenses still apply. Scopes
 grant neither administrator roles nor API enablement.
 
 Keep and Alert Center require a separate delegated administrator/service-account
-setup. Their scopes, Chat app-only/import scopes, and Meet Media preview scopes
+setup. Chrome Printer Management supports only service accounts. Their scopes,
+Chat app-only/import scopes, and Meet Media preview scopes
 are excluded from ordinary user login. Cloud Identity device and shared-drive
 OU scopes are also omitted: discovery-listed API scopes are not necessarily
 usable in a third-party browser consent flow. New scopes absent from Google's
