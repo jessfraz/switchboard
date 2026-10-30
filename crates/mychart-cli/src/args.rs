@@ -72,22 +72,22 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true, env = ENV_MYCHART_PORTAL_BASE_URL, value_name = "URL")]
     pub(crate) portal_base_url: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MYCHART_CLIENT_ID, value_name = "CLIENT_ID")]
+    #[arg(long, global = true, env = ENV_MYCHART_CLIENT_ID, hide_env_values = true, value_name = "CLIENT_ID")]
     pub(crate) client_id: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MYCHART_CLIENT_SECRET, value_name = "CLIENT_SECRET")]
+    #[arg(long, global = true, env = ENV_MYCHART_CLIENT_SECRET, hide_env_values = true, value_name = "CLIENT_SECRET")]
     pub(crate) client_secret: Option<String>,
 
     #[arg(long, global = true, env = ENV_MYCHART_REDIRECT_URI, value_name = "URL")]
     pub(crate) redirect_uri: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MYCHART_ACCESS_TOKEN, value_name = "TOKEN")]
+    #[arg(long, global = true, env = ENV_MYCHART_ACCESS_TOKEN, hide_env_values = true, value_name = "TOKEN")]
     pub(crate) access_token: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MYCHART_REFRESH_TOKEN, value_name = "TOKEN")]
+    #[arg(long, global = true, env = ENV_MYCHART_REFRESH_TOKEN, hide_env_values = true, value_name = "TOKEN")]
     pub(crate) refresh_token: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MYCHART_USERNAME, value_name = "USERNAME")]
+    #[arg(long, global = true, env = ENV_MYCHART_USERNAME, hide_env_values = true, value_name = "USERNAME")]
     pub(crate) username: Option<String>,
 
     #[arg(long, global = true, env = ENV_MYCHART_DEBUG_AUTH)]

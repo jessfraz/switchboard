@@ -116,13 +116,13 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true, env = ENV_MINDBODY_BASE_URL, value_name = "URL")]
     base_url: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MINDBODY_API_KEY, value_name = "API_KEY")]
+    #[arg(long, global = true, env = ENV_MINDBODY_API_KEY, hide_env_values = true, value_name = "API_KEY")]
     api_key: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MINDBODY_CLIENT_KEY, value_name = "CLIENT_KEY")]
+    #[arg(long, global = true, env = ENV_MINDBODY_CLIENT_KEY, hide_env_values = true, value_name = "CLIENT_KEY")]
     client_key: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MINDBODY_CLIENT_SECRET, value_name = "CLIENT_SECRET")]
+    #[arg(long, global = true, env = ENV_MINDBODY_CLIENT_SECRET, hide_env_values = true, value_name = "CLIENT_SECRET")]
     client_secret: Option<String>,
 
     #[arg(long, global = true, env = ENV_MINDBODY_USER_ID, value_name = "USER_ID")]
