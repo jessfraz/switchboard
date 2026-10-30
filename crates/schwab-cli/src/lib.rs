@@ -159,10 +159,10 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true, env = ENV_SCHWAB_TOKEN_URL, value_name = "URL")]
     token_url: Option<String>,
 
-    #[arg(long, global = true, env = ENV_SCHWAB_CLIENT_ID, value_name = "CLIENT_ID")]
+    #[arg(long, global = true, env = ENV_SCHWAB_CLIENT_ID, hide_env_values = true, value_name = "CLIENT_ID")]
     client_id: Option<String>,
 
-    #[arg(long, global = true, env = ENV_SCHWAB_CLIENT_SECRET, value_name = "CLIENT_SECRET")]
+    #[arg(long, global = true, env = ENV_SCHWAB_CLIENT_SECRET, hide_env_values = true, value_name = "CLIENT_SECRET")]
     client_secret: Option<String>,
 
     #[arg(long = "third-party-id", global = true, env = ENV_SCHWAB_THIRD_PARTY_ID, value_name = "VALUE")]
@@ -186,10 +186,10 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true, env = ENV_SCHWAB_REDIRECT_URI, value_name = "URL")]
     redirect_uri: Option<String>,
 
-    #[arg(long, global = true, env = ENV_SCHWAB_ACCESS_TOKEN, value_name = "TOKEN")]
+    #[arg(long, global = true, env = ENV_SCHWAB_ACCESS_TOKEN, hide_env_values = true, value_name = "TOKEN")]
     access_token: Option<String>,
 
-    #[arg(long, global = true, env = ENV_SCHWAB_REFRESH_TOKEN, value_name = "TOKEN")]
+    #[arg(long, global = true, env = ENV_SCHWAB_REFRESH_TOKEN, hide_env_values = true, value_name = "TOKEN")]
     refresh_token: Option<String>,
 
     #[arg(long, global = true)]

@@ -103,16 +103,16 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true, env = ENV_MOMENCE_BASE_URL, value_name = "URL")]
     base_url: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MOMENCE_CLIENT_ID, value_name = "CLIENT_ID")]
+    #[arg(long, global = true, env = ENV_MOMENCE_CLIENT_ID, hide_env_values = true, value_name = "CLIENT_ID")]
     client_id: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MOMENCE_CLIENT_SECRET, value_name = "CLIENT_SECRET")]
+    #[arg(long, global = true, env = ENV_MOMENCE_CLIENT_SECRET, hide_env_values = true, value_name = "CLIENT_SECRET")]
     client_secret: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MOMENCE_ACCESS_TOKEN, value_name = "TOKEN")]
+    #[arg(long, global = true, env = ENV_MOMENCE_ACCESS_TOKEN, hide_env_values = true, value_name = "TOKEN")]
     access_token: Option<String>,
 
-    #[arg(long, global = true, env = ENV_MOMENCE_REFRESH_TOKEN, value_name = "TOKEN")]
+    #[arg(long, global = true, env = ENV_MOMENCE_REFRESH_TOKEN, hide_env_values = true, value_name = "TOKEN")]
     refresh_token: Option<String>,
 
     #[arg(long, global = true)]
