@@ -129,7 +129,6 @@
         "kind": "json_projection",
         "response_field": "message",
         "shape": "object",
-        "summary_template": "Read Gmail message \"{field:subject}\" for {namespace}",
         "fields": [
           { "name": "gmail_message_id", "arg": ["gmail-message-id", "message-id", "id"] },
           { "name": "gmail_thread_id", "pointer": "/thread_id" },

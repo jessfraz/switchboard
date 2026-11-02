@@ -78,7 +78,7 @@ struct MessageContent {
     reply_to: Option<Vec<Mailbox>>,
     to: Vec<Mailbox>,
     cc: Option<Vec<Mailbox>>,
-    subject: String,
+    subject: Option<String>,
     date: Option<String>,
     body_text: String,
 }

@@ -4,9 +4,11 @@ use serde::Deserialize;
 use switchboard_core::{Adapter, CoverageStatus, ExecutionMode, ToolArgument, ToolOutput, ToolRefKind, ToolRequest};
 
 use super::*;
-use crate::google::thread::{thread_fields, Part, ThreadParams};
 use crate::{
-    google::tests::{execution_target, planning_target},
+    google::{
+        tests::{execution_target, planning_target},
+        thread::{thread_fields, Part, ThreadParams},
+    },
     test_support::{lock_env, TempScript},
 };
 
@@ -81,6 +83,98 @@ fn messages(output: &ToolOutput) -> Vec<ContextMessage> {
             .clone(),
     )
     .expect("test fixture should be valid")
+}
+
+#[derive(Deserialize)]
+struct SubjectMessage {
+    gmail_message_id: String,
+    gmail_thread_id: Option<String>,
+    subject: Option<String>,
+    body_text: String,
+}
+
+fn set_subject_fixture(script: &TempScript, subject_json: Option<&str>) {
+    let root = script.path().parent().expect("fixture directory");
+    let mut native: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&MESSAGE.replace("1960thread123work", "thread-1")).expect("native message fixture");
+    match subject_json {
+        Some(value) => {
+            native.insert("subject".into(), serde_json::from_str(value).expect("subject JSON"));
+        }
+        None => {
+            native.remove("subject");
+        }
+    }
+    fs::write(
+        root.join("message.json"),
+        serde_json::to_vec(&native).expect("native message JSON"),
+    )
+    .expect("write native message");
+}
+
+#[test]
+fn mail_read_retains_messages_without_a_subject() {
+    let _guard = lock_env();
+    let script = fixture();
+    for (subject_json, expected) in [
+        (Some(r#""""#), Some("")),
+        (None, None),
+        (Some("null"), None),
+        (Some(r#""  ""#), Some("  ")),
+        (Some(r#""A subject""#), Some("A subject")),
+    ] {
+        set_subject_fixture(&script, subject_json);
+        let output = execute("google.mail.read", vec![option("id", "message-1")]);
+        let message: SubjectMessage =
+            serde_json::from_value(output.fields.get("message").expect("message").clone()).expect("decoded message");
+        assert_eq!(message.gmail_message_id, "message-1");
+        assert_eq!(message.gmail_thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(message.subject.as_deref(), expected);
+        assert!(message.body_text.contains("Hi Jess"));
+        assert_eq!(output.summary, "Read Gmail message message-1 in google.work");
+        assert_eq!(output.coverage.expect("coverage").status, CoverageStatus::Complete);
+        assert_eq!(output.refs[0].id, "message-1");
+        assert_eq!(output.refs[1].id, "thread-1");
+    }
+}
+
+#[test]
+fn context_reads_retain_messages_without_a_subject() {
+    let _guard = lock_env();
+    let script = fixture();
+    for (subject_json, expected) in [
+        (Some(r#""""#), Some("")),
+        (None, None),
+        (Some("null"), None),
+        (Some(r#""  ""#), Some("  ")),
+    ] {
+        set_subject_fixture(&script, subject_json);
+        for (tool, args, count) in [
+            ("google.mail.search", hydrate(), 2),
+            ("google.mail.thread", vec![option("thread-id", "thread-1")], 3),
+        ] {
+            let output = execute(tool, args);
+            assert_eq!(output.coverage.expect("coverage").status, CoverageStatus::Complete);
+            let rows: Vec<SubjectMessage> =
+                serde_json::from_value(output.fields.get("messages").expect("messages").clone())
+                    .expect("hydrated messages");
+            assert_eq!(rows.len(), count);
+            assert_eq!(rows[0].gmail_message_id, "message-1");
+            assert!(rows
+                .iter()
+                .all(|row| row.gmail_thread_id.as_deref() == Some("thread-1")));
+            assert!(rows.iter().all(|row| row.subject.as_deref() == expected));
+            assert!(rows.iter().all(|row| row.body_text.contains("Hi Jess")));
+            assert_eq!(
+                output
+                    .refs
+                    .iter()
+                    .filter(|reference| reference.kind == ToolRefKind::Message)
+                    .count(),
+                count
+            );
+        }
+    }
 }
 
 #[test]
