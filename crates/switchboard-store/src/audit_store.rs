@@ -34,8 +34,12 @@ impl SqliteAuditStore {
             })?;
         }
 
-        let connection = Connection::open(&self.path)
-            .map_err(|error| Error::Audit(format!("failed to open audit store {}: {error}", self.path.display())))?;
+        let connection = crate::open_durable_sqlite_connection(&self.path).map_err(|error| {
+            Error::Audit(format!(
+                "failed to open or configure audit store {}: {error}",
+                self.path.display()
+            ))
+        })?;
 
         connection
             .execute_batch(
@@ -253,6 +257,28 @@ mod tests {
             connection
                 .execute(&update, [valid, fetched.id.as_str()])
                 .expect("valid identifier should be restored");
+        }
+    }
+
+    #[test]
+    fn every_audit_connection_uses_full_durability() {
+        let path = unique_test_path("audit-durability");
+        for _ in 0..2 {
+            let store = SqliteAuditStore::open(&path).expect("store should open or reopen");
+            for _ in 0..2 {
+                let connection = store.connect().expect("fresh audit connection");
+                let synchronous: i64 = connection
+                    .pragma_query_value(None, "synchronous", |row| row.get(0))
+                    .expect("synchronous policy");
+                assert_eq!(synchronous, 2);
+                #[cfg(target_os = "macos")]
+                {
+                    let fullfsync: i64 = connection
+                        .pragma_query_value(None, "fullfsync", |row| row.get(0))
+                        .expect("macOS fullfsync policy");
+                    assert_eq!(fullfsync, 1);
+                }
+            }
         }
     }
 

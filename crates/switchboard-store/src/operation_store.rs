@@ -36,9 +36,9 @@ impl SqliteOperationStore {
             })?;
         }
 
-        let connection = Connection::open(&self.path).map_err(|error| {
+        let connection = crate::open_durable_sqlite_connection(&self.path).map_err(|error| {
             Error::Operation(format!(
-                "failed to open operation store {}: {error}",
+                "failed to open or configure operation store {}: {error}",
                 self.path.display()
             ))
         })?;
@@ -488,6 +488,28 @@ mod tests {
 
         assert_eq!(stored.status, OperationStatus::Applied);
         assert_eq!(stored.effect.as_ref().map(|effect| effect.undoable), Some(true));
+    }
+
+    #[test]
+    fn every_operation_connection_uses_full_durability() {
+        let path = temp_db_path("durability");
+        for _ in 0..2 {
+            let store = SqliteOperationStore::open(&path).expect("store should open or reopen");
+            for _ in 0..2 {
+                let connection = store.connect().expect("fresh operation connection");
+                let synchronous: i64 = connection
+                    .pragma_query_value(None, "synchronous", |row| row.get(0))
+                    .expect("synchronous policy");
+                assert_eq!(synchronous, 2);
+                #[cfg(target_os = "macos")]
+                {
+                    let fullfsync: i64 = connection
+                        .pragma_query_value(None, "fullfsync", |row| row.get(0))
+                        .expect("macOS fullfsync policy");
+                    assert_eq!(fullfsync, 1);
+                }
+            }
+        }
     }
 
     #[test]
