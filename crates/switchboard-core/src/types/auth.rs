@@ -436,6 +436,13 @@ impl ResolvedAuth {
             if !delegation.subject.eq_ignore_ascii_case(&account_label) {
                 return Err(Error::Config("delegated subject must match the auth account".into()));
             }
+            // Settings delegation and ordinary OAuth share this namespace's
+            // credential directory, so they must identify the same account.
+            if !delegation.signer_account.eq_ignore_ascii_case(&account_label) {
+                return Err(Error::Config(
+                    "delegated signer and subject must use the same namespace account".into(),
+                ));
+            }
         }
 
         Ok(Self {
@@ -696,5 +703,38 @@ mod tests {
             assert!(ResolvedAuth::new(invalid, "account", AuthSecretRefs::GoogleCli).is_err());
             assert!(ResolvedAuth::new("auth_ref", invalid, AuthSecretRefs::GoogleCli).is_err());
         }
+    }
+
+    #[test]
+    fn delegated_auth_cannot_route_ordinary_oauth_through_another_signer() {
+        let mut delegation = crate::GoogleDelegation {
+            project: "example-project".into(),
+            service_account: "settings@example-project.iam.gserviceaccount.com".into(),
+            domain: "example.com".into(),
+            subject: "person@example.com".into(),
+            signer_account: "signer@example.com".into(),
+            signer_state_dir: "/tmp/workspace".into(),
+        };
+        delegation
+            .validate()
+            .expect("standalone delegation may own separate identities");
+        let error = ResolvedAuth::new(
+            "work",
+            "person@example.com",
+            AuthSecretRefs::GoogleDelegated {
+                delegation: delegation.clone(),
+            },
+        )
+        .expect_err("a namespace's ordinary OAuth login must be its delegated subject");
+        assert!(matches!(error, crate::Error::Config(_)));
+
+        delegation.signer_account = "PERSON@example.com".into();
+        let auth = ResolvedAuth::new(
+            "work",
+            "person@example.com",
+            AuthSecretRefs::GoogleDelegated { delegation },
+        )
+        .expect("the same account may own both namespace authentication paths");
+        assert_eq!(auth.account_label(), "person@example.com");
     }
 }

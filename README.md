@@ -237,7 +237,8 @@ normal scoped login; `--refresh` explicitly renews only ordinary OAuth.
 Only Gmail-settings API calls use a newly minted, short-lived delegated token
 in their `gws` child process. Mail, Drive, Calendar and other commands retain
 the saved user OAuth session. No delegated token is cached or printed. Auth
-checks use the primary send-as address, not mailbox access.
+checks use the primary send-as address, not mailbox access. The signer and
+delegated subject must use the same namespace account.
 
 Google's grant is genuinely domain-wide: Switchboard fixes the subject and
 settings scopes, but a compromised IAM signer could impersonate other users
