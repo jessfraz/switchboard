@@ -21,7 +21,7 @@ pub(crate) enum GoogleWorkspaceCliCredentials<'a> {
 impl<'a> GoogleWorkspaceCliCredentials<'a> {
     fn from_target(target: &'a ExecutionTarget) -> Result<Self> {
         match &target.credentials {
-            ResolvedCredentials::GoogleCli => Ok(Self::CliManaged),
+            ResolvedCredentials::GoogleCli | ResolvedCredentials::GoogleDelegated { .. } => Ok(Self::CliManaged),
             ResolvedCredentials::GoogleOAuth {
                 client_id,
                 client_secret,
@@ -47,7 +47,7 @@ impl<'a> GoogleWorkspaceCliCredentials<'a> {
 }
 
 impl CliRuntimeMaterializer for DefaultGoogleWorkspaceCliMaterializer {
-    fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext> {
+    fn prepare(&self, target: &ExecutionTarget, _argv: &[String]) -> Result<ProcessContext> {
         let mut context = ProcessContext::new();
         context.set_env(CREDENTIAL_STORAGE_BACKEND_ENV, "file");
         let state_dir = target.namespace.state_dir.as_ref().ok_or_else(|| {
@@ -58,6 +58,13 @@ impl CliRuntimeMaterializer for DefaultGoogleWorkspaceCliMaterializer {
         })?;
         context.set_env(CONFIG_DIR_ENV, state_dir.display().to_string());
 
+        if let ResolvedCredentials::GoogleDelegated { delegation } = &target.credentials {
+            if crate::google::delegation::uses_delegation(_argv) {
+                crate::google::delegation::validate_subject(_argv, &delegation.subject)?;
+                let token = crate::google::delegation::delegated_token(delegation)?;
+                return Ok(delegated_context(state_dir, &token));
+            }
+        }
         match GoogleWorkspaceCliCredentials::from_target(target)? {
             GoogleWorkspaceCliCredentials::CliManaged => {
                 context.clear_env(TOKEN_ENV);
@@ -94,6 +101,23 @@ impl CliRuntimeMaterializer for DefaultGoogleWorkspaceCliMaterializer {
     }
 }
 
+/// The access token is only installed in this child context, never in the
+/// parent environment, namespace credential files, or generic tool output.
+pub(crate) fn delegated_context(state_dir: &std::path::Path, token: &switchboard_core::SecretString) -> ProcessContext {
+    let mut context = ProcessContext::new();
+    context.set_env(CREDENTIAL_STORAGE_BACKEND_ENV, "file");
+    context.set_env(CONFIG_DIR_ENV, state_dir.display().to_string());
+    context.set_env(TOKEN_ENV, token.expose());
+    for key in [CREDENTIALS_FILE_ENV, CLIENT_ID_ENV, CLIENT_SECRET_ENV] {
+        context.clear_env(key);
+    }
+    context.set_env(
+        APPLICATION_CREDENTIALS_ENV,
+        state_dir.join("no-adc-fallback").display().to_string(),
+    );
+    context
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::PathBuf};
@@ -120,7 +144,7 @@ mod tests {
     fn cli_managed_credentials_scope_local_login_and_clear_ambient_credentials() {
         let target = execution_target(ResolvedCredentials::GoogleCli, Some(PathBuf::from("/tmp/gws-work")));
         let process = DefaultGoogleWorkspaceCliMaterializer
-            .prepare(&target)
+            .prepare(&target, &[])
             .expect("local Google credentials should materialize");
 
         assert_eq!(
@@ -153,7 +177,9 @@ mod tests {
             Some(PathBuf::from("/tmp/gws-work")),
         );
 
-        let process = materializer.prepare(&target).expect("materialization should succeed");
+        let process = materializer
+            .prepare(&target, &[])
+            .expect("materialization should succeed");
 
         assert_eq!(process.env().get(CLIENT_ID_ENV).map(String::as_str), Some("client-id"));
         assert_eq!(
@@ -183,7 +209,9 @@ mod tests {
             Some(PathBuf::from("/tmp/gws-personal")),
         );
 
-        let process = materializer.prepare(&target).expect("materialization should succeed");
+        let process = materializer
+            .prepare(&target, &[])
+            .expect("materialization should succeed");
 
         let credentials_path = process
             .env()
@@ -222,6 +250,33 @@ mod tests {
     }
 
     #[test]
+    fn delegated_account_retains_ordinary_oauth_outside_gmail_settings() {
+        let target = execution_target(
+            ResolvedCredentials::GoogleDelegated {
+                delegation: switchboard_core::GoogleDelegation {
+                    project: "example-project".into(),
+                    service_account: "settings@example-project.iam.gserviceaccount.com".into(),
+                    domain: "example.com".into(),
+                    subject: "jess@example.com".into(),
+                    signer_account: "jess@example.com".into(),
+                    signer_state_dir: "/tmp/gws-work".into(),
+                },
+            },
+            Some("/tmp/gws-work".into()),
+        );
+        let argv = vec!["gmail".into(), "users".into(), "getProfile".into()];
+        let process = DefaultGoogleWorkspaceCliMaterializer
+            .prepare(&target, &argv)
+            .expect("ordinary credentials should materialize without delegation");
+        assert!(process.cleared_env().contains(TOKEN_ENV));
+        assert!(!process.env().contains_key(TOKEN_ENV));
+        assert_eq!(
+            process.env().get(APPLICATION_CREDENTIALS_ENV).map(String::as_str),
+            Some("/tmp/gws-work/credentials.json")
+        );
+    }
+
+    #[test]
     fn materializer_rejects_non_google_credentials() {
         let materializer = DefaultGoogleWorkspaceCliMaterializer;
         let target = execution_target(
@@ -231,7 +286,7 @@ mod tests {
             Some(PathBuf::from("/tmp/gws-work")),
         );
 
-        let error = match materializer.prepare(&target) {
+        let error = match materializer.prepare(&target, &[]) {
             Ok(_) => panic!("github credentials should be rejected"),
             Err(error) => error,
         };
@@ -253,7 +308,7 @@ mod tests {
             None,
         );
 
-        let error = match materializer.prepare(&target) {
+        let error = match materializer.prepare(&target, &[]) {
             Ok(_) => panic!("google credentials without isolated storage should be rejected"),
             Err(error) => error,
         };
@@ -269,6 +324,9 @@ mod tests {
     fn execution_target(credentials: ResolvedCredentials, state_dir: Option<PathBuf>) -> ExecutionTarget {
         let secrets = match credentials {
             ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
+            ResolvedCredentials::GoogleDelegated { ref delegation } => AuthSecretRefs::GoogleDelegated {
+                delegation: delegation.clone(),
+            },
             ResolvedCredentials::GoogleOAuth { .. } => AuthSecretRefs::GoogleOAuth {
                 client_id: SecretRef::new("google.work_client_id").expect("secret ref should build"),
                 client_secret: SecretRef::new("google.work_client_secret").expect("secret ref should build"),

@@ -171,7 +171,10 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
         } else {
             Vec::new()
         };
-        if google && auth.kind() == AuthKind::GoogleCli && !saved_auth_files.iter().any(is_saved_credential) {
+        if google
+            && matches!(auth.kind(), AuthKind::GoogleCli | AuthKind::GoogleDelegated)
+            && !saved_auth_files.iter().any(is_saved_credential)
+        {
             report.issues.push(format!(
                 "{}: no saved Google credentials found; run switchboard google.cli.write --ns {} -- auth login after configuring the OAuth client.",
                 namespace.id, namespace.id
@@ -200,9 +203,10 @@ fn inspect(config_path: &Path, namespace_filter: Option<&str>) -> Result<DoctorR
                 }
             }
         };
-        let migration_preview =
-            (google && auth.kind() != AuthKind::GoogleCli && saved_auth_files.iter().any(is_saved_credential))
-                .then(|| format!("switchboard auth migration-preview --ns {} --json", namespace.id));
+        let migration_preview = (google
+            && !matches!(auth.kind(), AuthKind::GoogleCli | AuthKind::GoogleDelegated)
+            && saved_auth_files.iter().any(is_saved_credential))
+        .then(|| format!("switchboard auth migration-preview --ns {} --json", namespace.id));
         report.namespaces.push(NamespaceDiagnostic {
             namespace: namespace.id.to_string(),
             provider: namespace.provider,

@@ -178,6 +178,10 @@ switchboard google.cli.write --ns google.personal --draft -- auth login
 switchboard op approve <operation-id> --apply
 ```
 
+`switchboard auth login --ns google.personal` performs that same scoped login
+and approval in one command. Existing raw `gws auth login` calls and explicit
+service/scope flags retain their behavior.
+
 Existing namespace logins need no new client setup. Standard bare `auth login`
 requests explicit scopes for Drive and its activity history, Sheets, Gmail and
 filter settings, Calendar, Docs, Slides, Tasks, Contacts (including Other
@@ -198,6 +202,50 @@ and `googlemail.com` accounts omit the Workspace scopes that their
 accounts cannot grant. Existing sessions gain scopes only after a new login
 and consent; this change does not modify saved credentials automatically.
 
+### Optional Workspace Gmail settings
+
+Creating or verifying a send-as alias requires Workspace administrator
+permission. Adding more ordinary OAuth scopes cannot enable it, and consumer
+Google accounts cannot use that API. Normal login never provisions this.
+
+When this capability is needed, use the same account and namespace:
+
+```sh
+switchboard auth login --ns google.work --setup
+switchboard auth login --ns google.work --apply
+# A super administrator adds the displayed client ID and scopes at the link.
+switchboard auth login --ns google.work
+```
+
+Setup reuses the Cloud project from the existing OAuth client, displays the
+exact service account, signer and scopes, and saves a resumable, nonsecret plan.
+If the project cannot be inferred, supply `--project PROJECT_ID` once. Applying
+first verifies Google-hosted domain membership, not just an email suffix.
+Explicit OAuth-file/1Password sources must be migrated to the supported
+namespace-managed login first and are never silently replaced. Applying
+requires permission to enable APIs, create the dedicated service account and
+update its IAM policy. No project, billing account or private key is created.
+Only the named signer receives Token Creator on that service account, not on
+the whole project. Existing resources and IAM conditions are preserved.
+
+The one manual Google step is a super-administrator domain-wide-delegation
+grant, sometimes requiring a second administrator and up to 24 hours to
+propagate. Subsequent `auth login --ns google.work` resumes verification without
+recreating resources or repeating that grant. Expired signer sessions use the
+normal scoped login; `--refresh` explicitly renews only ordinary OAuth.
+
+Only Gmail-settings API calls use a newly minted, short-lived delegated token
+in their `gws` child process. Mail, Drive, Calendar and other commands retain
+the saved user OAuth session. No delegated token is cached or printed. Auth
+checks use the primary send-as address, not mailbox access.
+
+Google's grant is genuinely domain-wide: Switchboard fixes the subject and
+settings scopes, but a compromised IAM signer could impersonate other users
+within those Google-granted scopes. Remove the Admin-console grant and the
+service-account signer permission to revoke this capability. Existing tokens
+can remain valid until their one-hour expiry; there are no downloaded keys to
+rotate. Failed verification never silently regrants permissions.
+
 Use a read-only identity request to verify access, including the expected
 account, before parallel work:
 
@@ -207,8 +255,10 @@ switchboard auth migration-preview --ns google.personal --verify --json
 ```
 
 `auth check` supports Google and GitHub. Google identity verification uses
-Gmail `getProfile` and requires Gmail access. Ordinary commands use credential
-caches and existing sessions first, without environment-variable setup.
+Gmail `getProfile` and requires Gmail access. When delegated Gmail settings are
+configured, it instead checks the primary send-as address without reading mail.
+Ordinary commands use credential caches and existing sessions first, without
+environment-variable setup.
 Rejected cached 1Password credentials are invalidated only after a structured
 authentication rejection, then re-resolved once. A cache miss can make one
 desktop-unlock attempt, bounded to 60 seconds. Commands automatically share a

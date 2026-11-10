@@ -22,7 +22,7 @@ pub use crate::{
         CliTransportMetadata,
     },
     github::GitHubAdapter,
-    google::GoogleWorkspaceAdapter,
+    google::{delegation, GoogleWorkspaceAdapter},
     messages::MessagesAdapter,
     mychart::MyChartAdapter,
     phone::PhoneAdapter,

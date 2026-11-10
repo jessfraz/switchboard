@@ -75,12 +75,34 @@ complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l field
 complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l json
 complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -l full -d 'Show full diagnostic output and pretty-printed JSON'
 complete -c switchboard -n "__fish_switchboard_using_subcommand doctor" -s h -l help -d 'Print help'
-complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from check migration-preview" -l config -r -F
-complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from check migration-preview" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
-complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from check migration-preview" -l full -d 'Show full diagnostic output and pretty-printed JSON'
-complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from check migration-preview" -s h -l help -d 'Print help'
-complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from check migration-preview" -f -a "check" -d 'Perform a read-only provider identity request and verify the configured account'
-complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from check migration-preview" -f -a "migration-preview" -d 'Show an opt-in Google CLI migration without modifying configuration or credentials'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -l config -r -F
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -l full -d 'Show full diagnostic output and pretty-printed JSON'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -s h -l help -d 'Print help'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -f -a "login" -d 'Log in normally, or resume administrator setup when this account needs it'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -f -a "setup" -d 'Prepare or resume Workspace Gmail-settings administrator setup'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -f -a "check" -d 'Perform a read-only provider identity request and verify the configured account'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and not __fish_seen_subcommand_from login setup check migration-preview" -f -a "migration-preview" -d 'Show an opt-in Google CLI migration without modifying configuration or credentials'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l ns -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l project -d 'Optional existing Cloud project. Normally inferred from this account\'s login' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l config -r -F
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l setup -d 'Set up sensitive Gmail settings when a Workspace administrator is required'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l apply -d 'Apply the previously displayed Cloud-resource and signer-permission plan'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l refresh -d 'Renew the ordinary OAuth login without changing delegation or its scopes'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l json
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -l full -d 'Show full diagnostic output and pretty-printed JSON'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from login" -s h -l help -d 'Print help'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l ns -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l project -d 'Optional existing Cloud project. Normally inferred from this account\'s login' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l config -r -F
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l fields -d 'Select comma-separated paths within result fields; arrays apply each path to every row' -r
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l setup -d 'Set up sensitive Gmail settings when a Workspace administrator is required'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l apply -d 'Apply the previously displayed Cloud-resource and signer-permission plan'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l refresh -d 'Renew the ordinary OAuth login without changing delegation or its scopes'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l json
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -l full -d 'Show full diagnostic output and pretty-printed JSON'
+complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from setup" -s h -l help -d 'Print help'
 complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from check" -l ns -r
 complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from check" -l run-id -d 'Share the one-recovery-attempt budget across commands in this task' -r
 complete -c switchboard -n "__fish_switchboard_using_subcommand auth; and __fish_seen_subcommand_from check" -l config -r -F

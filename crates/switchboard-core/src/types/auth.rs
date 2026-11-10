@@ -76,6 +76,8 @@ pub enum AuthKind {
     GitHubToken,
     #[serde(rename = "google_cli")]
     GoogleCli,
+    #[serde(rename = "google_delegated")]
+    GoogleDelegated,
     #[serde(rename = "google_oauth")]
     GoogleOAuth,
     #[serde(rename = "google_oauth_file")]
@@ -96,6 +98,7 @@ impl AuthKind {
             "gh_cli" | "github_cli" => Some(Self::GitHubCli),
             "github_token" => Some(Self::GitHubToken),
             "google_cli" => Some(Self::GoogleCli),
+            "google_delegated" => Some(Self::GoogleDelegated),
             "google_oauth" => Some(Self::GoogleOAuth),
             "google_oauth_file" => Some(Self::GoogleOAuthFile),
             "mychart_cli" => Some(Self::MyChartCli),
@@ -109,7 +112,9 @@ impl AuthKind {
     pub fn provider(&self) -> ProviderKind {
         match self {
             Self::GitHubCli | Self::GitHubToken => ProviderKind::GitHub,
-            Self::GoogleCli | Self::GoogleOAuth | Self::GoogleOAuthFile => ProviderKind::GoogleWorkspace,
+            Self::GoogleCli | Self::GoogleDelegated | Self::GoogleOAuth | Self::GoogleOAuthFile => {
+                ProviderKind::GoogleWorkspace
+            }
             Self::MyChartCli => ProviderKind::MyChart,
             Self::SchwabCli => ProviderKind::Schwab,
             Self::PhoneCli => ProviderKind::Phone,
@@ -124,6 +129,7 @@ impl Display for AuthKind {
             Self::GitHubCli => "gh_cli",
             Self::GitHubToken => "github_token",
             Self::GoogleCli => "google_cli",
+            Self::GoogleDelegated => "google_delegated",
             Self::GoogleOAuth => "google_oauth",
             Self::GoogleOAuthFile => "google_oauth_file",
             Self::MyChartCli => "mychart_cli",
@@ -231,6 +237,8 @@ pub enum AuthSecretRefs {
     GitHubToken { token: SecretRef },
     #[serde(rename = "google_cli")]
     GoogleCli,
+    #[serde(rename = "google_delegated")]
+    GoogleDelegated { delegation: crate::GoogleDelegation },
     #[serde(rename = "google_oauth")]
     GoogleOAuth {
         client_id: SecretRef,
@@ -302,6 +310,7 @@ impl AuthSecretRefs {
             Self::GitHubCli => AuthKind::GitHubCli,
             Self::GitHubToken { .. } => AuthKind::GitHubToken,
             Self::GoogleCli => AuthKind::GoogleCli,
+            Self::GoogleDelegated { .. } => AuthKind::GoogleDelegated,
             Self::GoogleOAuth { .. } => AuthKind::GoogleOAuth,
             Self::GoogleOAuthFile { .. } => AuthKind::GoogleOAuthFile,
             Self::MyChartCli { .. } => AuthKind::MyChartCli,
@@ -319,7 +328,7 @@ impl AuthSecretRefs {
                 .into_iter()
                 .flatten()
                 .collect(),
-            Self::GitHubCli | Self::GoogleCli | Self::MessagesLocal => Vec::new(),
+            Self::GitHubCli | Self::GoogleCli | Self::GoogleDelegated { .. } | Self::MessagesLocal => Vec::new(),
             Self::GitHubToken { token } => vec![token],
             Self::GoogleOAuth {
                 client_id,
@@ -422,6 +431,12 @@ impl ResolvedAuth {
     pub fn new(id: impl Into<String>, account_label: impl Into<String>, secrets: AuthSecretRefs) -> Result<Self> {
         let account_label = account_label.into();
         crate::types::validate_non_empty("auth account label", &account_label)?;
+        if let AuthSecretRefs::GoogleDelegated { delegation } = &secrets {
+            delegation.validate()?;
+            if !delegation.subject.eq_ignore_ascii_case(&account_label) {
+                return Err(Error::Config("delegated subject must match the auth account".into()));
+            }
+        }
 
         Ok(Self {
             id: AuthRef::new(id)?,
@@ -506,6 +521,9 @@ pub enum ResolvedCredentials {
         token: SecretString,
     },
     GoogleCli,
+    GoogleDelegated {
+        delegation: crate::GoogleDelegation,
+    },
     GoogleOAuth {
         client_id: SecretString,
         client_secret: SecretString,

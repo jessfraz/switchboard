@@ -1,6 +1,7 @@
 mod audit;
 mod auth;
 mod context;
+mod google_delegation;
 mod identity;
 mod operation;
 mod policy;
@@ -14,6 +15,7 @@ pub use crate::types::{
         SecretString,
     },
     context::{AuthScopeProfile, BackendKind, ExecutionTarget, PlanningTarget, ResolvedNamespace},
+    google_delegation::GoogleDelegation,
     identity::{NamespaceId, OperationId, ProviderKind, ToolName},
     operation::{ApprovalState, OperationApproval, OperationEffect, OperationStatus, StoredOperation},
     policy::{PolicyDecision, WritePolicy},

@@ -28,6 +28,9 @@ clap_complete.workspace = true
 clap_mangen.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
+sha2.workspace = true
+tempfile = "3.27.0"
 switchboard-core = { path = "../switchboard-core" }
 switchboard-providers = { path = "../switchboard-providers" }
 switchboard-store = { path = "../switchboard-store" }

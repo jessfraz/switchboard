@@ -1,5 +1,6 @@
 mod calendar;
 mod context;
+pub mod delegation;
 mod fanout;
 mod materializer;
 mod search;
@@ -212,13 +213,21 @@ impl Adapter for GoogleWorkspaceAdapter {
         let request = Self::prepare_verifiable_upload(&request)?;
         context::validate_args(request.tool.as_str(), &request.args)?;
         let summary = command.summarize.summarize(&target.namespace, &request)?;
-        Ok(PlannedAction::new(
-            &request,
-            target,
-            descriptor.kind,
-            summary,
-            descriptor.backend,
-        ))
+        let action = PlannedAction::new(&request, target, descriptor.kind, summary, descriptor.backend);
+        if let Some(spec) = command.executable.as_ref() {
+            let argv = spec.args.build_args(&action)?;
+            if delegation::requires_delegation(&argv) {
+                match target.auth.secrets() {
+                    switchboard_core::AuthSecretRefs::GoogleDelegated { delegation } => {
+                        delegation::validate_subject(&argv, &delegation.subject)?;
+                    }
+                    _ => return Err(Error::UnsupportedOperation(format!(
+                        "This Gmail setting requires Workspace administrator authorization, not more ordinary OAuth scopes. Run `switchboard auth login --ns {} --setup` for guided setup. Consumer Google accounts cannot use this API.", target.namespace.id
+                    ))),
+                }
+            }
+        }
+        Ok(action)
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {

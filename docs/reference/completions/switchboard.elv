@@ -93,8 +93,36 @@ set edit:completion:arg-completer[switchboard] = {|@words|
             cand --full 'Show full diagnostic output and pretty-printed JSON'
             cand -h 'Print help'
             cand --help 'Print help'
+            cand login 'Log in normally, or resume administrator setup when this account needs it'
+            cand setup 'Prepare or resume Workspace Gmail-settings administrator setup'
             cand check 'Perform a read-only provider identity request and verify the configured account'
             cand migration-preview 'Show an opt-in Google CLI migration without modifying configuration or credentials'
+        }
+        &'switchboard;auth;login'= {
+            cand --ns 'ns'
+            cand --project 'Optional existing Cloud project. Normally inferred from this account''s login'
+            cand --config 'config'
+            cand --fields 'Select comma-separated paths within result fields; arrays apply each path to every row'
+            cand --setup 'Set up sensitive Gmail settings when a Workspace administrator is required'
+            cand --apply 'Apply the previously displayed Cloud-resource and signer-permission plan'
+            cand --refresh 'Renew the ordinary OAuth login without changing delegation or its scopes'
+            cand --json 'json'
+            cand --full 'Show full diagnostic output and pretty-printed JSON'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'switchboard;auth;setup'= {
+            cand --ns 'ns'
+            cand --project 'Optional existing Cloud project. Normally inferred from this account''s login'
+            cand --config 'config'
+            cand --fields 'Select comma-separated paths within result fields; arrays apply each path to every row'
+            cand --setup 'Set up sensitive Gmail settings when a Workspace administrator is required'
+            cand --apply 'Apply the previously displayed Cloud-resource and signer-permission plan'
+            cand --refresh 'Renew the ordinary OAuth login without changing delegation or its scopes'
+            cand --json 'json'
+            cand --full 'Show full diagnostic output and pretty-printed JSON'
+            cand -h 'Print help'
+            cand --help 'Print help'
         }
         &'switchboard;auth;check'= {
             cand --ns 'ns'

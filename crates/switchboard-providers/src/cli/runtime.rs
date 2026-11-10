@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub(crate) trait CliRuntimeMaterializer: Send + Sync {
-    fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext>;
+    fn prepare(&self, target: &ExecutionTarget, argv: &[String]) -> Result<ProcessContext>;
 }
 
 pub(crate) struct CliProviderBackend {
@@ -62,7 +62,7 @@ impl CliProviderBackend {
             .inspect(&spec.binary, &program, &spec.capability, self.executor.as_ref())?;
         let probe_us = ExecutionTimings::elapsed_us(started);
         let started = Instant::now();
-        let runtime = self.materializer.prepare(target)?;
+        let runtime = self.materializer.prepare(target, &args)?;
         let materialize_us = ExecutionTimings::elapsed_us(started);
         let started = Instant::now();
         let output = self.executor.execute(CliInvocation {
