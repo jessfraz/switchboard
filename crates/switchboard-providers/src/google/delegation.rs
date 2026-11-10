@@ -387,6 +387,8 @@ struct OperationError {
 #[derive(Deserialize, Serialize)]
 struct ServiceAccount {
     email: String,
+    #[serde(rename = "uniqueId", default)]
+    unique_id: String,
     #[serde(rename = "oauth2ClientId")]
     client_id: String,
     #[serde(default)]
@@ -437,6 +439,15 @@ struct SetPolicy<'a> {
     policy: &'a IamPolicy,
     update_mask: &'static str,
 }
+#[derive(Serialize)]
+struct GetPolicy {
+    options: PolicyOptions,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PolicyOptions {
+    requested_policy_version: u32,
+}
 
 impl Http {
     fn wait(&self, base: &str, operation: Operation, token: &SecretString) -> Result<()> {
@@ -472,8 +483,59 @@ impl Http {
             "Google is still enabling the API. Setup is resumable; run auth login again with --apply".into(),
         ))
     }
+    fn enable_api(&self, project: &str, api: &str, token: &SecretString) -> Result<()> {
+        let url = format!("{}/{project}/services/{api}", self.usage_url);
+        let service: Service = self.send(
+            self.client.get(&url).bearer_auth(token.expose()),
+            "API enablement preflight",
+        )?;
+        if service.state != "ENABLED" {
+            let operation = self.send(
+                self.client
+                    .post(format!("{url}:enable"))
+                    .bearer_auth(token.expose())
+                    .json(&Empty {}),
+                "API enablement",
+            )?;
+            let base = self
+                .usage_url
+                .strip_suffix("/projects")
+                .ok_or_else(|| Error::Config("invalid Service Usage origin".into()))?;
+            self.wait(base, operation, token)?;
+            let enabled: Service = self.send(
+                self.client.get(&url).bearer_auth(token.expose()),
+                "API enablement readback",
+            )?;
+            if enabled.state != "ENABLED" {
+                return Err(Error::Execution(
+                    "API enablement was not confirmed; resume setup before proceeding".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+    fn new_account_readback(&self, account_url: &str, token: &SecretString) -> Result<ServiceAccount> {
+        // Google documents eventual visibility after creation. Numeric IDs
+        // avoid email-alias propagation; only these reads may be retried.
+        for attempt in 0..5 {
+            let response = self.response(
+                self.client.get(account_url).bearer_auth(token.expose()),
+                "service-account creation readback",
+            )?;
+            if response.status() != reqwest::StatusCode::NOT_FOUND {
+                return self.decode(response, "service-account creation readback");
+            }
+            if attempt < 4 {
+                std::thread::sleep(Duration::from_millis(250 << attempt));
+            }
+        }
+        Err(Error::Execution("Google is still publishing this service account. Setup is saved; resume auth login with --apply to reconcile it. Account creation was not retried.".into()))
+    }
     fn provision(&self, config: &GoogleDelegation, token: &SecretString) -> Result<CloudGrant> {
         config.validate()?;
+        // Bootstrap the API needed to resolve the project's numeric ID. Service
+        // Usage accepts the explicit project ID as well as its numeric form.
+        self.enable_api(&config.project, "cloudresourcemanager.googleapis.com", token)?;
         let project: Project = self.send(
             self.client
                 .get(format!("{}/{}", self.cloud_url, config.project))
@@ -490,34 +552,7 @@ impl Http {
             "iamcredentials.googleapis.com",
             "gmail.googleapis.com",
         ] {
-            let url = format!("{}/{}/services/{api}", self.usage_url, project.number);
-            let service: Service = self.send(
-                self.client.get(&url).bearer_auth(token.expose()),
-                "API enablement preflight",
-            )?;
-            if service.state != "ENABLED" {
-                let operation = self.send(
-                    self.client
-                        .post(format!("{url}:enable"))
-                        .bearer_auth(token.expose())
-                        .json(&Empty {}),
-                    "API enablement",
-                )?;
-                let base = self
-                    .usage_url
-                    .strip_suffix("/projects")
-                    .ok_or_else(|| Error::Config("invalid Service Usage origin".into()))?;
-                self.wait(base, operation, token)?;
-                let enabled: Service = self.send(
-                    self.client.get(&url).bearer_auth(token.expose()),
-                    "API enablement readback",
-                )?;
-                if enabled.state != "ENABLED" {
-                    return Err(Error::Execution(
-                        "API enablement was not confirmed; resume setup before proceeding".into(),
-                    ));
-                }
-            }
+            self.enable_api(&project.number, api, token)?;
         }
         let account_url = format!(
             "{}/{}/serviceAccounts/{}",
@@ -533,7 +568,7 @@ impl Http {
                 .split_once('@')
                 .ok_or_else(|| Error::Config("invalid service-account email".into()))?
                 .0;
-            let _: ServiceAccount = self.send(
+            let created: ServiceAccount = self.send(
                 self.client
                     .post(format!("{}/{}/serviceAccounts", self.iam_url, config.project))
                     .bearer_auth(token.expose())
@@ -546,27 +581,55 @@ impl Http {
                     }),
                 "service-account creation",
             )?;
-            self.send(
-                self.client.get(&account_url).bearer_auth(token.expose()),
-                "service-account creation readback",
-            )?
+            if created.email != config.service_account
+                || created.unique_id.is_empty()
+                || !created.unique_id.bytes().all(|c| c.is_ascii_digit())
+            {
+                return Err(Error::Execution(
+                    "Created service account did not match the saved setup; no IAM policy was changed".into(),
+                ));
+            }
+            let numeric_url = format!(
+                "{}/{}/serviceAccounts/{}",
+                self.iam_url, config.project, created.unique_id
+            );
+            let readback = self.new_account_readback(&numeric_url, token)?;
+            if readback.unique_id != created.unique_id {
+                return Err(Error::Execution(
+                    "Service-account identity changed during creation readback; no IAM policy was changed".into(),
+                ));
+            }
+            readback
         } else {
             self.decode(response, "service-account preflight")?
         };
         if account.email != config.service_account
             || account.disabled
+            || !account.unique_id.bytes().all(|c| c.is_ascii_digit())
             || account.description != DESCRIPTION
             || account.client_id.is_empty()
             || !account.client_id.bytes().all(|c| c.is_ascii_digit())
         {
             return Err(Error::Execution("service account does not match this setup, is disabled, or has no numeric client ID; no IAM policy was changed".into()));
         }
+        let account_url = if account.unique_id.is_empty() {
+            account_url
+        } else {
+            format!(
+                "{}/{}/serviceAccounts/{}",
+                self.iam_url, config.project, account.unique_id
+            )
+        };
         let policy_url = format!("{account_url}:getIamPolicy");
         let mut policy: IamPolicy = self.send(
             self.client
                 .post(&policy_url)
                 .bearer_auth(token.expose())
-                .query(&[("options.requestedPolicyVersion", "3")]),
+                .json(&GetPolicy {
+                    options: PolicyOptions {
+                        requested_policy_version: 3,
+                    },
+                }),
             "signer policy preflight",
         )?;
         let member = format!("user:{}", config.signer_account);
@@ -608,7 +671,11 @@ impl Http {
                 self.client
                     .post(&policy_url)
                     .bearer_auth(token.expose())
-                    .query(&[("options.requestedPolicyVersion", "3")]),
+                    .json(&GetPolicy {
+                        options: PolicyOptions {
+                            requested_policy_version: 3,
+                        },
+                    }),
                 "signer policy readback",
             )?;
             if !has_grant(&readback) {
@@ -763,6 +830,22 @@ mod tests {
             .query_pairs()
             .map(|(key, value)| (key.into_owned(), value.into_owned()))
             .collect()
+    }
+    fn assert_policy_read(request: &Request) {
+        #[derive(Deserialize)]
+        struct ReadPolicy {
+            options: Options,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Options {
+            requested_policy_version: u32,
+        }
+        let body: ReadPolicy = serde_json::from_slice(&request.body).expect("IAM requires a JSON request body");
+        assert_eq!(body.options.requested_policy_version, 3);
+        assert_eq!(request.method, "POST");
+        assert!(request.target.ends_with(":getIamPolicy"));
+        assert_eq!(request.headers["content-type"], "application/json");
     }
     #[test]
     fn keyless_flow_checks_both_accounts_and_uses_only_fixed_claims() {
@@ -928,6 +1011,7 @@ printf 'accepted'
             r#"{{"version":3,"etag":"v1","bindings":[{{"role":"{TOKEN_CREATOR}","members":["user:signer@example.com"]}}]}}"#
         );
         let fixture = Fixture::new(vec![
+            ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"projectNumber":"123"}"#),
             ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"state":"ENABLED"}"#),
@@ -946,8 +1030,8 @@ printf 'accepted'
         let requests = fixture.finish();
         assert!(requests
             .iter()
-            .all(|r| r.method == "GET" || r.target.ends_with(":getIamPolicy?options.requestedPolicyVersion=3")));
-        assert!(requests.last().expect("test fixture should succeed").body.is_empty());
+            .all(|r| r.method == "GET" || r.target.ends_with(":getIamPolicy")));
+        assert_policy_read(requests.last().expect("test fixture should succeed"));
     }
     #[test]
     fn iam_reconciliation_preserves_conditions_and_requires_readback() {
@@ -961,6 +1045,7 @@ printf 'accepted'
             r#"{{"version":3,"etag":"v2","bindings":[{{"role":"{TOKEN_CREATOR}","members":["user:signer@example.com"]}}]}}"#
         );
         let fixture = Fixture::new(vec![
+            ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"projectNumber":"123"}"#),
             ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"state":"ENABLED"}"#),
@@ -981,7 +1066,7 @@ printf 'accepted'
             policy: IamPolicy,
             update_mask: String,
         }
-        let update: Update = serde_json::from_slice(&requests[6].body).expect("test fixture should succeed");
+        let update: Update = serde_json::from_slice(&requests[7].body).expect("test fixture should succeed");
         assert_eq!(update.update_mask, "bindings,etag");
         assert_eq!(update.policy.version, 3);
         assert_eq!(update.policy.etag.as_deref(), Some("v1"));
@@ -995,9 +1080,8 @@ printf 'accepted'
         );
         assert_eq!(update.policy.bindings[0].members, ["user:other@example.com"]);
         assert_eq!(update.policy.bindings[1].members, ["user:signer@example.com"]);
-        assert!(requests[7]
-            .target
-            .ends_with(":getIamPolicy?options.requestedPolicyVersion=3"));
+        assert_policy_read(&requests[6]);
+        assert_policy_read(&requests[8]);
     }
     #[test]
     fn capability_routing_and_subject_boundary_are_explicit() {
@@ -1064,13 +1148,14 @@ printf '%s' '{"client_id":"expected-client","client_secret":"synthetic-secret","
     fn applied_setup_enables_and_creates_only_planned_resources_then_reads_them_back() {
         let config = config();
         let account = format!(
-            r#"{{"email":"{}","oauth2ClientId":"12345","description":"{DESCRIPTION}"}}"#,
+            r#"{{"email":"{}","uniqueId":"98765","oauth2ClientId":"12345","description":"{DESCRIPTION}"}}"#,
             config.service_account
         );
         let granted = format!(
             r#"{{"version":3,"etag":"v2","bindings":[{{"role":"{TOKEN_CREATOR}","members":["user:signer@example.com"]}}]}}"#
         );
         let fixture = Fixture::new(vec![
+            ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"projectNumber":"123"}"#),
             ok(r#"{"state":"DISABLED"}"#),
             ok(r#"{"name":"operations/enable-iam","done":true}"#),
@@ -1093,24 +1178,24 @@ printf '%s' '{"client_id":"expected-client","client_secret":"synthetic-secret","
             "12345"
         );
         let requests = fixture.finish();
-        assert_eq!(requests[2].method, "POST");
+        assert_eq!(requests[3].method, "POST");
         assert_eq!(
-            requests[2].target,
+            requests[3].target,
             "/usage/projects/123/services/iam.googleapis.com:enable"
         );
-        assert_eq!(requests[3].method, "GET");
-        assert_eq!(requests[7].method, "POST");
-        assert_eq!(requests[7].target, "/iam/example-project/serviceAccounts");
+        assert_eq!(requests[4].method, "GET");
+        assert_eq!(requests[8].method, "POST");
+        assert_eq!(requests[8].target, "/iam/example-project/serviceAccounts");
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Created {
             account_id: String,
         }
-        let created: Created = serde_json::from_slice(&requests[7].body).expect("native create request should decode");
+        let created: Created = serde_json::from_slice(&requests[8].body).expect("native create request should decode");
         assert_eq!(created.account_id, "settings");
-        assert_eq!(requests[8].method, "GET");
-        assert!(requests[8].target.ends_with(&config.service_account));
-        assert!(requests[11].target.contains(":getIamPolicy"));
+        assert_eq!(requests[9].method, "GET");
+        assert!(requests[9].target.ends_with("/98765"));
+        assert!(requests[12].target.contains(":getIamPolicy"));
         assert!(!requests.iter().any(|request| request.target.contains("/keys")));
     }
 
@@ -1125,6 +1210,7 @@ printf '%s' '{"client_id":"expected-client","client_secret":"synthetic-secret","
             r#"{{"version":3,"etag":"v2","bindings":[{{"role":"{TOKEN_CREATOR}","members":["user:signer@example.com"]}}]}}"#
         );
         let mut responses = vec![
+            ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"projectNumber":"123"}"#),
             ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"state":"ENABLED"}"#),
@@ -1133,6 +1219,7 @@ printf '%s' '{"client_id":"expected-client","client_secret":"synthetic-secret","
             (503, "private-provider-error".into()),
         ];
         responses.extend(vec![
+            ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"projectNumber":"123"}"#),
             ok(r#"{"state":"ENABLED"}"#),
             ok(r#"{"state":"ENABLED"}"#),
@@ -1159,6 +1246,89 @@ printf '%s' '{"client_id":"expected-client","client_secret":"synthetic-secret","
                 .filter(|request| request.method == "POST" && request.target == "/iam/example-project/serviceAccounts")
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn resource_manager_is_enabled_before_project_discovery() {
+        let config = config();
+        let account = format!(
+            r#"{{"email":"{}","oauth2ClientId":"12345","description":"{DESCRIPTION}"}}"#,
+            config.service_account
+        );
+        let policy = format!(
+            r#"{{"version":3,"etag":"v1","bindings":[{{"role":"{TOKEN_CREATOR}","members":["user:signer@example.com"]}}]}}"#
+        );
+        let fixture = Fixture::new(vec![
+            ok(r#"{"state":"DISABLED"}"#),
+            ok(r#"{"name":"operations/enable-resource-manager","done":true}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(r#"{"projectNumber":"123"}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(&account),
+            ok(&policy),
+        ]);
+        fixture
+            .http
+            .provision(&config, &"source".to_owned().into())
+            .expect("setup must bootstrap its own required API");
+        let requests = fixture.finish();
+        assert_eq!(
+            requests[0].target,
+            "/usage/projects/example-project/services/cloudresourcemanager.googleapis.com"
+        );
+        assert_eq!(requests[1].method, "POST");
+        assert_eq!(
+            requests[1].target,
+            "/usage/projects/example-project/services/cloudresourcemanager.googleapis.com:enable"
+        );
+        assert_eq!(requests[3].target, "/cloud/example-project");
+    }
+
+    #[test]
+    fn newly_created_accounts_use_numeric_readback_and_retry_only_reads() {
+        let config = config();
+        let account = format!(
+            r#"{{"email":"{}","uniqueId":"98765","oauth2ClientId":"12345","description":"{DESCRIPTION}"}}"#,
+            config.service_account
+        );
+        let policy = format!(
+            r#"{{"version":3,"etag":"v1","bindings":[{{"role":"{TOKEN_CREATOR}","members":["user:signer@example.com"]}}]}}"#
+        );
+        let fixture = Fixture::new(vec![
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(r#"{"projectNumber":"123"}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            ok(r#"{"state":"ENABLED"}"#),
+            (404, "{}".into()),
+            ok(&account),
+            (404, "{}".into()),
+            (404, "{}".into()),
+            ok(&account),
+            ok(&policy),
+        ]);
+        fixture
+            .http
+            .provision(&config, &"source".to_owned().into())
+            .expect("new-account visibility must not require another create");
+        let requests = fixture.finish();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| r.method == "POST" && r.target == "/iam/example-project/serviceAccounts")
+                .count(),
+            1
+        );
+        for request in &requests[7..10] {
+            assert_eq!(request.method, "GET");
+            assert_eq!(request.target, "/iam/example-project/serviceAccounts/98765");
+        }
+        assert_eq!(
+            requests[10].target,
+            "/iam/example-project/serviceAccounts/98765:getIamPolicy"
         );
     }
 }

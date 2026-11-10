@@ -208,6 +208,11 @@ Creating or verifying a send-as alias requires Workspace administrator
 permission. Adding more ordinary OAuth scopes cannot enable it, and consumer
 Google accounts cannot use that API. Normal login never provisions this.
 
+A same-domain address must also exist in Workspace before Gmail accepts it as a
+send-as alias. A catch-all mail route is not enough. Add the receiving alias in
+Admin Directory first; with `gws` 0.22.5, its commands use
+`admin-reports --api-version directory_v1`.
+
 When this capability is needed, use the same account and namespace:
 
 ```sh
