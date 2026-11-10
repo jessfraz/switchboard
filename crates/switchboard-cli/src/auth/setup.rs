@@ -92,7 +92,7 @@ fn receipt(state: &SetupState, status: &str, next: String, json: bool) -> Result
         state.namespace, status.replace('_', " "), value.account, value.project, value.service_account, value.signer,
         EXPLANATION,
         state.client_id.as_ref().map(|id| format!("Client ID: {id}\nScopes: {}", GoogleDelegation::SCOPES.join(","))).unwrap_or_else(|| format!(
-            "Plan: enable Gmail, IAM and IAM Credentials APIs in the selected existing project; create or reuse only this Switchboard service account; grant this signer Token Creator on that account only. No downloadable private key and no project-wide role grants.\nWorkspace scopes: {}", GoogleDelegation::SCOPES.join(",")
+            "Plan: enable Gmail, IAM, IAM Credentials and Cloud Resource Manager APIs in the selected existing project; create or reuse only this Switchboard service account; grant this signer Token Creator on that account only. No downloadable private key and no project-wide role grants.\nWorkspace scopes: {}", GoogleDelegation::SCOPES.join(",")
         )),
         if state.client_id.is_some() { format!("Administrator authorization: {}", delegation::ADMIN_URL) } else { String::new() },
         value.next_step))
@@ -129,6 +129,8 @@ fn infer_project(state_dir: &Path) -> Result<String> {
         .and_then(|bytes| serde_json::from_slice::<ClientFile>(&bytes).ok())
         .and_then(|file| file.installed.or(file.web))
         .and_then(|file| file.project_id)
+        .map(|project| project.trim().to_owned())
+        .filter(|project| !project.is_empty())
         .ok_or_else(|| anyhow!("The Cloud project could not be inferred from this account's login. Specify --project PROJECT_ID once; normal login needs no change."))
 }
 
@@ -411,10 +413,26 @@ fn install_config(path: &Path, state: &SetupState) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::auth::setup::{install_config, receipt, updated_config, SetupState};
     use std::fs;
+
     use switchboard_core::{AuthSecretRefs, AuthStore, GoogleDelegation, NamespaceId, NamespaceStore};
     use switchboard_store::SwitchboardConfig;
+
+    use crate::auth::setup::{infer_project, install_config, receipt, updated_config, SetupState};
+
+    #[test]
+    fn missing_or_blank_project_metadata_explains_the_supported_fallback() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        for contents in [
+            r#"{"installed":{"project_id":""}}"#,
+            r#"{"web":{"project_id":"   "}}"#,
+            r#"{"installed":{}}"#,
+        ] {
+            fs::write(root.path().join("client_secret.json"), contents).expect("fixture client metadata");
+            let error = infer_project(root.path()).expect_err("blank project metadata must not become a setup plan");
+            assert!(error.to_string().contains("--project PROJECT_ID"));
+        }
+    }
 
     fn state(root: &std::path::Path) -> SetupState {
         SetupState {
