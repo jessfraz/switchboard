@@ -23,6 +23,9 @@ github-attestations = true
 # Whether to install an updater program
 install-updater = false
 
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
 [dist.github-custom-runners.aarch64-unknown-linux-musl.container]
 image = "quay.io/pypa/manylinux_2_28_x86_64"
 host = "x86_64-unknown-linux-musl"
