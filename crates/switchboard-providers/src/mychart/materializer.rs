@@ -17,7 +17,7 @@ pub(crate) const DEBUG_AUTH_ENV: &str = "MYCHART_DEBUG_AUTH";
 pub(crate) struct DefaultMyChartCliMaterializer;
 
 impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
-    fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext> {
+    fn prepare(&self, target: &ExecutionTarget, _argv: &[String]) -> Result<ProcessContext> {
         let mut context = ProcessContext::new();
 
         if let Some(state_dir) = target.namespace.state_dir.as_ref() {
@@ -54,6 +54,7 @@ impl CliRuntimeMaterializer for DefaultMyChartCliMaterializer {
             | ResolvedCredentials::PhoneCli { .. }
             | ResolvedCredentials::GitHubCli
             | ResolvedCredentials::GitHubToken { .. }
+            | ResolvedCredentials::GoogleDelegated { .. }
             | ResolvedCredentials::GoogleCli
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
@@ -110,7 +111,9 @@ mod tests {
             Some(PathBuf::from("/tmp/mychart-ucla")),
         );
 
-        let process = materializer.prepare(&target).expect("materialization should succeed");
+        let process = materializer
+            .prepare(&target, &[])
+            .expect("materialization should succeed");
 
         assert_eq!(
             process.env().get(CONFIG_ENV).map(String::as_str),
@@ -160,7 +163,9 @@ mod tests {
             None,
         );
 
-        let process = materializer.prepare(&target).expect("materialization should succeed");
+        let process = materializer
+            .prepare(&target, &[])
+            .expect("materialization should succeed");
 
         assert_eq!(process.env().get(ACCOUNT_ENV).map(String::as_str), Some("ucla"));
         assert!(process.cleared_env().contains(CONFIG_ENV));
@@ -180,7 +185,7 @@ mod tests {
         let materializer = DefaultMyChartCliMaterializer;
         let target = execution_target(ResolvedCredentials::GitHubCli, Some(PathBuf::from("/tmp/mychart-ucla")));
 
-        let error = match materializer.prepare(&target) {
+        let error = match materializer.prepare(&target, &[]) {
             Ok(_) => panic!("github credentials should be rejected"),
             Err(error) => error,
         };
@@ -210,6 +215,9 @@ mod tests {
             },
             ResolvedCredentials::GitHubCli => AuthSecretRefs::GitHubCli,
             ResolvedCredentials::GoogleCli => AuthSecretRefs::GoogleCli,
+            ResolvedCredentials::GoogleDelegated { ref delegation } => AuthSecretRefs::GoogleDelegated {
+                delegation: delegation.clone(),
+            },
             ResolvedCredentials::GitHubToken { .. }
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }

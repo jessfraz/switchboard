@@ -2435,10 +2435,13 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "switchboard-cli-support",
  "switchboard-core",
  "switchboard-providers",
  "switchboard-store",
+ "tempfile",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]
@@ -2468,6 +2471,7 @@ dependencies = [
  "clap",
  "messages-cli",
  "phone-cli",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",

@@ -566,6 +566,9 @@ impl Switchboard {
             },
             AuthSecretRefs::GitHubCli => ResolvedCredentials::GitHubCli,
             AuthSecretRefs::GoogleCli => ResolvedCredentials::GoogleCli,
+            AuthSecretRefs::GoogleDelegated { delegation } => ResolvedCredentials::GoogleDelegated {
+                delegation: delegation.clone(),
+            },
             AuthSecretRefs::GitHubToken { token } => ResolvedCredentials::GitHubToken {
                 token: self.resolve_secret(&target.auth, token)?,
             },

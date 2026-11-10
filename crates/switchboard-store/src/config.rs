@@ -45,6 +45,11 @@ impl SwitchboardConfig {
         Self::from_source(source, "switchboard config", None)
     }
 
+    /// Parse a prospective edit with the same path resolution as the saved file.
+    pub fn from_toml_str_at(source: &str, path: &Path) -> Result<Self> {
+        Self::from_source(source, "switchboard config", Some(path))
+    }
+
     pub fn into_stores(self) -> (StaticNamespaceStore, StaticAuthStore, StaticSecretStore) {
         (self.namespaces, self.auth, self.secrets)
     }
@@ -244,6 +249,15 @@ fn build_namespace_store(
                         .join(namespace_state_name(&provider, &alias))
                 })
             });
+            if let Some(auth_entry) = auth.get(&auth_ref) {
+                if let AuthSecretRefs::GoogleDelegated { delegation } = auth_entry.secrets() {
+                    if state_dir.as_ref() != Some(&delegation.signer_state_dir) {
+                        return Err(Error::Config(
+                            "delegation signer must use this namespace's isolated credential directory".into(),
+                        ));
+                    }
+                }
+            }
             namespaces.push(
                 ResolvedNamespace::new(
                     format!("{provider_key}.{alias}"),
@@ -415,6 +429,12 @@ enum RawAuth {
     },
     #[serde(rename = "google_cli")]
     GoogleCli { provider: String, account: String },
+    #[serde(rename = "google_delegated")]
+    GoogleDelegated {
+        provider: String,
+        account: String,
+        delegation: switchboard_core::GoogleDelegation,
+    },
     #[serde(rename = "google_oauth")]
     GoogleOAuth {
         provider: String,
@@ -496,6 +516,7 @@ impl RawAuth {
             Self::GitHubCli { provider, .. }
             | Self::GitHubToken { provider, .. }
             | Self::GoogleCli { provider, .. }
+            | Self::GoogleDelegated { provider, .. }
             | Self::GoogleOAuth { provider, .. }
             | Self::GoogleOAuthFile { provider, .. }
             | Self::MyChartCli { provider, .. }
@@ -510,6 +531,7 @@ impl RawAuth {
             Self::GitHubCli { account, .. }
             | Self::GitHubToken { account, .. }
             | Self::GoogleCli { account, .. }
+            | Self::GoogleDelegated { account, .. }
             | Self::GoogleOAuth { account, .. }
             | Self::GoogleOAuthFile { account, .. }
             | Self::MyChartCli { account, .. }
@@ -532,6 +554,9 @@ impl RawAuth {
             }),
             Self::GitHubCli { .. } => Ok(AuthSecretRefs::GitHubCli),
             Self::GoogleCli { .. } => Ok(AuthSecretRefs::GoogleCli),
+            Self::GoogleDelegated { delegation, .. } => Ok(AuthSecretRefs::GoogleDelegated {
+                delegation: delegation.clone(),
+            }),
             Self::GitHubToken { token, .. } => Ok(AuthSecretRefs::GitHubToken {
                 token: SecretRef::new(token)?,
             }),

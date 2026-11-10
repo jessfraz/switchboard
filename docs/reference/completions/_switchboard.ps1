@@ -102,8 +102,38 @@ Register-ArgumentCompleter -Native -CommandName 'switchboard' -ScriptBlock {
             [CompletionResult]::new('--full', '--full', [CompletionResultType]::ParameterName, 'Show full diagnostic output and pretty-printed JSON')
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in normally, or resume administrator setup when this account needs it')
+            [CompletionResult]::new('setup', 'setup', [CompletionResultType]::ParameterValue, 'Prepare or resume Workspace Gmail-settings administrator setup')
             [CompletionResult]::new('check', 'check', [CompletionResultType]::ParameterValue, 'Perform a read-only provider identity request and verify the configured account')
             [CompletionResult]::new('migration-preview', 'migration-preview', [CompletionResultType]::ParameterValue, 'Show an opt-in Google CLI migration without modifying configuration or credentials')
+            break
+        }
+        'switchboard;auth;login' {
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'ns')
+            [CompletionResult]::new('--project', '--project', [CompletionResultType]::ParameterName, 'Optional existing Cloud project. Normally inferred from this account''s login')
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--fields', '--fields', [CompletionResultType]::ParameterName, 'Select comma-separated paths within result fields; arrays apply each path to every row')
+            [CompletionResult]::new('--setup', '--setup', [CompletionResultType]::ParameterName, 'Set up sensitive Gmail settings when a Workspace administrator is required')
+            [CompletionResult]::new('--apply', '--apply', [CompletionResultType]::ParameterName, 'Apply the previously displayed Cloud-resource and signer-permission plan')
+            [CompletionResult]::new('--refresh', '--refresh', [CompletionResultType]::ParameterName, 'Renew the ordinary OAuth login without changing delegation or its scopes')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('--full', '--full', [CompletionResultType]::ParameterName, 'Show full diagnostic output and pretty-printed JSON')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'switchboard;auth;setup' {
+            [CompletionResult]::new('--ns', '--ns', [CompletionResultType]::ParameterName, 'ns')
+            [CompletionResult]::new('--project', '--project', [CompletionResultType]::ParameterName, 'Optional existing Cloud project. Normally inferred from this account''s login')
+            [CompletionResult]::new('--config', '--config', [CompletionResultType]::ParameterName, 'config')
+            [CompletionResult]::new('--fields', '--fields', [CompletionResultType]::ParameterName, 'Select comma-separated paths within result fields; arrays apply each path to every row')
+            [CompletionResult]::new('--setup', '--setup', [CompletionResultType]::ParameterName, 'Set up sensitive Gmail settings when a Workspace administrator is required')
+            [CompletionResult]::new('--apply', '--apply', [CompletionResultType]::ParameterName, 'Apply the previously displayed Cloud-resource and signer-permission plan')
+            [CompletionResult]::new('--refresh', '--refresh', [CompletionResultType]::ParameterName, 'Renew the ordinary OAuth login without changing delegation or its scopes')
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('--full', '--full', [CompletionResultType]::ParameterName, 'Show full diagnostic output and pretty-printed JSON')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
         'switchboard;auth;check' {

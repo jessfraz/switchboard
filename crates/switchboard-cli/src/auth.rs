@@ -1,3 +1,5 @@
+mod setup;
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -20,6 +22,10 @@ pub(crate) struct AuthCommand {
 
 #[derive(Debug, Subcommand)]
 enum AuthSubcommand {
+    /// Log in normally, or resume administrator setup when this account needs it.
+    Login(setup::SetupArgs),
+    /// Prepare or resume Workspace Gmail-settings administrator setup.
+    Setup(setup::SetupArgs),
     /// Perform a read-only provider identity request and verify the configured account.
     Check(CheckArgs),
     /// Show an opt-in Google CLI migration without modifying configuration or credentials.
@@ -51,6 +57,7 @@ struct MigrationArgs {
 impl AuthCommand {
     pub(crate) fn json_requested(&self) -> bool {
         match &self.command {
+            AuthSubcommand::Login(args) | AuthSubcommand::Setup(args) => args.json,
             AuthSubcommand::Check(args) => args.json,
             AuthSubcommand::MigrationPreview(args) => args.json,
         }
@@ -90,6 +97,10 @@ pub(crate) fn check_namespace(switchboard: &Switchboard, id: &NamespaceId) -> Re
         .into_iter()
         .find(|namespace| namespace.id == *id)
         .ok_or_else(|| Error::UnknownNamespace(id.to_string()))?;
+    let configured_auth = switchboard.namespace_auth(id)?;
+    if let AuthSecretRefs::GoogleDelegated { delegation } = configured_auth.secrets() {
+        return setup::check_delegated(delegation, id);
+    }
     let (tool, argv) = match namespace.provider {
         ProviderKind::GoogleWorkspace => (
             "google.cli.read",
@@ -169,6 +180,8 @@ struct MigrationPreview {
 
 pub(crate) fn run(config_path: Option<&Path>, arguments: AuthCommand) -> Result<String> {
     match arguments.command {
+        AuthSubcommand::Login(args) => setup::run(config_path, args, false),
+        AuthSubcommand::Setup(args) => setup::run(config_path, args, true),
         AuthSubcommand::Check(args) => {
             let switchboard = crate::load_switchboard_with_run(config_path, args.run_id.as_deref())?;
             let receipt = check_namespace(&switchboard, &NamespaceId::new(args.namespace)?)?;

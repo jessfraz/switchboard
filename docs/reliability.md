@@ -63,7 +63,9 @@ not change provider limits. Presentation never mutates durable receipts.
 
 Ordinary commands need no authentication environment variables. `auth check
 --ns NS` performs a provider read and compares its identity with the configured
-auth account. Google uses Gmail `getProfile`, so it requires Gmail access.
+auth account. Ordinary Google auth uses Gmail `getProfile`, requiring Gmail
+access. Delegated Gmail-settings auth verifies the fixed primary send-as
+address using only its settings scope, without reading the mailbox.
 GitHub uses `api user`. Other identity routes are explicitly unsupported.
 
 Credentials are resolved from cache first, then existing noninteractive

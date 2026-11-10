@@ -123,7 +123,37 @@ _arguments "${_arguments_options[@]}" : \
         (( CURRENT += 1 ))
         curcontext="${curcontext%:*:*}:switchboard-auth-command-$line[1]:"
         case $line[1] in
-            (check)
+            (login)
+_arguments "${_arguments_options[@]}" : \
+'--ns=[]:NAMESPACE:_default' \
+'--project=[Optional existing Cloud project. Normally inferred from this account'\''s login]:PROJECT:_default' \
+'--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--setup[Set up sensitive Gmail settings when a Workspace administrator is required]' \
+'--apply[Apply the previously displayed Cloud-resource and signer-permission plan]' \
+'--refresh[Renew the ordinary OAuth login without changing delegation or its scopes]' \
+'--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(setup)
+_arguments "${_arguments_options[@]}" : \
+'--ns=[]:NAMESPACE:_default' \
+'--project=[Optional existing Cloud project. Normally inferred from this account'\''s login]:PROJECT:_default' \
+'--config=[]:PATH:_files' \
+'*--fields=[Select comma-separated paths within result fields; arrays apply each path to every row]:FIELDS:_default' \
+'--setup[Set up sensitive Gmail settings when a Workspace administrator is required]' \
+'--apply[Apply the previously displayed Cloud-resource and signer-permission plan]' \
+'--refresh[Renew the ordinary OAuth login without changing delegation or its scopes]' \
+'--json[]' \
+'--full[Show full diagnostic output and pretty-printed JSON]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
+(check)
 _arguments "${_arguments_options[@]}" : \
 '--ns=[]:NAMESPACE:_default' \
 '--run-id=[Share the one-recovery-attempt budget across commands in this task]:RUN_ID:_default' \
@@ -385,6 +415,8 @@ _switchboard__subcmd__audit__subcmd__show_commands() {
 (( $+functions[_switchboard__subcmd__auth_commands] )) ||
 _switchboard__subcmd__auth_commands() {
     local commands; commands=(
+'login:Log in normally, or resume administrator setup when this account needs it' \
+'setup:Prepare or resume Workspace Gmail-settings administrator setup' \
 'check:Perform a read-only provider identity request and verify the configured account' \
 'migration-preview:Show an opt-in Google CLI migration without modifying configuration or credentials' \
     )
@@ -395,10 +427,20 @@ _switchboard__subcmd__auth__subcmd__check_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard auth check commands' commands "$@"
 }
+(( $+functions[_switchboard__subcmd__auth__subcmd__login_commands] )) ||
+_switchboard__subcmd__auth__subcmd__login_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard auth login commands' commands "$@"
+}
 (( $+functions[_switchboard__subcmd__auth__subcmd__migration-preview_commands] )) ||
 _switchboard__subcmd__auth__subcmd__migration-preview_commands() {
     local commands; commands=()
     _describe -t commands 'switchboard auth migration-preview commands' commands "$@"
+}
+(( $+functions[_switchboard__subcmd__auth__subcmd__setup_commands] )) ||
+_switchboard__subcmd__auth__subcmd__setup_commands() {
+    local commands; commands=()
+    _describe -t commands 'switchboard auth setup commands' commands "$@"
 }
 (( $+functions[_switchboard__subcmd__doctor_commands] )) ||
 _switchboard__subcmd__doctor_commands() {

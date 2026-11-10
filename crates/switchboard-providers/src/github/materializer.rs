@@ -11,7 +11,7 @@ pub(crate) const LEGACY_ENTERPRISE_TOKEN_ENV: &str = "GITHUB_ENTERPRISE_TOKEN";
 pub(crate) struct DefaultGitHubCliMaterializer;
 
 impl CliRuntimeMaterializer for DefaultGitHubCliMaterializer {
-    fn prepare(&self, target: &ExecutionTarget) -> Result<ProcessContext> {
+    fn prepare(&self, target: &ExecutionTarget, _argv: &[String]) -> Result<ProcessContext> {
         let mut context = ProcessContext::new();
 
         if let Some(state_dir) = target.namespace.state_dir.as_ref() {
@@ -33,7 +33,8 @@ impl CliRuntimeMaterializer for DefaultGitHubCliMaterializer {
                 context.clear_env(LEGACY_ENTERPRISE_TOKEN_ENV);
                 Ok(context)
             }
-            ResolvedCredentials::GoogleCli
+            ResolvedCredentials::GoogleDelegated { .. }
+            | ResolvedCredentials::GoogleCli
             | ResolvedCredentials::GoogleOAuth { .. }
             | ResolvedCredentials::GoogleOAuthFile { .. }
             | ResolvedCredentials::MyChartCli { .. }
@@ -73,7 +74,9 @@ mod tests {
             Some(PathBuf::from("/tmp/gh-personal")),
         );
 
-        let process = materializer.prepare(&target).expect("materialization should succeed");
+        let process = materializer
+            .prepare(&target, &[])
+            .expect("materialization should succeed");
 
         assert_eq!(process.env().get(TOKEN_ENV).map(String::as_str), Some("ghp-test-token"));
         assert_eq!(
