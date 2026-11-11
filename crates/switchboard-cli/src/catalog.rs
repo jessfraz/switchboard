@@ -134,6 +134,8 @@ fn output_schema(tool: &RegisteredTool) -> OutputSchema {
                 ("gmail_message_id", OutputSchema::value(&["string"])),
                 ("gmail_thread_id", OutputSchema::value(&["string", "null"])),
                 ("body_text", OutputSchema::value(&["string"])),
+                ("body_html", OutputSchema::value(&["string", "null"])),
+                ("body_chars", OutputSchema::value(&["integer"])),
                 ("body_truncated", OutputSchema::value(&["boolean"])),
                 (
                     "coverage",
@@ -342,6 +344,9 @@ impl ToolCatalogDetail {
         };
         if tool.name.as_str() == "google.mail.search" {
             notes.push("--max is 1..500 (default 20); continue with --cursor from coverage.next_cursor. coverage.status distinguishes complete, truncated, and unknown; fields.status=partial reports per-message failures.".into());
+        }
+        if matches!(tool.name.as_str(), "google.mail.search" | "google.mail.thread") {
+            notes.push("Decoded text and HTML share --body-limit's character budget. body_chars counts both original representations; body_truncated and coverage report any omitted content.".into());
         }
         if tool.provider == ProviderKind::Messages {
             notes.push("Reads only locally available Messages history; reading never marks messages read. Continue paginated reads with coverage.next_cursor. No sending or other mutations are implemented.".into());

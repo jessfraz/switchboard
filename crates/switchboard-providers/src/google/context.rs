@@ -69,7 +69,8 @@ struct Mailbox {
 }
 
 /// The existing `google.mail.read` projection, retaining its structured addresses.
-/// Context reads select decoded text; HTML stays available through the full reader.
+/// The native helper can use Gmail's snippet as text for HTML-only messages,
+/// so both body representations must survive the bounded context projection.
 #[derive(Debug, Deserialize, Serialize)]
 struct MessageContent {
     rfc_message_id: Option<String>,
@@ -81,6 +82,8 @@ struct MessageContent {
     subject: Option<String>,
     date: Option<String>,
     body_text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_html: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -250,17 +253,20 @@ impl GoogleWorkspaceAdapter {
                 match result {
                     Ok(Some(mut message)) => {
                         row.gmail_thread_id = message.gmail_thread_id;
-                        let chars = message.content.body_text.chars().count();
+                        let text_chars = message.content.body_text.chars().count();
+                        let chars = text_chars
+                            + message
+                                .content
+                                .body_html
+                                .as_ref()
+                                .map_or(0, |html| html.chars().count());
                         row.body_chars = Some(chars);
                         row.body_truncated = chars > limits.body;
                         if row.body_truncated {
-                            let end = message
-                                .content
-                                .body_text
-                                .char_indices()
-                                .nth(limits.body)
-                                .map_or(message.content.body_text.len(), |(at, _)| at);
-                            message.content.body_text.truncate(end);
+                            truncate_body(&mut message.content.body_text, limits.body);
+                            if let Some(html) = &mut message.content.body_html {
+                                truncate_body(html, limits.body.saturating_sub(text_chars));
+                            }
                         }
                         collection.truncated |= row.body_truncated;
                         row.content = Some(message.content);
@@ -320,6 +326,11 @@ impl GoogleWorkspaceAdapter {
         }
         Ok(message)
     }
+}
+
+fn truncate_body(body: &mut String, limit: usize) {
+    let end = body.char_indices().nth(limit).map_or(body.len(), |(at, _)| at);
+    body.truncate(end);
 }
 
 pub(super) fn encode(value: &impl Serialize) -> Result<serde_json::Value> {

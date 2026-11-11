@@ -36,7 +36,10 @@ switchboard google.mail.search --ns google.personal \
   --hydrate --max 5 --body-limit 4000 --json
 ```
 
-Search returns decoded text and reply references in one invocation. For a known
+Search returns decoded text, bounded HTML, and reply references in one
+invocation. HTML-only messages can have a snippet in `body_text`; their content
+remains in `body_html`. Both representations share the `--body-limit` character
+budget, and `body_truncated` reports any omitted content. For a known
 conversation, use its thread ID:
 
 ```sh
