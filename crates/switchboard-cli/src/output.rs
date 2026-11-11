@@ -345,7 +345,17 @@ pub(crate) fn render_output_view(
         }
     }
 
-    rendered
+    // Provider bodies are untrusted terminal input. Keep layout whitespace and
+    // visible Unicode, but escape controls only in the human display.
+    let mut safe = String::with_capacity(rendered.len());
+    for character in rendered.chars() {
+        if character.is_control() && !matches!(character, '\n' | '\t') {
+            safe.extend(character.escape_default());
+        } else {
+            safe.push(character);
+        }
+    }
+    safe
 }
 
 fn render_value(rendered: &mut String, label: &str, value: &JsonValue, depth: usize) {
@@ -382,6 +392,9 @@ fn render_value(rendered: &mut String, label: &str, value: &JsonValue, depth: us
             rendered.push_str(&format!("{indent}{label}:\n"));
             for (key, child) in object {
                 if key == "body_html"
+                    // Bounded context retains HTML because native plain text
+                    // can be only a snippet. Do not hide its substantive body.
+                    && !object.contains_key("body_chars")
                     && object
                         .get("body_text")
                         .and_then(JsonValue::as_str)

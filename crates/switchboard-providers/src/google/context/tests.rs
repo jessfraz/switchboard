@@ -1,6 +1,6 @@
 use std::{env, fs, process::Command};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use switchboard_core::{Adapter, CoverageStatus, ExecutionMode, ToolArgument, ToolOutput, ToolRefKind, ToolRequest};
 
 use super::*;
@@ -91,6 +91,89 @@ struct SubjectMessage {
     gmail_thread_id: Option<String>,
     subject: Option<String>,
     body_text: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct NativeMessage {
+    thread_id: String,
+    message_id: Option<String>,
+    references: Vec<String>,
+    from: Mailbox,
+    reply_to: Option<Vec<Mailbox>>,
+    to: Vec<Mailbox>,
+    cc: Option<Vec<Mailbox>>,
+    subject: Option<String>,
+    date: Option<String>,
+    body_text: String,
+    body_html: Option<String>,
+}
+
+fn set_body_fixture(script: &TempScript, text: &str, html: Option<&str>) {
+    let mut message: NativeMessage = serde_json::from_str(MESSAGE).expect("native message fixture");
+    message.thread_id = "thread-1".into();
+    message.body_text = text.into();
+    message.body_html = html.map(str::to_owned);
+    fs::write(
+        script.path().parent().expect("fixture directory").join("message.json"),
+        serde_json::to_vec(&message).expect("serialize native message"),
+    )
+    .expect("write native message");
+}
+
+#[derive(Deserialize)]
+struct BodyMessage {
+    body_text: String,
+    #[serde(default)]
+    body_html: Option<String>,
+    body_chars: usize,
+    body_truncated: bool,
+    coverage: CoverageStatus,
+}
+
+fn body_messages(output: &ToolOutput) -> Vec<BodyMessage> {
+    serde_json::from_value(output.fields.get("messages").expect("messages").clone()).expect("message bodies")
+}
+
+#[test]
+fn context_retains_html_when_native_text_is_only_a_snippet() {
+    let _guard = lock_env();
+    let script = fixture();
+    let text = "Receipt summary.";
+    let html = "<table><tr><td>Reference</td><td>DEMO-123</td></tr><tr><td>Total</td><td>$12.34</td></tr></table>";
+    set_body_fixture(&script, text, Some(html));
+    for (tool, args) in [
+        ("google.mail.search", hydrate()),
+        ("google.mail.thread", vec![option("thread-id", "thread-1")]),
+    ] {
+        let output = execute(tool, args);
+        for row in body_messages(&output) {
+            assert_eq!(row.body_text, text);
+            assert_eq!(row.body_html.as_deref(), Some(html));
+            assert_eq!(row.body_chars, text.chars().count() + html.chars().count());
+            assert!(!row.body_truncated);
+            assert_eq!(row.coverage, CoverageStatus::Complete);
+        }
+        assert_eq!(output.coverage.expect("coverage").status, CoverageStatus::Complete);
+    }
+    assert!(!script.capture_contents().contains("gmail users messages get "));
+}
+
+#[test]
+fn context_html_shares_the_unicode_body_budget_and_marks_omission() {
+    let _guard = lock_env();
+    let script = fixture();
+    set_body_fixture(&script, "aé", Some("🦀z remainder"));
+    let mut args = hydrate();
+    args.push(option("body-limit", "4"));
+    let output = execute("google.mail.search", args);
+    for row in body_messages(&output) {
+        assert_eq!(row.body_text, "aé");
+        assert_eq!(row.body_html.as_deref(), Some("🦀z"));
+        assert_eq!(row.body_chars, 14);
+        assert!(row.body_truncated);
+        assert_eq!(row.coverage, CoverageStatus::Truncated);
+    }
+    assert_eq!(output.coverage.expect("coverage").status, CoverageStatus::Truncated);
 }
 
 fn set_subject_fixture(script: &TempScript, subject_json: Option<&str>) {
@@ -275,17 +358,7 @@ fn native_decoded_message_flows_through_the_existing_reader_projection() {
 fn body_bound_preserves_unicode_and_marks_coverage_truncated() {
     let _guard = lock_env();
     let script = fixture();
-    let root = script.path().parent().expect("test fixture should be valid");
-    // This fixture is the actual native helper's JSON shape; only its body changes.
-    let mut native: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(root.join("message.json")).expect("test fixture should be valid"))
-            .expect("test fixture should be valid");
-    native["body_text"] = serde_json::Value::String("aé🦀z".into());
-    fs::write(
-        root.join("message.json"),
-        serde_json::to_vec(&native).expect("test fixture should be valid"),
-    )
-    .expect("test fixture should be valid");
+    set_body_fixture(&script, "aé🦀z", None);
     let mut args = hydrate();
     args.push(option("body-limit", "3"));
     let output = execute("google.mail.search", args);

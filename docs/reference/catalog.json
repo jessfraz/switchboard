@@ -100332,6 +100332,7 @@
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "Permissions: Gmail read access: gmail.readonly or gmail.modify.",
         "--max is 1..500 (default 20); continue with --cursor from coverage.next_cursor. coverage.status distinguishes complete, truncated, and unknown; fields.status=partial reports per-message failures.",
+        "Decoded text and HTML share --body-limit's character budget. body_chars counts both original representations; body_truncated and coverage report any omitted content.",
         "Raw fallback (read example; replace query, limit, and pageToken as needed): switchboard google.cli.read --ns google.default --json -- gmail users messages list --params '{\"userId\":\"me\",\"q\":\"newer_than:7d\",\"maxResults\":20}'"
       ],
       "examples": [
@@ -100424,6 +100425,17 @@
                     "object"
                   ],
                   "properties": {
+                    "body_chars": {
+                      "type": [
+                        "integer"
+                      ]
+                    },
+                    "body_html": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "body_text": {
                       "type": [
                         "string"
@@ -100806,6 +100818,7 @@
         "policy, auth isolation, and audit still apply",
         "repeat --ns for aggregate reads, writes stay single-namespace",
         "Permissions: Gmail read access: gmail.readonly or gmail.modify.",
+        "Decoded text and HTML share --body-limit's character budget. body_chars counts both original representations; body_truncated and coverage report any omitted content.",
         "Raw fallback (native command discovery; select the corresponding method and arguments): switchboard google.cli.read --ns google.default --json -- --help"
       ],
       "examples": [

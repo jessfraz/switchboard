@@ -375,6 +375,88 @@ mod tests {
     }
 
     #[test]
+    fn human_mail_context_preserves_html_beyond_a_native_text_snippet() {
+        #[derive(Serialize)]
+        struct Body {
+            body_text: &'static str,
+            body_html: &'static str,
+            body_chars: usize,
+        }
+        let mut output = ToolOutput::new(
+            ToolName::new("google.mail.thread").expect("valid tool"),
+            NamespaceId::new("google.test").expect("valid namespace"),
+            "One bounded message",
+        );
+        output.fields.insert(
+            "messages".into(),
+            serde_json::to_value(vec![Body {
+                body_text: "Receipt summary.",
+                body_html: "<table><tr><td>Reference DEMO-123</td></tr></table>",
+                body_chars: 63,
+            }])
+            .expect("message body"),
+        );
+        let human = Presentation::default()
+            .dispatch(&DispatchOutcome::Executed(output), false)
+            .expect("render message body");
+        assert!(human.contains("Reference DEMO-123"));
+        assert!(human.contains("Receipt summary."));
+    }
+
+    #[test]
+    fn human_mail_context_escapes_terminal_controls_without_mutating_json() {
+        #[derive(Deserialize, Serialize)]
+        struct Body {
+            body_text: String,
+            body_html: String,
+            body_chars: usize,
+        }
+        #[derive(Deserialize)]
+        struct Fields {
+            messages: Vec<Body>,
+        }
+        #[derive(Deserialize)]
+        struct Envelope {
+            fields: Fields,
+        }
+        let html = "<p>DEMO HTML café🦀</p>\n\t\u{1b}]0;fictional-title\u{7}\r\u{8}\u{9b}";
+        let mut output = ToolOutput::new(
+            ToolName::new("google.mail.thread").expect("valid tool"),
+            NamespaceId::new("google.test").expect("valid namespace"),
+            "One bounded message",
+        );
+        output.fields.insert(
+            "messages".into(),
+            serde_json::to_value(vec![Body {
+                body_text: "Benign snippet".into(),
+                body_html: html.into(),
+                body_chars: html.chars().count() + "Benign snippet".len(),
+            }])
+            .expect("message body"),
+        );
+        let original = output.fields.clone();
+        let outcome = DispatchOutcome::Executed(output);
+        for full in [false, true] {
+            let options = Presentation {
+                full,
+                fields: Vec::new(),
+            };
+            let human = options.dispatch(&outcome, false).expect("render human body");
+            assert!(human.contains("<p>DEMO HTML café🦀</p>"));
+            assert!(human
+                .chars()
+                .all(|character| !character.is_control() || matches!(character, '\n' | '\t')));
+            let json = options.dispatch(&outcome, true).expect("render JSON body");
+            let decoded: Envelope = serde_json::from_str(&json).expect("decode JSON body");
+            assert_eq!(decoded.fields.messages[0].body_html, html);
+        }
+        let DispatchOutcome::Executed(output) = outcome else {
+            panic!("expected executed output");
+        };
+        assert_eq!(output.fields, original);
+    }
+
+    #[test]
     fn human_views_preserve_effects_receipts_and_coverage_with_selected_fields() {
         let mut value = output();
         value.effect = Some(
