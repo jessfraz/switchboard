@@ -1,6 +1,6 @@
 # `google` Provider
 
-`google` exposes `508` total tools, `9` curated and `499` raw inventory passthrough.
+`google` exposes `509` total tools, `10` curated and `499` raw inventory passthrough.
 
 ## Curated tools
 
@@ -8,6 +8,7 @@
 - `google.calendar.delete` [stable] Delete a calendar event
 - `google.calendar.list` [stable] List calendar events
 - `google.drive.search` [planning_only] Search Drive files
+- `google.mail.alias.ensure` [stable] Ensure a same-domain Gmail sender alias is ready
 - `google.mail.draft` [stable] Draft a Gmail message
 - `google.mail.read` [stable] Read a Gmail message
 - `google.mail.search` [stable] Search Gmail

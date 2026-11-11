@@ -40,6 +40,28 @@
   ],
   "commands": [
     {
+      "name": "google.mail.alias.ensure",
+      "kind": "write",
+      "summary": "Ensure a same-domain Gmail sender alias is ready",
+      "strategy": {
+        "kind": "summary_template",
+        "template": "Ensure Gmail sender {arg:email} in {namespace}, creating its Workspace receiving alias if needed"
+      },
+      "execution": {
+        "kind": "executable",
+        "binary": "gws",
+        "capability": "gws_help"
+      },
+      "args": {
+        "kind": "template",
+        "segments": [
+          { "kind": "option", "flag": "--email", "aliases": ["email"], "required": true },
+          { "kind": "option", "flag": "--display-name", "aliases": ["display-name"] }
+        ]
+      },
+      "decode": { "kind": "raw_passthrough" }
+    },
+    {
       "name": "google.mail.search",
       "kind": "read",
       "summary": "Search Gmail",

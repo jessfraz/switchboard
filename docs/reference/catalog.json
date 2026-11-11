@@ -1,9 +1,9 @@
 {
   "stats": {
-    "tool_count": 782,
-    "curated_count": 28,
+    "tool_count": 783,
+    "curated_count": 29,
     "raw_count": 754,
-    "stable_count": 24,
+    "stable_count": 25,
     "planning_only_count": 4,
     "undoable_count": 1
   },
@@ -20,10 +20,10 @@
     },
     {
       "provider": "google",
-      "tool_count": 508,
-      "curated_count": 9,
+      "tool_count": 509,
+      "curated_count": 10,
       "raw_count": 499,
-      "stable_count": 7,
+      "stable_count": 8,
       "planning_only_count": 2,
       "undoable_count": 1,
       "doc_path": "docs/reference/providers/google.md"
@@ -99724,6 +99724,198 @@
         "purpose": "read example; replace Drive query and pageToken as needed"
       },
       "doc_path": "reference/#tool=google.drive.search"
+    },
+    {
+      "name": "google.mail.alias.ensure",
+      "provider": "google",
+      "kind": "write",
+      "backend": "cli",
+      "summary": "Ensure a same-domain Gmail sender alias is ready",
+      "surface": "curated",
+      "aggregate_read_supported": false,
+      "execution_support": "executable",
+      "undo_support": "none",
+      "status": "stable",
+      "arguments": [
+        {
+          "name": "display-name",
+          "transport": "option",
+          "value_kind": "string",
+          "required": false,
+          "repeated": false,
+          "forwarded_flag": "--display-name"
+        },
+        {
+          "name": "email",
+          "transport": "option",
+          "value_kind": "string",
+          "required": true,
+          "repeated": false,
+          "forwarded_flag": "--email"
+        }
+      ],
+      "available_namespaces": [],
+      "notes": [
+        "policy, auth isolation, and audit still apply",
+        "repeat --ns for aggregate reads, writes stay single-namespace",
+        "Permissions: Requires configured Workspace Gmail settings delegation and Admin Directory user-alias write access in the same namespace. Existing senders are preserved; pending verification is not ready to send.",
+        "Raw fallback (native command discovery; select the corresponding method and arguments): switchboard google.cli.read --ns google.default --json -- --help"
+      ],
+      "examples": [
+        "switchboard google.mail.alias.ensure --ns google.default --email alias@example.com --approve-and-apply --json"
+      ],
+      "scope_guidance": [
+        "Requires configured Workspace Gmail settings delegation and Admin Directory user-alias write access in the same namespace. Existing senders are preserved; pending verification is not ready to send."
+      ],
+      "output_schema": {
+        "type": [
+          "object"
+        ],
+        "description": "Single-namespace execution, including partial results or failed readback with nonzero exit. Draft/plan, aggregate, and failure receipts have separate envelopes. Additional fields remain allowed for forward compatibility.",
+        "properties": {
+          "fields": {
+            "type": [
+              "object"
+            ],
+            "properties": {
+              "account": {
+                "type": [
+                  "string"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string"
+                ]
+              },
+              "receiving_alias": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "not_checked",
+                  "existing",
+                  "created"
+                ]
+              },
+              "sender": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "existing",
+                  "created"
+                ]
+              },
+              "verification_status": {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "accepted",
+                  "pending"
+                ]
+              }
+            },
+            "required": [
+              "email",
+              "account",
+              "sender",
+              "receiving_alias",
+              "verification_status"
+            ]
+          },
+          "namespace": {
+            "type": [
+              "string"
+            ]
+          },
+          "refs": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "namespace": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "provider": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "required": [
+                "provider",
+                "namespace",
+                "kind",
+                "id"
+              ]
+            }
+          },
+          "schema_version": {
+            "type": [
+              "integer"
+            ]
+          },
+          "status": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "executed",
+              "partial"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string"
+            ]
+          },
+          "tool": {
+            "type": [
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "schema_version",
+          "status",
+          "tool",
+          "namespace",
+          "summary",
+          "fields",
+          "refs"
+        ]
+      },
+      "raw_fallback": {
+        "argv": [
+          "switchboard",
+          "google.cli.read",
+          "--ns",
+          "google.default",
+          "--json",
+          "--",
+          "--help"
+        ],
+        "purpose": "native command discovery; select the corresponding method and arguments"
+      },
+      "doc_path": "reference/#tool=google.mail.alias.ensure"
     },
     {
       "name": "google.mail.draft",

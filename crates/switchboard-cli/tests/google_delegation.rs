@@ -39,6 +39,33 @@ impl Fixture {
             .output()
             .expect("test fixture should succeed")
     }
+
+    fn configure_delegation(&self) {
+        fs::write(
+            &self.config,
+            format!(
+                r#"[auth.delegated]
+provider = "google"
+kind = "google_delegated"
+account = "person@example.com"
+[auth.delegated.delegation]
+project = "example-project"
+service_account = "settings@example-project.iam.gserviceaccount.com"
+domain = "example.com"
+subject = "person@example.com"
+signer_account = "person@example.com"
+signer_state_dir = "{}"
+[namespace.google.work]
+provider = "google"
+account = "Work"
+auth = "delegated"
+state_dir = "login"
+"#,
+                self.root.join("login").display()
+            ),
+        )
+        .expect("fixture config should be writable");
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -96,6 +123,77 @@ fn privileged_gmail_setting_explains_supported_auth_instead_of_planning_oauth() 
     assert!(error.contains("Workspace administrator authorization"), "{error}");
     assert!(error.contains("auth login --ns google.work --setup"), "{error}");
     assert!(!error.contains("add gmail.settings.sharing"));
+}
+
+#[test]
+fn alias_ensure_rejects_ordinary_oauth_and_cross_domain_addresses_before_execution() {
+    let fixture = Fixture::new("person@example.com");
+    let output = fixture.run(&[
+        "google.mail.alias.ensure",
+        "--ns",
+        "google.work",
+        "--email",
+        "alias@example.com",
+        "--approve-and-apply",
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Workspace administrator authorization"));
+    fixture.configure_delegation();
+    let output = fixture.run(&[
+        "google.mail.alias.ensure",
+        "--ns",
+        "google.work",
+        "--email",
+        "alias@other.example",
+        "--approve-and-apply",
+        "--json",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("configured Workspace subject's domain"));
+}
+
+#[test]
+fn alias_ensure_draft_records_one_operation_without_contacting_google() {
+    #[derive(Deserialize)]
+    struct AliasPlan {
+        status: String,
+        operation_id: String,
+        summary: String,
+    }
+    #[derive(Deserialize)]
+    struct Operations {
+        operations: Vec<SavedOperation>,
+    }
+    #[derive(Deserialize)]
+    struct SavedOperation {
+        id: switchboard_core::OperationId,
+        status: switchboard_core::OperationStatus,
+    }
+    let fixture = Fixture::new("person@example.com");
+    fixture.configure_delegation();
+    let output = fixture.run(&[
+        "google.mail.alias.ensure",
+        "--ns",
+        "google.work",
+        "--email",
+        "alias@example.com",
+        "--draft",
+        "--json",
+    ]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
+    let plan: AliasPlan = serde_json::from_slice(&output.stdout).expect("typed alias plan");
+    assert_eq!(plan.status, "planned");
+    assert!(plan.summary.contains("Workspace receiving alias"));
+    let output = fixture.run(&["op", "list", "--json"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
+    let operations: Operations = serde_json::from_slice(&output.stdout).expect("typed operation list");
+    assert_eq!(operations.operations.len(), 1);
+    assert_eq!(operations.operations[0].id.as_str(), plan.operation_id);
+    assert_eq!(
+        operations.operations[0].status,
+        switchboard_core::OperationStatus::Planned
+    );
 }
 
 #[test]

@@ -1,3 +1,4 @@
+mod alias;
 mod calendar;
 mod context;
 pub mod delegation;
@@ -211,6 +212,9 @@ impl Adapter for GoogleWorkspaceAdapter {
             .ok_or_else(|| Error::UnsupportedTool(request.tool.to_string()))?;
         let request = Self::request_with_google_auth_defaults(target, request)?;
         let request = Self::prepare_verifiable_upload(&request)?;
+        if request.tool.as_str() == "google.mail.alias.ensure" {
+            alias::validate_request(target, &request)?;
+        }
         context::validate_args(request.tool.as_str(), &request.args)?;
         let summary = command.summarize.summarize(&target.namespace, &request)?;
         let action = PlannedAction::new(&request, target, descriptor.kind, summary, descriptor.backend);
@@ -231,6 +235,9 @@ impl Adapter for GoogleWorkspaceAdapter {
     }
 
     fn execute(&self, target: &ExecutionTarget, action: &PlannedAction) -> Result<ToolOutput> {
+        if action.tool.as_str() == "google.mail.alias.ensure" {
+            return self.ensure_mail_alias(target, action);
+        }
         if action.tool.as_str() == "google.mail.search" {
             return self.search(target, action);
         }
