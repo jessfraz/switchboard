@@ -181,6 +181,23 @@ fn output_schema(tool: &RegisteredTool) -> OutputSchema {
                 "failures",
             ],
         )
+    } else if tool.name.as_str() == "google.mail.alias.ensure" {
+        OutputSchema::object(
+            [
+                ("email", OutputSchema::value(&["string"])),
+                ("account", OutputSchema::value(&["string"])),
+                ("sender", OutputSchema::enumeration(&["existing", "created"])),
+                (
+                    "receiving_alias",
+                    OutputSchema::enumeration(&["not_checked", "existing", "created"]),
+                ),
+                (
+                    "verification_status",
+                    OutputSchema::enumeration(&["accepted", "pending"]),
+                ),
+            ],
+            &["email", "account", "sender", "receiving_alias", "verification_status"],
+        )
     } else if tool.surface == ToolSurface::Raw {
         OutputSchema::object(
             [
@@ -381,6 +398,11 @@ pub(crate) fn tool_examples(tool: &RegisteredTool, namespace: Option<&NamespaceI
 }
 
 fn curated_tool_examples(tool: &RegisteredTool, namespace: &str) -> Vec<String> {
+    if tool.name.as_str() == "google.mail.alias.ensure" {
+        return vec![format!(
+            "switchboard google.mail.alias.ensure --ns {namespace} --email alias@example.com --approve-and-apply --json"
+        )];
+    }
     let mut argv = vec![
         "switchboard".into(),
         tool.name.to_string(),
@@ -457,6 +479,7 @@ fn scope_guidance(tool: &RegisteredTool) -> Vec<String> {
     let guidance = match tool.name.as_str() {
         "google.mail.search" | "google.mail.read" | "google.mail.thread" => "Gmail read access: gmail.readonly or gmail.modify.",
         "google.mail.draft" => "Gmail draft access: gmail.compose or gmail.modify.",
+        "google.mail.alias.ensure" => "Requires configured Workspace Gmail settings delegation and Admin Directory user-alias write access in the same namespace. Existing senders are preserved; pending verification is not ready to send.",
         "google.calendar.list" => "Calendar read access: calendar.readonly or calendar.",
         "google.calendar.create" | "google.calendar.delete" => "Calendar event write access: calendar.events or calendar.",
         "google.drive.search" => "Drive metadata read access: drive.metadata.readonly, drive.readonly, or drive.",

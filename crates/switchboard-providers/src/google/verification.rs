@@ -254,6 +254,9 @@ impl GoogleWorkspaceAdapter {
         target: &ExecutionTarget,
         operation: &StoredOperation,
     ) -> Result<VerificationReceipt> {
+        if operation.tool.as_str() == "google.mail.alias.ensure" {
+            return self.verify_mail_alias(target, operation);
+        }
         let refs = operation
             .effect
             .as_ref()

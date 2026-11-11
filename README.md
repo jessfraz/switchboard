@@ -208,10 +208,28 @@ Creating or verifying a send-as alias requires Workspace administrator
 permission. Adding more ordinary OAuth scopes cannot enable it, and consumer
 Google accounts cannot use that API. Normal login never provisions this.
 
-A same-domain address must also exist in Workspace before Gmail accepts it as a
-send-as alias. A catch-all mail route is not enough. Add the receiving alias in
-Admin Directory first; with `gws` 0.22.5, its commands use
-`admin-reports --api-version directory_v1`.
+Set up a same-domain alias in one command after administrator authorization:
+
+```sh
+switchboard google.mail.alias.ensure --ns google.work \
+  --email alias@example.com --approve-and-apply --json
+```
+
+The command preserves an existing Gmail sender. Otherwise it ensures the
+receiving alias in Admin Directory, creates the Gmail sender with its own
+reply-to address, and reads it back. It never changes the default sender.
+Directory calls use the namespace's normal Workspace credentials; Gmail settings
+use its fixed delegated subject. Both must have the required access.
+
+`verification_status: accepted` means the sender is ready. `pending` requires
+email verification and returns an unverified result. A catch-all already handles
+incoming mail, but the API can still require a Directory alias before accepting
+a new sender. An existing accepted sender needs no Directory change.
+
+If setup partly succeeds, inspect and verify the recorded operation before
+running the command again. A new ensure operation discovers the existing state
+and skips completed steps. It does not delete receiving aliases after a later
+failure. Use `--draft` instead of `--approve-and-apply` to review without changes.
 
 When this capability is needed, use the same account and namespace:
 
