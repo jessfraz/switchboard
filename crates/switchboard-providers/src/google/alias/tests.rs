@@ -54,6 +54,7 @@ struct State {
     omit_primary_verification: bool,
     omit_target_verification: bool,
     wrong_receiving_owner: bool,
+    omit_receiving_list_primary: bool,
     directory_read_error: bool,
     gmail_read_error: bool,
     missing_directory_readback: bool,
@@ -419,7 +420,7 @@ fn pending_sender_is_preserved_and_not_claimed_ready() {
 }
 
 #[test]
-fn absent_sender_creates_receiving_alias_then_sender_and_verifies() {
+fn native_directory_response_creates_receiving_alias_then_sender_and_verifies() {
     let _guard = lock_env();
     let fixture = fixture(State::default());
     let adapter = adapter();
@@ -457,7 +458,7 @@ fn absent_sender_creates_receiving_alias_then_sender_and_verifies() {
 }
 
 #[test]
-fn existing_receiving_alias_is_reused_without_duplicate_insertion() {
+fn native_directory_response_reuses_existing_receiving_alias_idempotently() {
     let _guard = lock_env();
     let fixture = fixture(State {
         receiving_alias: true,
@@ -466,10 +467,30 @@ fn existing_receiving_alias_is_reused_without_duplicate_insertion() {
     let adapter = adapter();
     let target = target();
     let action = plan(&adapter, &target, EMAIL, None).expect("alias plan");
-    let output = adapter.execute(&target, &action).expect("existing receiving alias");
-    assert_eq!(fields(&output).receiving_alias, ReceivingOutcome::Existing);
+    let output = adapter.execute(&target, &action).expect("resume receiving alias setup");
+    let result = fields(&output);
+    assert_eq!(result.receiving_alias, ReceivingOutcome::Existing);
+    assert_eq!(result.sender, SenderOutcome::Created);
+    assert_eq!(result.verification_status, SenderVerification::Accepted);
     assert_eq!(writes(&fixture).len(), 1);
     assert!(is_command(&writes(&fixture)[0], GMAIL_CREATE));
+    let sender = read_state(&fixture).sender.expect("created sender");
+    assert!(!sender.is_default, "the primary sender remains the default");
+    assert_eq!(sender.reply_to_address, EMAIL);
+    assert!(sender.treat_as_alias);
+    let retry = plan(&adapter, &target, EMAIL, None).expect("retry plan");
+    let result = fields(&adapter.execute(&target, &retry).expect("existing sender on retry"));
+    assert_eq!(result.sender, SenderOutcome::Existing);
+    assert_eq!(result.receiving_alias, ReceivingOutcome::NotChecked);
+    assert_eq!(result.verification_status, SenderVerification::Accepted);
+    assert_eq!(writes(&fixture).len(), 1, "retry must not recreate either alias");
+    assert!(!read_state(&fixture).sender.expect("preserved sender").is_default);
+    let mut operation = stored(&action);
+    operation.mark_applied(&output).expect("applied operation");
+    assert_eq!(
+        adapter.verify(&target, &operation).expect("readback").status,
+        VerificationStatus::Verified
+    );
 }
 
 #[test]
@@ -509,18 +530,24 @@ fn provider_read_failure_is_never_treated_as_an_absent_alias() {
 }
 
 #[test]
-fn receiving_alias_with_wrong_owner_does_not_create_a_sender() {
+fn receiving_alias_without_matching_owner_does_not_create_a_sender() {
     let _guard = lock_env();
-    let fixture = fixture(State {
-        receiving_alias: true,
-        wrong_receiving_owner: true,
-        ..State::default()
-    });
-    let adapter = adapter();
-    let target = target();
-    let action = plan(&adapter, &target, EMAIL, None).expect("alias plan");
-    assert!(adapter.execute(&target, &action).is_err());
-    assert!(writes(&fixture).is_empty());
+    for (wrong_receiving_owner, omit_receiving_list_primary) in [(true, false), (false, true)] {
+        let fixture = fixture(State {
+            receiving_alias: true,
+            wrong_receiving_owner,
+            omit_receiving_list_primary,
+            ..State::default()
+        });
+        let adapter = adapter();
+        let target = target();
+        let action = plan(&adapter, &target, EMAIL, None).expect("alias plan");
+        let error = adapter
+            .execute(&target, &action)
+            .expect_err("unverified Directory owner");
+        assert!(error.to_string().contains("Directory alias ownership does not match"));
+        assert!(writes(&fixture).is_empty());
+    }
 }
 
 #[test]
@@ -691,12 +718,14 @@ if args[:3] == ['admin-reports', 'users', 'aliases']:
     params = json.loads(value('--params') or '{}')
     if params.get('userKey') != 'person@example.com':
         fail('wrong Directory owner')
-    alias = {'alias': 'alias@example.com',
-             'primaryEmail': 'different@example.com' if state['wrong_receiving_owner'] else 'person@example.com'}
+    alias = {'kind': 'admin#directory#alias', 'etag': '"example-alias-etag"',
+             'id': 'example-user-id', 'alias': 'alias@example.com'}
     method = args[3]
     if method == 'list':
         if state['directory_read_error']:
             fail('Directory read refused')
+        if not state['omit_receiving_list_primary'] or state['wrong_receiving_owner']:
+            alias['primaryEmail'] = 'different@example.com' if state['wrong_receiving_owner'] else 'person@example.com'
         present = state['receiving_alias'] and not state['missing_directory_readback']
         emit({'aliases': [alias] if present else []})
     if method == 'insert':
