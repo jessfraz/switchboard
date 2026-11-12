@@ -88,7 +88,8 @@ struct DirectoryAliases {
 #[serde(rename_all = "camelCase")]
 struct DirectoryAlias {
     alias: String,
-    primary_email: String,
+    // Insert may omit this; list/readback must still establish ownership.
+    primary_email: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -175,11 +176,12 @@ impl Senders {
 
 impl DirectoryAliases {
     fn contains(&self, email: &str, account: &str) -> Result<bool> {
-        if self
-            .aliases
-            .iter()
-            .any(|alias| !alias.primary_email.eq_ignore_ascii_case(account))
-        {
+        if self.aliases.iter().any(|alias| {
+            !alias
+                .primary_email
+                .as_deref()
+                .is_some_and(|owner| owner.eq_ignore_ascii_case(account))
+        }) {
             return Err(Error::Execution(
                 "Directory alias ownership does not match the configured delegated subject".into(),
             ));

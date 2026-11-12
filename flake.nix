@@ -22,10 +22,7 @@
         };
 
         # stand-alone nightly formatter so we get the fancy unstable flags
-        nightlyRustfmt = super.rust-bin.selectLatestNightlyWith (toolchain:
-          toolchain.default.override {
-            extensions = ["rustfmt"]; # just the formatter
-          });
+        nightlyRustfmt = super.rust-bin.selectLatestNightlyWith (toolchain: toolchain.rustfmt);
       })
     ];
 
